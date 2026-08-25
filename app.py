@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+from redmine_api import buscar_chamados_projetos, issue_para_linha
 
 FACEBOOK_COLORS = ["#1877F2", "#42B72A", "#F7B928", "#E41E3F", "#8A3FFC", "#00A6A6", "#65676B"]
 import streamlit as st
@@ -135,6 +137,45 @@ EXPECTED = [
 WAITING_PREFIX = "Aguardando"
 CRITICAL_PRIORITIES = {"Alta", "Urgente", "Prioritário"}
 
+REDMINE_WEB_URL = os.getenv(
+    "REDMINE_URL",
+    "https://chamados.nteia.com"
+).rstrip("/")
+
+
+def preparar_tabela_com_link_redmine(frame: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """
+    Converte a coluna de ID (#) em link clicável para o chamado no Redmine.
+
+    O número continua sendo exibido como identificador do chamado,
+    porém o clique abre diretamente a tela correspondente no Redmine.
+    """
+    tabela = frame.copy()
+    configuracao = {}
+
+    if "#" in tabela.columns:
+        def montar_url(valor):
+            if pd.isna(valor):
+                return None
+
+            texto = str(valor).strip()
+
+            # Evita exibir IDs com ".0" quando o pandas inferiu float.
+            if texto.endswith(".0"):
+                texto = texto[:-2]
+
+            return f"{REDMINE_WEB_URL}/issues/{texto}"
+
+        tabela["#"] = tabela["#"].apply(montar_url)
+
+        configuracao["#"] = st.column_config.LinkColumn(
+            "Chamado",
+            help="Clique no número para abrir o chamado no Redmine",
+            display_text=r"issues/(\d+)$",
+        )
+
+    return tabela, configuracao
+
 
 
 def ajustar_grafico(fig, altura=None):
@@ -162,19 +203,54 @@ def read_redmine_csv(source) -> pd.DataFrame:
     raise ValueError("Não foi possível identificar o encoding/separador do CSV.")
 
 
-def prepare(df: pd.DataFrame) -> pd.DataFrame:
+def prepare(df: pd.DataFrame, origem: str = "csv") -> pd.DataFrame:
+    """
+    Normaliza os dados vindos da API ou do CSV.
+
+    A API do Redmine retorna datas ISO 8601 com timezone, por exemplo:
+    2026-08-25T10:13:32-03:00
+
+    O CSV pode trazer datas no padrão brasileiro.
+
+    Para evitar o erro:
+    "Cannot subtract tz-naive and tz-aware datetime-like objects"
+
+    todas as datas são convertidas para UTC e, em seguida, têm o timezone
+    removido antes dos cálculos do painel.
+    """
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    for col in ["Criado", "Alterado", "Data de início", "Data de fim", "Fechado"]:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors="coerce")
+    colunas_data = ["Criado", "Alterado", "Data de início", "Data de fim", "Fechado"]
+
+    for col in colunas_data:
+        if col not in df.columns:
+            continue
+
+        if origem == "api":
+            # Redmine API: ISO 8601 / YYYY-MM-DD, normalmente com timezone.
+            df[col] = pd.to_datetime(
+                df[col],
+                errors="coerce",
+                utc=True,
+            ).dt.tz_convert(None)
+        else:
+            # Exportação CSV: normalmente utiliza formato brasileiro.
+            df[col] = pd.to_datetime(
+                df[col],
+                errors="coerce",
+                dayfirst=True,
+                utc=True,
+            ).dt.tz_convert(None)
 
     if "Criado" not in df.columns:
-        raise ValueError("O CSV precisa conter a coluna 'Criado'.")
+        raise ValueError("Os dados precisam conter a coluna 'Criado'.")
 
-    today = pd.Timestamp(date.today())
-    df["Tempo em aberto (dias)"] = (today.normalize() - df["Criado"].dt.normalize()).dt.days.clip(lower=0)
+    today = pd.Timestamp(date.today()).normalize()
+
+    df["Tempo em aberto (dias)"] = (
+        today - df["Criado"].dt.normalize()
+    ).dt.days.clip(lower=0)
 
     estado = df.get("Estado", pd.Series("", index=df.index)).fillna("").astype(str)
     df["Responsabilidade atual"] = estado.str.startswith(WAITING_PREFIX).map(
@@ -213,21 +289,50 @@ def multiselect_filter(frame: pd.DataFrame, label: str, col: str):
 
 
 st.title("EDI — Painel de Capacidade e Atendimento")
-st.caption("Visão gerencial dos chamados em aberto, distribuição da carga, tempo em aberto e dependências externas")
+st.caption("Dados do Redmine por API ou CSV · chamados em aberto, distribuição da carga, tempo em aberto e dependências externas")
 
-uploaded = st.sidebar.file_uploader("CSV exportado do Redmine", type=["csv"])
-local_default = Path("issues.csv")
+st.sidebar.markdown("### Fonte dos dados")
+fonte = st.sidebar.radio(
+    "Como deseja carregar os chamados?",
+    ["API do Redmine", "Arquivo CSV"],
+    index=0,
+)
 
-if uploaded is None and not local_default.exists():
-    st.info("Carregue na barra lateral o CSV exportado do Redmine. Para uso local fixo, você também pode salvar o arquivo como `issues.csv` ao lado do `app.py`.")
-    st.stop()
+@st.cache_data(ttl=300, show_spinner=False)
+def carregar_api_abertos() -> pd.DataFrame:
+    chamados = buscar_chamados_projetos(status_id="open")
+    return pd.DataFrame([issue_para_linha(c) for c in chamados])
 
-try:
-    raw_df = read_redmine_csv(uploaded if uploaded is not None else local_default)
-    df = prepare(raw_df)
-except Exception as exc:
-    st.error(f"Erro ao carregar o CSV: {exc}")
-    st.stop()
+if fonte == "API do Redmine":
+    st.sidebar.caption("Atualização automática a partir dos projetos configurados. Cache de 5 minutos.")
+    if st.sidebar.button("Atualizar dados agora", use_container_width=True):
+        carregar_api_abertos.clear()
+
+    try:
+        with st.spinner("Consultando os chamados no Redmine..."):
+            raw_df = carregar_api_abertos()
+        if raw_df.empty:
+            st.warning("A API não retornou chamados em aberto.")
+            st.stop()
+        df = prepare(raw_df, origem="api")
+    except Exception as exc:
+        st.error(f"Não foi possível consultar a API do Redmine: {exc}")
+        st.info("Confira as variáveis REDMINE_API_KEY, REDMINE_AUTHORIZATION, REDMINE_URL e REDMINE_PROJECT_IDS no ambiente.")
+        st.stop()
+else:
+    uploaded = st.sidebar.file_uploader("CSV exportado do Redmine", type=["csv"])
+    local_default = Path("issues.csv")
+
+    if uploaded is None and not local_default.exists():
+        st.info("Carregue na barra lateral o CSV exportado do Redmine. Para uso local fixo, você também pode salvar o arquivo como `issues.csv` ao lado do `app.py`.")
+        st.stop()
+
+    try:
+        raw_df = read_redmine_csv(uploaded if uploaded is not None else local_default)
+        df = prepare(raw_df, origem="csv")
+    except Exception as exc:
+        st.error(f"Erro ao carregar o CSV: {exc}")
+        st.stop()
 
 missing = [c for c in ["#", "Atribuído a", "Estado", "Prioridade", "Tipo", "Criado"] if c not in df.columns]
 if missing:
@@ -364,7 +469,13 @@ with tab_aging:
     old = f.sort_values("Tempo em aberto (dias)", ascending=False).head(30)
     cols_show = [c for c in ["#", "Atribuído a", "Clientes", "Tipo", "Estado", "Prioridade", "Assunto", "Criado", "Tempo em aberto (dias)"] if c in old.columns]
     st.markdown("**30 chamados há mais tempo em aberto**")
-    st.dataframe(old[cols_show], use_container_width=True, hide_index=True)
+    tabela_antigos, config_antigos = preparar_tabela_com_link_redmine(old[cols_show])
+    st.dataframe(
+        tabela_antigos,
+        use_container_width=True,
+        hide_index=True,
+        column_config=config_antigos,
+    )
 
 with tab_demand:
     c1, c2 = st.columns(2)
@@ -404,12 +515,28 @@ with tab_detail:
         detail = detail[mask]
 
     visible = [c for c in ["#", "Atribuído a", "Clientes", "Projeto", "Tipo", "Estado", "Prioridade", "Assunto", "Criado", "Alterado", "Data de fim", "Tempo em aberto (dias)"] if c in detail.columns]
-    st.dataframe(detail[visible].sort_values("Tempo em aberto (dias)", ascending=False), use_container_width=True, hide_index=True)
 
-    csv_out = detail[visible].to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
+    detalhe_ordenado = detail[visible].sort_values(
+        "Tempo em aberto (dias)",
+        ascending=False
+    )
+
+    tabela_detalhe, config_detalhe = preparar_tabela_com_link_redmine(
+        detalhe_ordenado
+    )
+
+    st.dataframe(
+        tabela_detalhe,
+        use_container_width=True,
+        hide_index=True,
+        column_config=config_detalhe,
+    )
+
+    # O CSV continua contendo o ID puro do chamado, sem transformar em URL.
+    csv_out = detalhe_ordenado.to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button("Baixar chamados filtrados (CSV)", data=csv_out, file_name="edi_backlog_filtrado.csv", mime="text/csv")
 
 st.divider()
 st.caption(
-    "Versão 2 — baseada nos chamados atualmente abertos. Com o histórico de chamados fechados poderemos calcular capacidade de entrega, recebidos × resolvidos, saldo do período, tempo de resolução e evolução real dos chamados em aberto."
+    "Versão 3.1 — integração com a API do Redmine e acesso direto aos chamados pelo ID. O CSV permanece disponível como contingência. A próxima etapa é incorporar o histórico de concluídos para calcular capacidade de entrega e evolução do estoque."
 )
