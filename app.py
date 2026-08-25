@@ -37,9 +37,28 @@ st.markdown(
         color: var(--fb-text);
       }
 
+      /* Remove a faixa/cabeçalho padrão do Streamlit no ambiente publicado */
+      [data-testid="stHeader"] {
+        display: none !important;
+        height: 0 !important;
+      }
+
+      [data-testid="stToolbar"] {
+        display: none !important;
+      }
+
+      [data-testid="stDecoration"] {
+        display: none !important;
+      }
+
+      /* Evita espaço residual reservado pelo cabeçalho */
+      [data-testid="stAppViewContainer"] > .main {
+        padding-top: 0 !important;
+      }
+
       .block-container {
         max-width: 1500px;
-        padding-top: 0.75rem;
+        padding-top: 0.45rem;
         padding-bottom: 1.5rem;
         padding-left: 1.5rem;
         padding-right: 1.5rem;
@@ -285,7 +304,7 @@ def multiselect_filter(frame: pd.DataFrame, label: str, col: str):
     if col not in frame.columns:
         return []
     values = sorted([x for x in frame[col].dropna().astype(str).unique() if x.strip()])
-    return st.sidebar.multiselect(label, values)
+    return st.sidebar.multiselect(label, values, placeholder="Selecione")
 
 
 st.title("EDI — Painel de Capacidade e Atendimento")
