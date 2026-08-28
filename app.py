@@ -37,21 +37,37 @@ st.markdown(
         color: var(--fb-text);
       }
 
-      /* Remove a faixa/cabeçalho padrão do Streamlit no ambiente publicado */
+      /*
+        Mantém o cabeçalho funcional para preservar o botão que reabre
+        a barra lateral, mas remove a aparência de faixa superior.
+      */
       [data-testid="stHeader"] {
-        display: none !important;
-        height: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
       }
 
+      /* Oculta apenas os controles extras do Streamlit, sem remover o cabeçalho */
       [data-testid="stToolbar"] {
-        display: none !important;
+        visibility: hidden !important;
       }
 
       [data-testid="stDecoration"] {
         display: none !important;
       }
 
-      /* Evita espaço residual reservado pelo cabeçalho */
+      /*
+        Garante que o controle de reabrir a barra lateral permaneça visível
+        mesmo quando a sidebar estiver recolhida.
+      */
+      [data-testid="stSidebarCollapsedControl"],
+      [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 1000000 !important;
+      }
+
+      /* Mantém o conteúdo próximo ao topo sem bloquear o botão da sidebar */
       [data-testid="stAppViewContainer"] > .main {
         padding-top: 0 !important;
       }
