@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-from redmine_api import buscar_chamados_projetos, issue_para_linha
+from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine
 
 FACEBOOK_COLORS = ["#1877F2", "#42B72A", "#F7B928", "#E41E3F", "#8A3FFC", "#00A6A6", "#65676B"]
 import streamlit as st
@@ -626,13 +626,25 @@ with filter_col:
         )
 
 @st.cache_data(ttl=300, show_spinner=False)
-def carregar_api_abertos() -> pd.DataFrame:
+def carregar_api_abertos():
     chamados = buscar_chamados_projetos(status_id="open")
-    return pd.DataFrame([issue_para_linha(c) for c in chamados])
+    catalogos = carregar_catalogos_redmine()
+
+    linhas = [
+        issue_para_linha(
+            chamado,
+            mapa_clientes=catalogos.get("clientes", {}),
+            mapa_origens=catalogos.get("origens", {}),
+        )
+        for chamado in chamados
+    ]
+    return pd.DataFrame(linhas), catalogos
 
 # -------------------------------------------------------------------------
 # CARGA DOS DADOS
 # -------------------------------------------------------------------------
+diagnostico_catalogos = None
+
 if fonte == "API do Redmine":
     with filter_col:
         st.caption("Atualização automática. Cache de 5 minutos.")
@@ -642,7 +654,7 @@ if fonte == "API do Redmine":
     try:
         with main_col:
             with st.spinner("Consultando os chamados no Redmine..."):
-                raw_df = carregar_api_abertos()
+                raw_df, diagnostico_catalogos = carregar_api_abertos()
 
         if raw_df.empty:
             with main_col:
@@ -650,6 +662,20 @@ if fonte == "API do Redmine":
             st.stop()
 
         df = prepare(raw_df, origem="api")
+
+        with main_col:
+            if diagnostico_catalogos and diagnostico_catalogos.get("ok"):
+                st.success(
+                    "API Redmine: OK  •  "
+                    f"Catálogo de clientes: {diagnostico_catalogos.get('qtd_clientes', 0)} nomes carregados  •  "
+                    f"Catálogo de origens: {diagnostico_catalogos.get('qtd_origens', 0)} nomes carregados"
+                )
+            else:
+                st.warning(
+                    "Chamados carregados, mas o catálogo de nomes não foi carregado. "
+                    "Clientes/Origem podem aparecer como códigos. "
+                    f"Diagnóstico: {(diagnostico_catalogos or {}).get('erro', 'não informado')}"
+                )
 
     except Exception as exc:
         with main_col:
@@ -1273,5 +1299,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5 — tradução automática dos clientes/origens pelo Redmine, ranking de clientes, filtros para múltiplos clientes e legendas interativas. O CSV permanece disponível como contingência."
+        "Versão 3.5.1 — tradução explícita e diagnosticada de Clientes/Origem pelo catálogo do Redmine, ranking de clientes e gráficos interativos."
     )
