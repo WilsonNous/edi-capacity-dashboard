@@ -383,6 +383,127 @@ def multiselect_filter(frame: pd.DataFrame, label: str, col: str, container):
     return container.multiselect(label, values, placeholder="Selecione")
 
 
+
+def _normalizar_lista_clientes(valor) -> list[str]:
+    """Converte o campo interno de clientes para uma lista limpa."""
+    if isinstance(valor, (list, tuple, set)):
+        return [str(x).strip() for x in valor if str(x).strip()]
+
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return []
+
+    texto = str(valor).strip()
+    if not texto:
+        return []
+
+    # API V3.5 utiliza " / " para múltiplos clientes.
+    return [x.strip() for x in texto.split(" / ") if x.strip()]
+
+
+def lista_clientes_linha(row: pd.Series) -> list[str]:
+    if "_Clientes_lista" in row.index:
+        lista = _normalizar_lista_clientes(row.get("_Clientes_lista"))
+        if lista:
+            return lista
+    return _normalizar_lista_clientes(row.get("Clientes"))
+
+
+def todos_clientes(frame: pd.DataFrame) -> list[str]:
+    valores: set[str] = set()
+    for _, row in frame.iterrows():
+        valores.update(lista_clientes_linha(row))
+    return sorted(valores)
+
+
+def filtrar_por_clientes(frame: pd.DataFrame, selecionados: list[str]) -> pd.DataFrame:
+    if not selecionados:
+        return frame
+
+    alvo = set(map(str, selecionados))
+    mascara = frame.apply(
+        lambda row: bool(alvo.intersection(lista_clientes_linha(row))),
+        axis=1,
+    )
+    return frame[mascara]
+
+
+def mascara_cliente(frame: pd.DataFrame, cliente: str) -> pd.Series:
+    cliente = str(cliente)
+    return frame.apply(
+        lambda row: cliente in lista_clientes_linha(row),
+        axis=1,
+    )
+
+
+def ranking_clientes(frame: pd.DataFrame) -> pd.DataFrame:
+    """
+    Conta cada cliente individualmente.
+
+    Como o campo Clientes do Redmine aceita múltiplos valores, um chamado
+    associado a dois clientes contribui uma vez para cada cliente.
+    """
+    valores: list[str] = []
+    for _, row in frame.iterrows():
+        clientes = lista_clientes_linha(row)
+        valores.extend(clientes or ["Sem cliente"])
+
+    if not valores:
+        return pd.DataFrame(columns=["Cliente", "Chamados"])
+
+    ranking = (
+        pd.Series(valores, dtype="object")
+        .value_counts()
+        .rename_axis("Cliente")
+        .reset_index(name="Chamados")
+    )
+    return ranking.sort_values(["Chamados", "Cliente"], ascending=[False, True])
+
+
+def legenda_interativa(
+    frame: pd.DataFrame,
+    coluna: str,
+    titulo: str,
+    chave_estado: str,
+    key_prefix: str,
+    valores: list[str] | None = None,
+    max_por_linha: int = 4,
+):
+    """
+    Renderiza uma legenda clicável com botões.
+
+    O Plotly usa o clique da legenda nativa para mostrar/ocultar séries.
+    Estes botões funcionam como uma legenda de navegação: ao clicar,
+    o painel abre os chamados daquela categoria.
+    """
+    if coluna not in frame.columns:
+        return
+
+    serie = frame[coluna].fillna("Sem informação").astype(str)
+    contagens = serie.value_counts()
+
+    categorias = valores or contagens.index.tolist()
+    categorias = [str(v) for v in categorias if str(v) in contagens.index]
+
+    if not categorias:
+        return
+
+    st.caption(titulo)
+
+    for inicio in range(0, len(categorias), max_por_linha):
+        grupo = categorias[inicio:inicio + max_por_linha]
+        colunas = st.columns(len(grupo))
+
+        for coluna_ui, valor in zip(colunas, grupo):
+            quantidade = int(contagens.get(valor, 0))
+            with coluna_ui:
+                if st.button(
+                    f"{valor} · {quantidade}",
+                    key=f"{key_prefix}_{inicio}_{valor}",
+                    width="stretch",
+                ):
+                    st.session_state[chave_estado] = valor
+
+
 def registrar_selecao_status():
     """
     Captura a seleção do gráfico de status no momento do evento e salva
@@ -585,7 +706,11 @@ with filter_col:
         priorities = multiselect_filter(df, "Prioridade", "Prioridade", st)
         types = multiselect_filter(df, "Tipo", "Tipo", st)
         projects = multiselect_filter(df, "Projeto", "Projeto", st)
-        clients = multiselect_filter(df, "Cliente", "Clientes", st)
+        clients = st.multiselect(
+            "Cliente",
+            todos_clientes(df),
+            placeholder="Selecione",
+        )
 
 f = df.copy()
 
@@ -595,10 +720,13 @@ for col, vals in [
     ("Prioridade", priorities),
     ("Tipo", types),
     ("Projeto", projects),
-    ("Clientes", clients),
 ]:
     if vals and col in f.columns:
         f = f[f[col].astype(str).isin(vals)]
+
+# O campo Clientes pode conter mais de um valor por chamado.
+# O filtro considera cada cliente individualmente.
+f = filtrar_por_clientes(f, clients)
 
 with filter_col:
     with st.container(border=True):
@@ -683,6 +811,22 @@ with main_col:
                 mostrar_chamados_selecionados(
                     f, "Chamados do responsável", "sel_responsavel",
                     "Atribuído a", key_prefix="responsavel"
+                )
+                legenda_interativa(
+                    f,
+                    "Responsabilidade atual",
+                    "Legenda interativa — clique para abrir os chamados:",
+                    "sel_responsabilidade_legenda",
+                    "legenda_responsabilidade",
+                    valores=["Em atuação do EDI", "Aguardando terceiros"],
+                    max_por_linha=2,
+                )
+                mostrar_chamados_selecionados(
+                    f,
+                    "Chamados",
+                    "sel_responsabilidade_legenda",
+                    "Responsabilidade atual",
+                    key_prefix="responsabilidade_legenda",
                 )
         with c2:
             st.markdown("<div class='section-title'>Chamados por situação</div>", unsafe_allow_html=True)
@@ -870,6 +1014,22 @@ with main_col:
                     ),
                     selection_mode="points",
                 )
+                legenda_interativa(
+                    f[f["Tipo"].isin(top_types)],
+                    "Tipo",
+                    "Legenda interativa — clique no tipo para abrir os chamados:",
+                    "sel_tipo_legenda_equipe",
+                    "legenda_tipo_equipe",
+                    valores=[str(x) for x in top_types],
+                    max_por_linha=3,
+                )
+                mostrar_chamados_selecionados(
+                    f,
+                    "Chamados do tipo",
+                    "sel_tipo_legenda_equipe",
+                    "Tipo",
+                    key_prefix="tipo_legenda_equipe",
+                )
                 resp_sel = st.session_state.get("sel_equipe_resp")
                 if resp_sel:
                     mostrar_chamados_selecionados(
@@ -980,27 +1140,104 @@ with main_col:
                     f, "Chamados com prioridade", "sel_prioridade",
                     "Prioridade", key_prefix="prioridade"
                 )
+                legenda_interativa(
+                    f,
+                    "Prioridade",
+                    "Legenda interativa — clique na prioridade para abrir os chamados:",
+                    "sel_prioridade_legenda",
+                    "legenda_prioridade",
+                    valores=p["Prioridade"].astype(str).tolist(),
+                    max_por_linha=3,
+                )
+                mostrar_chamados_selecionados(
+                    f,
+                    "Chamados com prioridade",
+                    "sel_prioridade_legenda",
+                    "Prioridade",
+                    key_prefix="prioridade_legenda",
+                )
 
         if "Clientes" in f.columns:
-            top = f["Clientes"].fillna("Sem cliente").value_counts().head(15).reset_index()
-            top.columns = ["Cliente", "Chamados"]
-            fig = px.bar(top.sort_values("Chamados"), x="Chamados", y="Cliente", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
-            fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=500)
-            ajustar_grafico(fig)
-            st.caption("Clique em uma barra para abrir os chamados daquele cliente.")
-            st.plotly_chart(
-                fig,
-                width="stretch",
-                key="grafico_cliente",
-                on_select=lambda: registrar_selecao_generica(
-                    "grafico_cliente", "sel_cliente", "y"
-                ),
-                selection_mode="points",
+            st.markdown(
+                "<div class='section-title'>Ranking de chamados por cliente</div>",
+                unsafe_allow_html=True,
             )
-            mostrar_chamados_selecionados(
-                f, "Chamados do cliente", "sel_cliente",
-                "Clientes", key_prefix="cliente"
-            )
+
+            ranking = ranking_clientes(f)
+
+            if len(ranking):
+                # Mantemos o gráfico legível. A tabela abaixo preserva o ranking
+                # completo para consulta.
+                top = ranking.head(20).copy()
+
+                # Ascendente no dataframe para que o maior apareça no topo
+                # do gráfico horizontal do Plotly.
+                grafico_clientes = top.sort_values(
+                    ["Chamados", "Cliente"],
+                    ascending=[True, False],
+                )
+
+                fig = px.bar(
+                    grafico_clientes,
+                    x="Chamados",
+                    y="Cliente",
+                    orientation="h",
+                    text="Chamados",
+                    color_discrete_sequence=FACEBOOK_COLORS,
+                )
+                fig.update_traces(
+                    texttemplate="%{text} chamados",
+                    textposition="outside",
+                    cliponaxis=False,
+                )
+                fig.update_layout(
+                    xaxis_title="Chamados",
+                    yaxis_title="",
+                    height=max(520, 32 * len(grafico_clientes)),
+                    margin=dict(l=20, r=90, t=35, b=20),
+                )
+                ajustar_grafico(fig)
+
+                st.caption(
+                    "Ranking dos 20 clientes com mais chamados no filtro atual. "
+                    "Clique em uma barra para abrir os chamados daquele cliente."
+                )
+
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_cliente",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_cliente", "sel_cliente", "y"
+                    ),
+                    selection_mode="points",
+                )
+
+                cliente_sel = st.session_state.get("sel_cliente")
+                if cliente_sel:
+                    mostrar_chamados_selecionados(
+                        f,
+                        "Chamados do cliente",
+                        "sel_cliente",
+                        "Clientes",
+                        mascara=lambda frame, valor: mascara_cliente(frame, valor),
+                        key_prefix="cliente",
+                    )
+
+                with st.expander("Ver ranking completo de clientes", expanded=False):
+                    ranking_exibicao = ranking.copy()
+                    ranking_exibicao.insert(
+                        0,
+                        "Posição",
+                        range(1, len(ranking_exibicao) + 1),
+                    )
+                    st.dataframe(
+                        ranking_exibicao,
+                        width="stretch",
+                        hide_index=True,
+                    )
+            else:
+                st.info("Não há clientes disponíveis no filtro atual.")
 
     with tab_detail:
         q = st.text_input("Pesquisar por número, cliente ou assunto")
@@ -1036,5 +1273,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.4 — gráficos interativos com detalhamento dos chamados por situação, responsável, mês de origem, tempo em aberto, tipo, prioridade e cliente. O CSV permanece disponível como contingência."
+        "Versão 3.5 — tradução automática dos clientes/origens pelo Redmine, ranking de clientes, filtros para múltiplos clientes e legendas interativas. O CSV permanece disponível como contingência."
     )
