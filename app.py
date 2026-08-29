@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine
+import requests
+from redmine_api import buscar_chamados_projetos, issue_para_linha
 
 FACEBOOK_COLORS = ["#1877F2", "#42B72A", "#F7B928", "#E41E3F", "#8A3FFC", "#00A6A6", "#65676B"]
 import streamlit as st
@@ -626,19 +627,102 @@ with filter_col:
         )
 
 @st.cache_data(ttl=300, show_spinner=False)
+def carregar_catalogos_redmine_app():
+    """
+    Consulta /custom_fields.json diretamente pelo app.
+
+    Esta versão evita dependência de uma função nova no redmine_api.py,
+    permitindo deploy somente do app.py e mantendo compatibilidade com
+    a versão atual do módulo já publicada no Azure.
+    """
+    url_base = os.getenv("REDMINE_URL", "https://chamados.nteia.com").rstrip("/")
+    api_key = os.getenv("REDMINE_API_KEY", "")
+    authorization = os.getenv("REDMINE_AUTHORIZATION", "")
+
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["X-Redmine-API-Key"] = api_key
+    if authorization:
+        headers["Authorization"] = authorization
+
+    try:
+        resp = requests.get(
+            f"{url_base}/custom_fields.json",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        campos = resp.json().get("custom_fields", [])
+
+        def montar_mapa(field_id: int) -> dict[str, str]:
+            for campo in campos:
+                if int(campo.get("id", -1)) == field_id:
+                    mapa = {}
+                    for item in campo.get("possible_values", []) or []:
+                        valor = item.get("value")
+                        label = item.get("label")
+                        if valor in (None, ""):
+                            continue
+                        chave = str(valor).strip()
+                        nome = str(label).strip() if label not in (None, "") else chave
+                        mapa[chave] = nome
+                    return mapa
+            return {}
+
+        clientes = montar_mapa(1)
+        origens = montar_mapa(5)
+
+        return {
+            "ok": bool(clientes),
+            "clientes": clientes,
+            "origens": origens,
+            "qtd_clientes": len(clientes),
+            "qtd_origens": len(origens),
+            "erro": None if clientes else "Campo Clientes (ID 1) sem valores.",
+        }
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "clientes": {},
+            "origens": {},
+            "qtd_clientes": 0,
+            "qtd_origens": 0,
+            "erro": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def traduzir_enumeracao(valor, mapa: dict[str, str]):
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return valor
+
+    texto = str(valor).strip()
+    if not texto:
+        return valor
+
+    # O redmine_api atual pode devolver múltiplos IDs unidos por vírgula.
+    partes = [p.strip() for p in texto.split(",") if p.strip()]
+    return " / ".join(mapa.get(p, p) for p in partes)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def carregar_api_abertos():
     chamados = buscar_chamados_projetos(status_id="open")
-    catalogos = carregar_catalogos_redmine()
+    raw_df = pd.DataFrame([issue_para_linha(c) for c in chamados])
 
-    linhas = [
-        issue_para_linha(
-            chamado,
-            mapa_clientes=catalogos.get("clientes", {}),
-            mapa_origens=catalogos.get("origens", {}),
-        )
-        for chamado in chamados
-    ]
-    return pd.DataFrame(linhas), catalogos
+    catalogos = carregar_catalogos_redmine_app()
+
+    if catalogos.get("ok"):
+        if "Clientes" in raw_df.columns:
+            raw_df["Clientes"] = raw_df["Clientes"].apply(
+                lambda valor: traduzir_enumeracao(valor, catalogos["clientes"])
+            )
+        if "Origem" in raw_df.columns:
+            raw_df["Origem"] = raw_df["Origem"].apply(
+                lambda valor: traduzir_enumeracao(valor, catalogos["origens"])
+            )
+
+    return raw_df, catalogos
 
 # -------------------------------------------------------------------------
 # CARGA DOS DADOS
@@ -1299,5 +1383,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.1 — tradução explícita e diagnosticada de Clientes/Origem pelo catálogo do Redmine, ranking de clientes e gráficos interativos."
+        "Versão 3.5.2 — tradução de Clientes/Origem feita diretamente no app, compatível com o redmine_api já publicado."
     )
