@@ -580,6 +580,7 @@ with main_col:
     )
 
     with tab_exec:
+        evento_status = None
         c1, c2 = st.columns([1.15, 1])
         with c1:
             st.markdown("<div class='section-title'>Distribuição dos chamados por responsável</div>", unsafe_allow_html=True)
@@ -595,10 +596,97 @@ with main_col:
             if "Estado" in f.columns and len(f):
                 s = f["Estado"].fillna("Sem status").value_counts().reset_index()
                 s.columns = ["Estado", "Chamados"]
-                fig = px.bar(s.sort_values("Chamados"), x="Chamados", y="Estado", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
-                fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=430)
+
+                fig = px.bar(
+                    s.sort_values("Chamados"),
+                    x="Chamados",
+                    y="Estado",
+                    orientation="h",
+                    text_auto=True,
+                    color_discrete_sequence=FACEBOOK_COLORS,
+                )
+                fig.update_layout(
+                    xaxis_title="Chamados",
+                    yaxis_title="",
+                    height=430,
+                    clickmode="event+select",
+                )
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+
+                evento_status = st.plotly_chart(
+                    fig,
+                    use_container_width=True,
+                    key="grafico_chamados_por_situacao",
+                    on_select="rerun",
+                    selection_mode="points",
+                )
+
+        # -----------------------------------------------------------------
+        # DETALHAMENTO INTERATIVO DO GRÁFICO "CHAMADOS POR SITUAÇÃO"
+        # -----------------------------------------------------------------
+        estado_selecionado = None
+
+        try:
+            if evento_status and evento_status.selection.points:
+                ponto = evento_status.selection.points[0]
+                estado_selecionado = ponto.get("y")
+        except (AttributeError, IndexError, TypeError):
+            estado_selecionado = None
+
+        if estado_selecionado:
+            if estado_selecionado == "Sem status":
+                chamados_status = f[
+                    f["Estado"].isna() | (f["Estado"].astype(str).str.strip() == "")
+                ].copy()
+            else:
+                chamados_status = f[
+                    f["Estado"].fillna("Sem status").astype(str) == str(estado_selecionado)
+                ].copy()
+
+            st.markdown(
+                f"<div class='section-title'>Chamados da situação: {estado_selecionado}</div>",
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"{len(chamados_status)} chamado(s) correspondente(s) ao item selecionado no gráfico."
+            )
+
+            colunas_status = [
+                c for c in [
+                    "#",
+                    "Atribuído a",
+                    "Clientes",
+                    "Tipo",
+                    "Estado",
+                    "Prioridade",
+                    "Assunto",
+                    "Criado",
+                    "Tempo em aberto (dias)",
+                ]
+                if c in chamados_status.columns
+            ]
+
+            chamados_status = chamados_status.sort_values(
+                "Tempo em aberto (dias)",
+                ascending=False,
+            )
+
+            tabela_status, config_status = preparar_tabela_com_link_redmine(
+                chamados_status[colunas_status]
+            )
+
+            st.dataframe(
+                tabela_status,
+                use_container_width=True,
+                hide_index=True,
+                column_config=config_status,
+            )
+
+            st.caption(
+                "Clique no número do chamado para abrir diretamente no Redmine. "
+                "Para trocar a seleção, clique em outra barra do gráfico."
+            )
+            st.divider()
 
         st.markdown("<div class='section-title'>Origem dos chamados ainda em aberto</div>", unsafe_allow_html=True)
         monthly = f.dropna(subset=["Criado"]).copy()
@@ -725,5 +813,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.1 — integração com a API do Redmine e acesso direto aos chamados pelo ID. O CSV permanece disponível como contingência. A próxima etapa é incorporar o histórico de concluídos para calcular capacidade de entrega e evolução do estoque."
+        "Versão 3.2 — integração com a API do Redmine, acesso direto aos chamados pelo ID e detalhamento interativo por situação. O CSV permanece disponível como contingência."
     )
