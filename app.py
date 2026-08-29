@@ -383,6 +383,27 @@ def multiselect_filter(frame: pd.DataFrame, label: str, col: str, container):
     return container.multiselect(label, values, placeholder="Selecione")
 
 
+def registrar_selecao_status():
+    """
+    Captura a seleção do gráfico de status no momento do evento e salva
+    a categoria escolhida em um estado próprio da sessão.
+
+    Isso evita perder a seleção durante a reexecução automática do Streamlit.
+    """
+    estado_grafico = st.session_state.get("grafico_chamados_por_situacao", {})
+    selecao = estado_grafico.get("selection", {}) if estado_grafico else {}
+    pontos = selecao.get("points", []) if selecao else []
+
+    if not pontos:
+        return
+
+    ponto = pontos[0]
+    estado = ponto.get("y")
+
+    if estado is not None:
+        st.session_state["estado_status_selecionado"] = str(estado)
+
+
 # -------------------------------------------------------------------------
 # VISÃO PRINCIPAL — estilo Facebook
 # -------------------------------------------------------------------------
@@ -434,7 +455,7 @@ def carregar_api_abertos() -> pd.DataFrame:
 if fonte == "API do Redmine":
     with filter_col:
         st.caption("Atualização automática. Cache de 5 minutos.")
-        if st.button("Atualizar dados agora", use_container_width=True):
+        if st.button("Atualizar dados agora", width="stretch"):
             carregar_api_abertos.clear()
 
     try:
@@ -580,7 +601,6 @@ with main_col:
     )
 
     with tab_exec:
-        evento_status = None
         c1, c2 = st.columns([1.15, 1])
         with c1:
             st.markdown("<div class='section-title'>Distribuição dos chamados por responsável</div>", unsafe_allow_html=True)
@@ -590,7 +610,7 @@ with main_col:
                              text_auto=True, color_discrete_sequence=FACEBOOK_COLORS, labels={"Atribuído a":"Responsável", "Responsabilidade atual":"Situação"})
                 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="Chamados", height=430)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         with c2:
             st.markdown("<div class='section-title'>Chamados por situação</div>", unsafe_allow_html=True)
             if "Estado" in f.columns and len(f):
@@ -613,25 +633,20 @@ with main_col:
                 )
                 ajustar_grafico(fig)
 
-                evento_status = st.plotly_chart(
+                st.caption("Clique em uma barra para abrir os chamados daquela situação.")
+
+                st.plotly_chart(
                     fig,
-                    use_container_width=True,
+                    width="stretch",
                     key="grafico_chamados_por_situacao",
-                    on_select="rerun",
+                    on_select=registrar_selecao_status,
                     selection_mode="points",
                 )
 
         # -----------------------------------------------------------------
         # DETALHAMENTO INTERATIVO DO GRÁFICO "CHAMADOS POR SITUAÇÃO"
         # -----------------------------------------------------------------
-        estado_selecionado = None
-
-        try:
-            if evento_status and evento_status.selection.points:
-                ponto = evento_status.selection.points[0]
-                estado_selecionado = ponto.get("y")
-        except (AttributeError, IndexError, TypeError):
-            estado_selecionado = None
+        estado_selecionado = st.session_state.get("estado_status_selecionado")
 
         if estado_selecionado:
             if estado_selecionado == "Sem status":
@@ -677,15 +692,27 @@ with main_col:
 
             st.dataframe(
                 tabela_status,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config=config_status,
             )
 
-            st.caption(
-                "Clique no número do chamado para abrir diretamente no Redmine. "
-                "Para trocar a seleção, clique em outra barra do gráfico."
-            )
+            acao1, acao2 = st.columns([1, 4])
+            with acao1:
+                if st.button(
+                    "Fechar seleção",
+                    key="fechar_selecao_status",
+                    width="stretch",
+                ):
+                    st.session_state.pop("estado_status_selecionado", None)
+                    st.rerun()
+
+            with acao2:
+                st.caption(
+                    "Clique no número do chamado para abrir diretamente no Redmine. "
+                    "Para trocar a seleção, clique em outra barra do gráfico."
+                )
+
             st.divider()
 
         st.markdown("<div class='section-title'>Origem dos chamados ainda em aberto</div>", unsafe_allow_html=True)
@@ -696,7 +723,7 @@ with main_col:
             fig = px.line(monthly, x="Mês", y="Chamados ainda abertos", markers=True, color_discrete_sequence=FACEBOOK_COLORS)
             fig.update_layout(xaxis_title="", yaxis_title="Chamados ainda abertos", height=360)
             ajustar_grafico(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             st.caption("Este gráfico mostra em que meses foram criados os chamados que continuam abertos. Ele não representa todo o volume recebido em cada mês; essa visão será incluída quando adicionarmos os chamados fechados.")
 
     with tab_team:
@@ -714,7 +741,7 @@ with main_col:
                 }
             ).reset_index().sort_values("Total", ascending=False)
             summary["Tempo médio em aberto"] = summary["Tempo médio em aberto"].round(1)
-            st.dataframe(summary, use_container_width=True, hide_index=True)
+            st.dataframe(summary, width="stretch", hide_index=True)
 
             c1, c2 = st.columns(2)
             with c1:
@@ -724,13 +751,13 @@ with main_col:
                 fig = px.bar(mix, x="Atribuído a", y="Chamados", color="Tipo", barmode="stack", color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="", yaxis_title="Chamados", legend_title_text="Tipo de chamado", height=450)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             with c2:
                 ag = f.groupby("Atribuído a")["Tempo em aberto (dias)"].median().sort_values(ascending=False).reset_index()
                 fig = px.bar(ag, x="Atribuído a", y="Tempo em aberto (dias)", text_auto=".0f", color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="", yaxis_title="Tempo mediano em aberto (dias)", height=450)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
     with tab_aging:
         order = ["0–7 dias", "8–15 dias", "16–30 dias", "31–60 dias", "61–90 dias", "91–180 dias", "181–365 dias", "+365 dias", "Sem data"]
@@ -739,7 +766,7 @@ with main_col:
         fig = px.bar(age, x="Faixa", y="Chamados", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
         fig.update_layout(xaxis_title="", yaxis_title="Chamados", height=400)
         ajustar_grafico(fig)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         old = f.sort_values("Tempo em aberto (dias)", ascending=False).head(30)
         cols_show = [c for c in ["#", "Atribuído a", "Clientes", "Tipo", "Estado", "Prioridade", "Assunto", "Criado", "Tempo em aberto (dias)"] if c in old.columns]
@@ -747,7 +774,7 @@ with main_col:
         tabela_antigos, config_antigos = preparar_tabela_com_link_redmine(old[cols_show])
         st.dataframe(
             tabela_antigos,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config=config_antigos,
         )
@@ -761,7 +788,7 @@ with main_col:
                 fig = px.bar(t.sort_values("Chamados"), x="Chamados", y="Tipo", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=470)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         with c2:
             if "Prioridade" in f.columns:
                 p = f["Prioridade"].value_counts().reset_index()
@@ -769,7 +796,7 @@ with main_col:
                 fig = px.pie(p, names="Prioridade", values="Chamados", hole=.45, color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(height=470, legend_title_text="")
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
         if "Clientes" in f.columns:
             top = f["Clientes"].fillna("Sem cliente").value_counts().head(15).reset_index()
@@ -777,7 +804,7 @@ with main_col:
             fig = px.bar(top.sort_values("Chamados"), x="Chamados", y="Cliente", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
             fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=500)
             ajustar_grafico(fig)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     with tab_detail:
         q = st.text_input("Pesquisar por número, cliente ou assunto")
@@ -802,7 +829,7 @@ with main_col:
 
         st.dataframe(
             tabela_detalhe,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config=config_detalhe,
         )
@@ -813,5 +840,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.2 — integração com a API do Redmine, acesso direto aos chamados pelo ID e detalhamento interativo por situação. O CSV permanece disponível como contingência."
+        "Versão 3.3 — seleção persistente nos gráficos, detalhamento por situação e compatibilidade com a API atual de largura do Streamlit. O CSV permanece disponível como contingência."
     )
