@@ -404,6 +404,66 @@ def registrar_selecao_status():
         st.session_state["estado_status_selecionado"] = str(estado)
 
 
+def registrar_selecao_generica(chave_grafico: str, chave_estado: str, campo: str):
+    estado_grafico = st.session_state.get(chave_grafico, {})
+    selecao = estado_grafico.get("selection", {}) if estado_grafico else {}
+    pontos = selecao.get("points", []) if selecao else []
+    if pontos:
+        valor = pontos[0].get(campo)
+        if valor is not None:
+            st.session_state[chave_estado] = str(valor)
+
+
+def mostrar_chamados_selecionados(
+    frame: pd.DataFrame,
+    titulo: str,
+    chave_estado: str,
+    coluna_filtro: str,
+    valor: str | None = None,
+    mascara=None,
+    key_prefix: str = "detalhe",
+):
+    selecionado = valor if valor is not None else st.session_state.get(chave_estado)
+    if not selecionado:
+        return
+
+    if mascara is not None:
+        detalhe = frame[mascara(frame, selecionado)].copy()
+    elif coluna_filtro in frame.columns:
+        detalhe = frame[
+            frame[coluna_filtro].fillna("Sem informação").astype(str) == str(selecionado)
+        ].copy()
+    else:
+        return
+
+    st.markdown(
+        f"<div class='section-title'>{titulo}: {selecionado}</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption(f"{len(detalhe)} chamado(s) correspondente(s) ao item selecionado.")
+
+    colunas = [
+        c for c in [
+            "#", "Atribuído a", "Clientes", "Projeto", "Tipo", "Estado",
+            "Prioridade", "Assunto", "Criado", "Tempo em aberto (dias)"
+        ] if c in detalhe.columns
+    ]
+
+    if "Tempo em aberto (dias)" in detalhe.columns:
+        detalhe = detalhe.sort_values("Tempo em aberto (dias)", ascending=False)
+
+    tabela, config = preparar_tabela_com_link_redmine(detalhe[colunas])
+    st.dataframe(tabela, width="stretch", hide_index=True, column_config=config)
+
+    a1, a2 = st.columns([1, 4])
+    with a1:
+        if st.button("Fechar seleção", key=f"fechar_{key_prefix}", width="stretch"):
+            st.session_state.pop(chave_estado, None)
+            st.rerun()
+    with a2:
+        st.caption("Clique no número do chamado para abrir diretamente no Redmine.")
+
+
 # -------------------------------------------------------------------------
 # VISÃO PRINCIPAL — estilo Facebook
 # -------------------------------------------------------------------------
@@ -610,7 +670,20 @@ with main_col:
                              text_auto=True, color_discrete_sequence=FACEBOOK_COLORS, labels={"Atribuído a":"Responsável", "Responsabilidade atual":"Situação"})
                 fig.update_layout(legend_title_text="", xaxis_title="", yaxis_title="Chamados", height=430)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.caption("Clique em uma barra para abrir os chamados do responsável.")
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_responsavel",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_responsavel", "sel_responsavel", "x"
+                    ),
+                    selection_mode="points",
+                )
+                mostrar_chamados_selecionados(
+                    f, "Chamados do responsável", "sel_responsavel",
+                    "Atribuído a", key_prefix="responsavel"
+                )
         with c2:
             st.markdown("<div class='section-title'>Chamados por situação</div>", unsafe_allow_html=True)
             if "Estado" in f.columns and len(f):
@@ -723,7 +796,43 @@ with main_col:
             fig = px.line(monthly, x="Mês", y="Chamados ainda abertos", markers=True, color_discrete_sequence=FACEBOOK_COLORS)
             fig.update_layout(xaxis_title="", yaxis_title="Chamados ainda abertos", height=360)
             ajustar_grafico(fig)
-            st.plotly_chart(fig, width="stretch")
+            st.caption("Clique em um ponto para abrir os chamados ainda abertos criados naquele mês.")
+            st.plotly_chart(
+                fig,
+                width="stretch",
+                key="grafico_mes_origem",
+                on_select=lambda: registrar_selecao_generica(
+                    "grafico_mes_origem", "sel_mes_origem", "x"
+                ),
+                selection_mode="points",
+            )
+
+            mes_sel = st.session_state.get("sel_mes_origem")
+            if mes_sel:
+                try:
+                    mes_ts = pd.to_datetime(mes_sel)
+                    mascara_mes = (
+                        (f["Criado"].dt.year == mes_ts.year) &
+                        (f["Criado"].dt.month == mes_ts.month)
+                    )
+                    detalhe_mes = f[mascara_mes].copy()
+                    rotulo_mes = mes_ts.strftime("%m/%Y")
+                    st.markdown(
+                        f"<div class='section-title'>Chamados criados em {rotulo_mes}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(f"{len(detalhe_mes)} chamado(s) ainda aberto(s) criado(s) no mês selecionado.")
+                    cols_mes = [c for c in ["#", "Atribuído a", "Clientes", "Tipo", "Estado", "Prioridade", "Assunto", "Criado", "Tempo em aberto (dias)"] if c in detalhe_mes.columns]
+                    tabela_mes, config_mes = preparar_tabela_com_link_redmine(
+                        detalhe_mes.sort_values("Tempo em aberto (dias)", ascending=False)[cols_mes]
+                    )
+                    st.dataframe(tabela_mes, width="stretch", hide_index=True, column_config=config_mes)
+                    if st.button("Fechar seleção", key="fechar_mes_origem"):
+                        st.session_state.pop("sel_mes_origem", None)
+                        st.rerun()
+                except Exception:
+                    pass
+
             st.caption("Este gráfico mostra em que meses foram criados os chamados que continuam abertos. Ele não representa todo o volume recebido em cada mês; essa visão será incluída quando adicionarmos os chamados fechados.")
 
     with tab_team:
@@ -751,13 +860,41 @@ with main_col:
                 fig = px.bar(mix, x="Atribuído a", y="Chamados", color="Tipo", barmode="stack", color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="", yaxis_title="Chamados", legend_title_text="Tipo de chamado", height=450)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.caption("Clique em um segmento para abrir os chamados daquele responsável e tipo.")
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_equipe_tipo",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_equipe_tipo", "sel_equipe_resp", "x"
+                    ),
+                    selection_mode="points",
+                )
+                resp_sel = st.session_state.get("sel_equipe_resp")
+                if resp_sel:
+                    mostrar_chamados_selecionados(
+                        f, "Chamados do responsável", "sel_equipe_resp",
+                        "Atribuído a", key_prefix="equipe_resp"
+                    )
             with c2:
                 ag = f.groupby("Atribuído a")["Tempo em aberto (dias)"].median().sort_values(ascending=False).reset_index()
                 fig = px.bar(ag, x="Atribuído a", y="Tempo em aberto (dias)", text_auto=".0f", color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="", yaxis_title="Tempo mediano em aberto (dias)", height=450)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.caption("Clique em uma barra para abrir os chamados do responsável.")
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_tempo_mediano_responsavel",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_tempo_mediano_responsavel", "sel_mediana_resp", "x"
+                    ),
+                    selection_mode="points",
+                )
+                mostrar_chamados_selecionados(
+                    f, "Chamados do responsável", "sel_mediana_resp",
+                    "Atribuído a", key_prefix="mediana_resp"
+                )
 
     with tab_aging:
         order = ["0–7 dias", "8–15 dias", "16–30 dias", "31–60 dias", "61–90 dias", "91–180 dias", "181–365 dias", "+365 dias", "Sem data"]
@@ -766,7 +903,20 @@ with main_col:
         fig = px.bar(age, x="Faixa", y="Chamados", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
         fig.update_layout(xaxis_title="", yaxis_title="Chamados", height=400)
         ajustar_grafico(fig)
-        st.plotly_chart(fig, width="stretch")
+        st.caption("Clique em uma faixa para abrir os chamados correspondentes.")
+        st.plotly_chart(
+            fig,
+            width="stretch",
+            key="grafico_faixa_tempo",
+            on_select=lambda: registrar_selecao_generica(
+                "grafico_faixa_tempo", "sel_faixa_tempo", "x"
+            ),
+            selection_mode="points",
+        )
+        mostrar_chamados_selecionados(
+            f, "Chamados na faixa", "sel_faixa_tempo",
+            "Faixa de tempo em aberto", key_prefix="faixa_tempo"
+        )
 
         old = f.sort_values("Tempo em aberto (dias)", ascending=False).head(30)
         cols_show = [c for c in ["#", "Atribuído a", "Clientes", "Tipo", "Estado", "Prioridade", "Assunto", "Criado", "Tempo em aberto (dias)"] if c in old.columns]
@@ -788,15 +938,48 @@ with main_col:
                 fig = px.bar(t.sort_values("Chamados"), x="Chamados", y="Tipo", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
                 fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=470)
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.caption("Clique em uma barra para abrir os chamados daquele tipo.")
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_tipo_demanda",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_tipo_demanda", "sel_tipo_demanda", "y"
+                    ),
+                    selection_mode="points",
+                )
+                mostrar_chamados_selecionados(
+                    f, "Chamados do tipo", "sel_tipo_demanda",
+                    "Tipo", key_prefix="tipo_demanda"
+                )
         with c2:
             if "Prioridade" in f.columns:
                 p = f["Prioridade"].value_counts().reset_index()
                 p.columns = ["Prioridade", "Chamados"]
-                fig = px.pie(p, names="Prioridade", values="Chamados", hole=.45, color_discrete_sequence=FACEBOOK_COLORS)
+                fig = px.pie(
+                    p,
+                    names="Prioridade",
+                    values="Chamados",
+                    hole=.45,
+                    color_discrete_sequence=FACEBOOK_COLORS,
+                    custom_data=["Prioridade"],
+                )
                 fig.update_layout(height=470, legend_title_text="")
                 ajustar_grafico(fig)
-                st.plotly_chart(fig, width="stretch")
+                st.caption("Clique em uma fatia para abrir os chamados daquela prioridade.")
+                st.plotly_chart(
+                    fig,
+                    width="stretch",
+                    key="grafico_prioridade",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_prioridade", "sel_prioridade", "label"
+                    ),
+                    selection_mode="points",
+                )
+                mostrar_chamados_selecionados(
+                    f, "Chamados com prioridade", "sel_prioridade",
+                    "Prioridade", key_prefix="prioridade"
+                )
 
         if "Clientes" in f.columns:
             top = f["Clientes"].fillna("Sem cliente").value_counts().head(15).reset_index()
@@ -804,7 +987,20 @@ with main_col:
             fig = px.bar(top.sort_values("Chamados"), x="Chamados", y="Cliente", orientation="h", text_auto=True, color_discrete_sequence=FACEBOOK_COLORS)
             fig.update_layout(xaxis_title="Chamados", yaxis_title="", height=500)
             ajustar_grafico(fig)
-            st.plotly_chart(fig, width="stretch")
+            st.caption("Clique em uma barra para abrir os chamados daquele cliente.")
+            st.plotly_chart(
+                fig,
+                width="stretch",
+                key="grafico_cliente",
+                on_select=lambda: registrar_selecao_generica(
+                    "grafico_cliente", "sel_cliente", "y"
+                ),
+                selection_mode="points",
+            )
+            mostrar_chamados_selecionados(
+                f, "Chamados do cliente", "sel_cliente",
+                "Clientes", key_prefix="cliente"
+            )
 
     with tab_detail:
         q = st.text_input("Pesquisar por número, cliente ou assunto")
@@ -840,5 +1036,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.3 — seleção persistente nos gráficos, detalhamento por situação e compatibilidade com a API atual de largura do Streamlit. O CSV permanece disponível como contingência."
+        "Versão 3.4 — gráficos interativos com detalhamento dos chamados por situação, responsável, mês de origem, tempo em aberto, tipo, prioridade e cliente. O CSV permanece disponível como contingência."
     )
