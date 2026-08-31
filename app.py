@@ -1361,5 +1361,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.4 — projetos e páginas do Redmine em paralelo, com diagnóstico de desempenho."
+        "Versão 3.5.4a — consultas ao Redmine estabilizadas: projetos sequenciais, páginas com paralelismo conservador e fallback."
     )
