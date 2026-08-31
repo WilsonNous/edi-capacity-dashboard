@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import io
 import os
+import time
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import requests
-from redmine_api import buscar_chamados_projetos, issue_para_linha
+from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine, obter_diagnostico_redmine
 
 FACEBOOK_COLORS = ["#1877F2", "#42B72A", "#F7B928", "#E41E3F", "#8A3FFC", "#00A6A6", "#65676B"]
 import streamlit as st
@@ -627,102 +628,40 @@ with filter_col:
         )
 
 @st.cache_data(ttl=300, show_spinner=False)
-def carregar_catalogos_redmine_app():
-    """
-    Consulta /custom_fields.json diretamente pelo app.
-
-    Esta versão evita dependência de uma função nova no redmine_api.py,
-    permitindo deploy somente do app.py e mantendo compatibilidade com
-    a versão atual do módulo já publicada no Azure.
-    """
-    url_base = os.getenv("REDMINE_URL", "https://chamados.nteia.com").rstrip("/")
-    api_key = os.getenv("REDMINE_API_KEY", "")
-    authorization = os.getenv("REDMINE_AUTHORIZATION", "")
-
-    headers = {"Accept": "application/json"}
-    if api_key:
-        headers["X-Redmine-API-Key"] = api_key
-    if authorization:
-        headers["Authorization"] = authorization
-
-    try:
-        resp = requests.get(
-            f"{url_base}/custom_fields.json",
-            headers=headers,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        campos = resp.json().get("custom_fields", [])
-
-        def montar_mapa(field_id: int) -> dict[str, str]:
-            for campo in campos:
-                if int(campo.get("id", -1)) == field_id:
-                    mapa = {}
-                    for item in campo.get("possible_values", []) or []:
-                        valor = item.get("value")
-                        label = item.get("label")
-                        if valor in (None, ""):
-                            continue
-                        chave = str(valor).strip()
-                        nome = str(label).strip() if label not in (None, "") else chave
-                        mapa[chave] = nome
-                    return mapa
-            return {}
-
-        clientes = montar_mapa(1)
-        origens = montar_mapa(5)
-
-        return {
-            "ok": bool(clientes),
-            "clientes": clientes,
-            "origens": origens,
-            "qtd_clientes": len(clientes),
-            "qtd_origens": len(origens),
-            "erro": None if clientes else "Campo Clientes (ID 1) sem valores.",
-        }
-
-    except Exception as exc:
-        return {
-            "ok": False,
-            "clientes": {},
-            "origens": {},
-            "qtd_clientes": 0,
-            "qtd_origens": 0,
-            "erro": f"{type(exc).__name__}: {exc}",
-        }
-
-
-def traduzir_enumeracao(valor, mapa: dict[str, str]):
-    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
-        return valor
-
-    texto = str(valor).strip()
-    if not texto:
-        return valor
-
-    # O redmine_api atual pode devolver múltiplos IDs unidos por vírgula.
-    partes = [p.strip() for p in texto.split(",") if p.strip()]
-    return " / ".join(mapa.get(p, p) for p in partes)
-
-
-@st.cache_data(ttl=300, show_spinner=False)
 def carregar_api_abertos():
+    inicio = time.perf_counter()
+
     chamados = buscar_chamados_projetos(status_id="open")
-    raw_df = pd.DataFrame([issue_para_linha(c) for c in chamados])
+    diagnostico_redmine = obter_diagnostico_redmine()
 
-    catalogos = carregar_catalogos_redmine_app()
+    inicio_catalogo = time.perf_counter()
+    catalogos = carregar_catalogos_redmine()
+    tempo_catalogo = round(time.perf_counter() - inicio_catalogo, 3)
 
-    if catalogos.get("ok"):
-        if "Clientes" in raw_df.columns:
-            raw_df["Clientes"] = raw_df["Clientes"].apply(
-                lambda valor: traduzir_enumeracao(valor, catalogos["clientes"])
-            )
-        if "Origem" in raw_df.columns:
-            raw_df["Origem"] = raw_df["Origem"].apply(
-                lambda valor: traduzir_enumeracao(valor, catalogos["origens"])
-            )
+    inicio_dataframe = time.perf_counter()
+    linhas = [
+        issue_para_linha(
+            chamado,
+            mapa_clientes=catalogos.get("clientes", {}),
+            mapa_origens=catalogos.get("origens", {}),
+        )
+        for chamado in chamados
+    ]
+    raw_df = pd.DataFrame(linhas)
+    tempo_dataframe = round(time.perf_counter() - inicio_dataframe, 3)
 
-    return raw_df, catalogos
+    diagnostico = {
+        **diagnostico_redmine,
+        "tempo_catalogo_s": tempo_catalogo,
+        "tempo_dataframe_s": tempo_dataframe,
+        "tempo_backend_s": round(time.perf_counter() - inicio, 3),
+        "catalogo_ok": catalogos.get("ok", False),
+        "qtd_clientes": catalogos.get("qtd_clientes", 0),
+        "qtd_origens": catalogos.get("qtd_origens", 0),
+        "erro_catalogo": catalogos.get("erro"),
+    }
+
+    return raw_df, diagnostico
 
 # -------------------------------------------------------------------------
 # CARGA DOS DADOS
@@ -748,18 +687,31 @@ if fonte == "API do Redmine":
         df = prepare(raw_df, origem="api")
 
         with main_col:
-            if diagnostico_catalogos and diagnostico_catalogos.get("ok"):
-                st.success(
-                    "API Redmine: OK  •  "
-                    f"Catálogo de clientes: {diagnostico_catalogos.get('qtd_clientes', 0)} nomes carregados  •  "
-                    f"Catálogo de origens: {diagnostico_catalogos.get('qtd_origens', 0)} nomes carregados"
-                )
-            else:
-                st.warning(
-                    "Chamados carregados, mas o catálogo de nomes não foi carregado. "
-                    "Clientes/Origem podem aparecer como códigos. "
-                    f"Diagnóstico: {(diagnostico_catalogos or {}).get('erro', 'não informado')}"
-                )
+            if diagnostico_catalogos:
+                if diagnostico_catalogos.get("catalogo_ok"):
+                    st.success(
+                        "API Redmine: OK  •  "
+                        f"{diagnostico_catalogos.get('chamados_encontrados', 0)} chamados  •  "
+                        f"{diagnostico_catalogos.get('detalhes_consultados', 0)} detalhes adicionais  •  "
+                        f"Backend: {diagnostico_catalogos.get('tempo_backend_s', 0):.2f}s"
+                    )
+                else:
+                    st.warning(
+                        "Chamados carregados, mas o catálogo de nomes não foi carregado. "
+                        f"Diagnóstico: {diagnostico_catalogos.get('erro_catalogo') or 'não informado'}"
+                    )
+
+                with st.expander("Desempenho da carga", expanded=False):
+                    st.write({
+                        "Chamados encontrados": diagnostico_catalogos.get("chamados_encontrados", 0),
+                        "Chamados já com campos personalizados": diagnostico_catalogos.get("com_custom_fields", 0),
+                        "Detalhes adicionais consultados": diagnostico_catalogos.get("detalhes_consultados", 0),
+                        "Listagem Redmine (s)": diagnostico_catalogos.get("tempo_listagem_s", 0),
+                        "Detalhes individuais (s)": diagnostico_catalogos.get("tempo_detalhes_s", 0),
+                        "Catálogo Clientes/Origem (s)": diagnostico_catalogos.get("tempo_catalogo_s", 0),
+                        "Montagem do DataFrame (s)": diagnostico_catalogos.get("tempo_dataframe_s", 0),
+                        "Backend total (s)": diagnostico_catalogos.get("tempo_backend_s", 0),
+                    })
 
     except Exception as exc:
         with main_col:
@@ -1383,5 +1335,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.2 — tradução de Clientes/Origem feita diretamente no app, compatível com o redmine_api já publicado."
+        "Versão 3.5.3 — otimização de desempenho, conexões HTTP reutilizadas e diagnóstico da carga Redmine."
     )
