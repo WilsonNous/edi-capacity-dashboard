@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from time import monotonic
+from time import monotonic, sleep
 from typing import Iterable
 
 import requests
@@ -54,15 +54,79 @@ def _headers() -> dict[str, str]:
     return headers
 
 
-def _get(path: str, params: dict | None = None, timeout: int | tuple = (20, 60)) -> dict:
-    response = _SESSION.get(
-        f"{REDMINE_URL}/{path.lstrip('/')}",
-        headers=_headers(),
-        params=params,
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    return response.json()
+def _get(
+    path: str,
+    params: dict | None = None,
+    timeout: int | tuple = (20, 60),
+    tentativas: int = 3,
+) -> dict:
+    """
+    Executa GET no Redmine com tentativas controladas para falhas transitórias.
+
+    Regras:
+    - ConnectTimeout / ReadTimeout / ConnectionError: até 3 tentativas.
+    - Espera progressiva: 0s, 2s e 5s.
+    - Erros HTTP (401, 403, 404, 500...) não são mascarados nem repetidos aqui.
+    - O HTTPAdapter continua com max_retries=0 para evitar tentativas ocultas.
+    """
+    url = f"{REDMINE_URL}/{path.lstrip('/')}"
+    esperas = [0, 2, 5]
+
+    for tentativa in range(1, tentativas + 1):
+        if tentativa > 1:
+            espera = esperas[min(tentativa - 1, len(esperas) - 1)]
+            print(
+                f"[REDMINE] Nova tentativa em {espera}s | "
+                f"{path} | tentativa {tentativa}/{tentativas}",
+                flush=True,
+            )
+            sleep(espera)
+
+        try:
+            inicio = monotonic()
+            print(
+                f"[REDMINE] GET {path} | tentativa {tentativa}/{tentativas}",
+                flush=True,
+            )
+
+            response = _SESSION.get(
+                url,
+                headers=_headers(),
+                params=params,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+
+            duracao = monotonic() - inicio
+            print(
+                f"[REDMINE] OK {path} | tentativa {tentativa}/{tentativas} | "
+                f"{duracao:.2f}s",
+                flush=True,
+            )
+            return response.json()
+
+        except (
+            requests.exceptions.ConnectTimeout,
+            requests.exceptions.ReadTimeout,
+            requests.exceptions.ConnectionError,
+        ) as exc:
+            print(
+                f"[REDMINE] Falha transitória {type(exc).__name__} em {path} | "
+                f"tentativa {tentativa}/{tentativas}: {exc}",
+                flush=True,
+            )
+            if tentativa >= tentativas:
+                raise
+
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            print(
+                f"[REDMINE] Erro HTTP {status} em {path}: {exc}",
+                flush=True,
+            )
+            raise
+
+    raise RuntimeError(f"Falha inesperada ao consultar {path}.")
 
 
 def buscar_custom_fields(force: bool = False) -> list[dict]:
@@ -177,7 +241,7 @@ def buscar_chamados_projeto(
     """
     Busca todos os chamados de um projeto.
 
-    V3.5.4:
+    V3.5.4b:
     - consulta a primeira página para descobrir total_count;
     - consulta páginas seguintes em paralelo;
     - preserva a ordem por offset.
@@ -316,7 +380,7 @@ def buscar_chamados_projetos(
     project_ids = list(project_ids or REDMINE_PROJECT_IDS)
     todos = []
 
-    # V3.5.4a: projetos voltam a ser consultados sequencialmente.
+    # V3.5.4b: projetos voltam a ser consultados sequencialmente.
     # O Redmine/nginx demonstrou sensibilidade a múltiplas conexões simultâneas
     # já na primeira página. Mantemos paralelismo apenas nas páginas seguintes,
     # de forma mais conservadora.
