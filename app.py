@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import os
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -685,6 +685,52 @@ def carregar_api_abertos():
 
     return raw_df, diagnostico
 
+
+def classificar_erro_api(exc: Exception) -> tuple[str, str]:
+    """
+    Retorna título e orientação amigável conforme o tipo de falha.
+    """
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return (
+            "Tempo esgotado ao conectar com o Redmine",
+            "O Azure não conseguiu estabelecer a conexão HTTPS com o Redmine "
+            "mesmo após as tentativas automáticas. Isso normalmente indica "
+            "indisponibilidade temporária, oscilação de rede, nginx/proxy ou rota.",
+        )
+
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return (
+            "O Redmine demorou demais para responder",
+            "A conexão foi estabelecida, mas a resposta não chegou dentro do tempo limite. "
+            "Tente novamente em alguns instantes.",
+        )
+
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return (
+            "Falha de comunicação com o Redmine",
+            "Não foi possível completar a comunicação entre o Azure e o Redmine. "
+            "A aplicação continuará usando a última carga válida, quando disponível.",
+        )
+
+    if isinstance(exc, requests.exceptions.HTTPError):
+        status = exc.response.status_code if exc.response is not None else None
+        if status in (401, 403):
+            return (
+                f"Redmine recusou a autenticação ({status})",
+                "Nesse caso, confira REDMINE_API_KEY e REDMINE_AUTHORIZATION.",
+            )
+        return (
+            f"Redmine retornou erro HTTP {status or ''}".strip(),
+            "A conexão ocorreu, mas o servidor respondeu com erro HTTP.",
+        )
+
+    return (
+        "Não foi possível consultar a API do Redmine",
+        "Consulte o diagnóstico técnico abaixo. Se o erro for de autenticação, "
+        "revise as variáveis do ambiente; se for de conexão, aguarde e tente novamente.",
+    )
+
+
 # -------------------------------------------------------------------------
 # CARGA DOS DADOS
 # -------------------------------------------------------------------------
@@ -696,57 +742,84 @@ if fonte == "API do Redmine":
         if st.button("Atualizar dados agora", width="stretch"):
             carregar_api_abertos.clear()
 
+    usando_ultima_carga = False
+    erro_atualizacao = None
+
     try:
         with main_col:
             with st.spinner("Consultando os chamados no Redmine..."):
                 raw_df, diagnostico_catalogos = carregar_api_abertos()
 
         if raw_df.empty:
-            with main_col:
-                st.warning("A API não retornou chamados em aberto.")
-            st.stop()
+            raise RuntimeError("A API não retornou chamados em aberto.")
 
-        df = prepare(raw_df, origem="api")
-
-        with main_col:
-            if diagnostico_catalogos:
-                if diagnostico_catalogos.get("catalogo_ok"):
-                    modo = "compatibilidade" if diagnostico_catalogos.get("modo_compatibilidade") else "otimizado"
-                    st.success(
-                        "API Redmine: OK  •  "
-                        f"{diagnostico_catalogos.get('chamados_encontrados', 0)} chamados  •  "
-                        f"Backend: {diagnostico_catalogos.get('tempo_backend_s', 0):.2f}s  •  "
-                        f"Modo: {modo}"
-                    )
-                else:
-                    st.warning(
-                        "Chamados carregados, mas o catálogo de nomes não foi carregado. "
-                        f"Diagnóstico: {diagnostico_catalogos.get('erro_catalogo') or 'não informado'}"
-                    )
-
-                with st.expander("Desempenho da carga", expanded=False):
-                    st.write({
-                        "Chamados encontrados": diagnostico_catalogos.get("chamados_encontrados", 0),
-                        "Chamados já com campos personalizados": diagnostico_catalogos.get("com_custom_fields", 0),
-                        "Detalhes adicionais consultados": diagnostico_catalogos.get("detalhes_consultados", 0),
-                        "Projetos consultados": diagnostico_catalogos.get("projetos_consultados", 0),
-                        "Páginas consultadas": diagnostico_catalogos.get("paginas_consultadas", 0),
-                        "Listagem Redmine (s)": diagnostico_catalogos.get("tempo_listagem_s", 0),
-                        "Detalhes individuais (s)": diagnostico_catalogos.get("tempo_detalhes_s", 0),
-                        "Catálogo Clientes/Origem (s)": diagnostico_catalogos.get("tempo_catalogo_s", 0),
-                        "Montagem do DataFrame (s)": diagnostico_catalogos.get("tempo_dataframe_s", 0),
-                        "Backend total (s)": diagnostico_catalogos.get("tempo_backend_s", 0),
-                        "Modo compatibilidade": diagnostico_catalogos.get("modo_compatibilidade", False),
-                    })
+        # Guarda a última carga válida desta sessão do navegador.
+        st.session_state["ultima_carga_api_df"] = raw_df.copy()
+        st.session_state["ultima_carga_api_diagnostico"] = diagnostico_catalogos
+        st.session_state["ultima_carga_api_em"] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     except Exception as exc:
-        with main_col:
-            st.error(f"Não foi possível consultar a API do Redmine: {exc}")
-            st.info(
-                "Confira as variáveis REDMINE_API_KEY, REDMINE_AUTHORIZATION, "
-                "REDMINE_URL e REDMINE_PROJECT_IDS no ambiente."
+        erro_atualizacao = exc
+        ultima_df = st.session_state.get("ultima_carga_api_df")
+
+        if isinstance(ultima_df, pd.DataFrame) and not ultima_df.empty:
+            raw_df = ultima_df.copy()
+            diagnostico_catalogos = st.session_state.get(
+                "ultima_carga_api_diagnostico", {}
             )
-        st.stop()
+            usando_ultima_carga = True
+        else:
+            titulo_erro, orientacao = classificar_erro_api(exc)
+            with main_col:
+                st.error(f"{titulo_erro}: {exc}")
+                st.info(orientacao)
+            st.stop()
+
+    df = prepare(raw_df, origem="api")
+
+    with main_col:
+        if usando_ultima_carga:
+            titulo_erro, orientacao = classificar_erro_api(erro_atualizacao)
+            ultima_em = st.session_state.get("ultima_carga_api_em", "horário não informado")
+            st.warning(
+                f"⚠️ Atualização do Redmine falhou. Exibindo a última carga válida "
+                f"desta sessão ({ultima_em})."
+            )
+            with st.expander("Detalhes da falha de atualização", expanded=False):
+                st.write(f"**{titulo_erro}**")
+                st.write(orientacao)
+                st.code(str(erro_atualizacao))
+        elif diagnostico_catalogos:
+            if diagnostico_catalogos.get("catalogo_ok"):
+                modo = "compatibilidade" if diagnostico_catalogos.get("modo_compatibilidade") else "otimizado"
+                st.success(
+                    "API Redmine: OK  •  "
+                    f"{diagnostico_catalogos.get('chamados_encontrados', 0)} chamados  •  "
+                    f"Backend: {diagnostico_catalogos.get('tempo_backend_s', 0):.2f}s  •  "
+                    f"Modo: {modo}"
+                )
+            else:
+                st.warning(
+                    "Chamados carregados, mas o catálogo de nomes não foi carregado. "
+                    f"Diagnóstico: {diagnostico_catalogos.get('erro_catalogo') or 'não informado'}"
+                )
+
+        if diagnostico_catalogos:
+            with st.expander("Desempenho da carga", expanded=False):
+                st.write({
+                    "Chamados encontrados": diagnostico_catalogos.get("chamados_encontrados", 0),
+                    "Chamados já com campos personalizados": diagnostico_catalogos.get("com_custom_fields", 0),
+                    "Detalhes adicionais consultados": diagnostico_catalogos.get("detalhes_consultados", 0),
+                    "Projetos consultados": diagnostico_catalogos.get("projetos_consultados", 0),
+                    "Páginas consultadas": diagnostico_catalogos.get("paginas_consultadas", 0),
+                    "Listagem Redmine (s)": diagnostico_catalogos.get("tempo_listagem_s", 0),
+                    "Detalhes individuais (s)": diagnostico_catalogos.get("tempo_detalhes_s", 0),
+                    "Catálogo Clientes/Origem (s)": diagnostico_catalogos.get("tempo_catalogo_s", 0),
+                    "Montagem do DataFrame (s)": diagnostico_catalogos.get("tempo_dataframe_s", 0),
+                    "Backend total (s)": diagnostico_catalogos.get("tempo_backend_s", 0),
+                    "Modo compatibilidade": diagnostico_catalogos.get("modo_compatibilidade", False),
+                    "Usando última carga válida": usando_ultima_carga,
+                })
 
 else:
     with filter_col:
@@ -1361,5 +1434,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.4a — consultas ao Redmine estabilizadas: projetos sequenciais, páginas com paralelismo conservador e fallback."
+        "Versão 3.5.4b — resiliência de conexão: tentativas controladas no Redmine, diagnóstico no Log Stream e última carga válida da sessão."
     )
