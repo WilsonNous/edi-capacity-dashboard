@@ -33,6 +33,13 @@ jobs:
           pip install -r requirements.txt
           python -m compileall app.py redmine_api.py
 
+      - name: Create deployment ZIP
+        run: |
+          zip -r deploy.zip .             -x ".git/*"             -x ".github/*"             -x ".venv/*"             -x "venv/*"             -x "antenv/*"             -x "__pycache__/*"             -x "*.pyc"             -x "deploy.zip"
+
+          echo "Conteúdo do pacote:"
+          unzip -l deploy.zip | head -100
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -40,9 +47,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A4D6C73FF6914FDABD78762DCEF95B2A }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_28FA8B0DF7BD44AA8E12086638FD46A8 }}
 
-      - name: Deploy to Azure Web App
+      - name: Deploy ZIP to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'edi-capacity-dashboard'
           slot-name: 'Production'
-          package: '.'
+          package: 'deploy.zip'
