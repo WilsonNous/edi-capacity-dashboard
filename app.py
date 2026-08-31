@@ -729,6 +729,8 @@ if fonte == "API do Redmine":
                         "Chamados encontrados": diagnostico_catalogos.get("chamados_encontrados", 0),
                         "Chamados já com campos personalizados": diagnostico_catalogos.get("com_custom_fields", 0),
                         "Detalhes adicionais consultados": diagnostico_catalogos.get("detalhes_consultados", 0),
+                        "Projetos consultados": diagnostico_catalogos.get("projetos_consultados", 0),
+                        "Páginas consultadas": diagnostico_catalogos.get("paginas_consultadas", 0),
                         "Listagem Redmine (s)": diagnostico_catalogos.get("tempo_listagem_s", 0),
                         "Detalhes individuais (s)": diagnostico_catalogos.get("tempo_detalhes_s", 0),
                         "Catálogo Clientes/Origem (s)": diagnostico_catalogos.get("tempo_catalogo_s", 0),
@@ -1359,5 +1361,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.3a — desempenho com compatibilidade entre versões do redmine_api."
+        "Versão 3.5.4 — projetos e páginas do Redmine em paralelo, com diagnóstico de desempenho."
     )
