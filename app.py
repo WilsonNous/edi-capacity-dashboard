@@ -9,7 +9,22 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import requests
-from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine, obter_diagnostico_redmine
+from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine
+
+try:
+    from redmine_api import obter_diagnostico_redmine
+except ImportError:
+    def obter_diagnostico_redmine():
+        return {
+            "tempo_listagem_s": 0.0,
+            "tempo_detalhes_s": 0.0,
+            "tempo_total_s": 0.0,
+            "chamados_encontrados": 0,
+            "com_custom_fields": 0,
+            "detalhes_consultados": 0,
+            "modo_compatibilidade": True,
+        }
+
 
 FACEBOOK_COLORS = ["#1877F2", "#42B72A", "#F7B928", "#E41E3F", "#8A3FFC", "#00A6A6", "#65676B"]
 import streamlit as st
@@ -631,8 +646,15 @@ with filter_col:
 def carregar_api_abertos():
     inicio = time.perf_counter()
 
+    inicio_redmine = time.perf_counter()
     chamados = buscar_chamados_projetos(status_id="open")
+    tempo_redmine_total = round(time.perf_counter() - inicio_redmine, 3)
+
     diagnostico_redmine = obter_diagnostico_redmine()
+    if diagnostico_redmine.get("modo_compatibilidade"):
+        diagnostico_redmine["tempo_total_s"] = tempo_redmine_total
+        diagnostico_redmine["tempo_listagem_s"] = tempo_redmine_total
+        diagnostico_redmine["chamados_encontrados"] = len(chamados)
 
     inicio_catalogo = time.perf_counter()
     catalogos = carregar_catalogos_redmine()
@@ -689,11 +711,12 @@ if fonte == "API do Redmine":
         with main_col:
             if diagnostico_catalogos:
                 if diagnostico_catalogos.get("catalogo_ok"):
+                    modo = "compatibilidade" if diagnostico_catalogos.get("modo_compatibilidade") else "otimizado"
                     st.success(
                         "API Redmine: OK  •  "
                         f"{diagnostico_catalogos.get('chamados_encontrados', 0)} chamados  •  "
-                        f"{diagnostico_catalogos.get('detalhes_consultados', 0)} detalhes adicionais  •  "
-                        f"Backend: {diagnostico_catalogos.get('tempo_backend_s', 0):.2f}s"
+                        f"Backend: {diagnostico_catalogos.get('tempo_backend_s', 0):.2f}s  •  "
+                        f"Modo: {modo}"
                     )
                 else:
                     st.warning(
@@ -711,6 +734,7 @@ if fonte == "API do Redmine":
                         "Catálogo Clientes/Origem (s)": diagnostico_catalogos.get("tempo_catalogo_s", 0),
                         "Montagem do DataFrame (s)": diagnostico_catalogos.get("tempo_dataframe_s", 0),
                         "Backend total (s)": diagnostico_catalogos.get("tempo_backend_s", 0),
+                        "Modo compatibilidade": diagnostico_catalogos.get("modo_compatibilidade", False),
                     })
 
     except Exception as exc:
@@ -1335,5 +1359,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.3 — otimização de desempenho, conexões HTTP reutilizadas e diagnóstico da carga Redmine."
+        "Versão 3.5.3a — desempenho com compatibilidade entre versões do redmine_api."
     )
