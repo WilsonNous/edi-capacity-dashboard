@@ -22,7 +22,7 @@ _CUSTOM_FIELDS_CACHE_AT = 0.0
 _CUSTOM_FIELDS_TTL_SECONDS = int(os.getenv("REDMINE_CUSTOM_FIELDS_TTL", "300"))
 
 _SESSION = requests.Session()
-_ADAPTER = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=1)
+_ADAPTER = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
 _SESSION.mount("https://", _ADAPTER)
 _SESSION.mount("http://", _ADAPTER)
 
@@ -54,7 +54,7 @@ def _headers() -> dict[str, str]:
     return headers
 
 
-def _get(path: str, params: dict | None = None, timeout: int = 60) -> dict:
+def _get(path: str, params: dict | None = None, timeout: int | tuple = (20, 60)) -> dict:
     response = _SESSION.get(
         f"{REDMINE_URL}/{path.lstrip('/')}",
         headers=_headers(),
@@ -218,13 +218,27 @@ def buscar_chamados_projeto(
             for offset in offsets
         }
 
+        offsets_com_falha = []
         for future in as_completed(futures):
             offset = futures[future]
             try:
                 dados = future.result()
                 paginas[offset] = dados.get("issues", [])
             except Exception:
-                paginas[offset] = []
+                offsets_com_falha.append(offset)
+
+    # Se alguma página paralela falhar, tenta novamente de forma sequencial.
+    for offset in offsets_com_falha:
+        dados = _get(
+            "issues.json",
+            {
+                "project_id": project_id,
+                "status_id": status_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+        paginas[offset] = dados.get("issues", [])
 
     chamados: list[dict] = []
     for offset in sorted(paginas):
@@ -302,30 +316,19 @@ def buscar_chamados_projetos(
     project_ids = list(project_ids or REDMINE_PROJECT_IDS)
     todos = []
 
-    max_workers_projetos = min(
-        max(1, int(os.getenv("REDMINE_PROJECT_WORKERS", "2"))),
-        max(1, len(project_ids)),
-    )
-    max_workers_paginas = max(1, int(os.getenv("REDMINE_PAGE_WORKERS", "4")))
+    # V3.5.4a: projetos voltam a ser consultados sequencialmente.
+    # O Redmine/nginx demonstrou sensibilidade a múltiplas conexões simultâneas
+    # já na primeira página. Mantemos paralelismo apenas nas páginas seguintes,
+    # de forma mais conservadora.
+    max_workers_paginas = max(1, int(os.getenv("REDMINE_PAGE_WORKERS", "2")))
 
-    with ThreadPoolExecutor(max_workers=max_workers_projetos) as executor:
-        futures = {
-            executor.submit(
-                buscar_chamados_projeto,
-                project_id,
-                status_id,
-                max_workers_paginas,
-            ): project_id
-            for project_id in project_ids
-        }
-
-        resultados_por_projeto: dict[int, list[dict]] = {}
-        for future in as_completed(futures):
-            project_id = futures[future]
-            try:
-                resultados_por_projeto[project_id] = future.result()
-            except Exception:
-                resultados_por_projeto[project_id] = []
+    resultados_por_projeto: dict[int, list[dict]] = {}
+    for project_id in project_ids:
+        resultados_por_projeto[project_id] = buscar_chamados_projeto(
+            project_id,
+            status_id,
+            max_workers_paginas,
+        )
 
     for project_id in project_ids:
         todos.extend(resultados_por_projeto.get(project_id, []))
