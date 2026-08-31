@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from time import monotonic
 from typing import Iterable
 
 import requests
-
+from requests.adapters import HTTPAdapter
 
 REDMINE_URL = os.getenv("REDMINE_URL", "https://chamados.nteia.com").rstrip("/")
 REDMINE_API_KEY = os.getenv("REDMINE_API_KEY", "")
@@ -18,18 +17,32 @@ REDMINE_PROJECT_IDS = [
     if x.strip()
 ]
 
-# Cache leve dos metadados dos campos personalizados.
-# Mantém o dashboard rápido e permite que novos clientes cadastrados no
-# Redmine apareçam automaticamente após alguns minutos.
 _CUSTOM_FIELDS_CACHE: list[dict] | None = None
 _CUSTOM_FIELDS_CACHE_AT = 0.0
 _CUSTOM_FIELDS_TTL_SECONDS = int(os.getenv("REDMINE_CUSTOM_FIELDS_TTL", "300"))
+
+_SESSION = requests.Session()
+_ADAPTER = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=1)
+_SESSION.mount("https://", _ADAPTER)
+_SESSION.mount("http://", _ADAPTER)
+
+_LAST_DIAGNOSTICO = {
+    "tempo_listagem_s": 0.0,
+    "tempo_detalhes_s": 0.0,
+    "tempo_total_s": 0.0,
+    "chamados_encontrados": 0,
+    "com_custom_fields": 0,
+    "detalhes_consultados": 0,
+}
+
+
+def obter_diagnostico_redmine() -> dict:
+    return dict(_LAST_DIAGNOSTICO)
 
 
 def _headers() -> dict[str, str]:
     if not REDMINE_API_KEY:
         raise RuntimeError("A variável REDMINE_API_KEY não foi configurada.")
-
     headers = {
         "X-Redmine-API-Key": REDMINE_API_KEY,
         "Accept": "application/json",
@@ -40,7 +53,7 @@ def _headers() -> dict[str, str]:
 
 
 def _get(path: str, params: dict | None = None, timeout: int = 60) -> dict:
-    response = requests.get(
+    response = _SESSION.get(
         f"{REDMINE_URL}/{path.lstrip('/')}",
         headers=_headers(),
         params=params,
@@ -50,98 +63,59 @@ def _get(path: str, params: dict | None = None, timeout: int = 60) -> dict:
     return response.json()
 
 
-
 def buscar_custom_fields(force: bool = False) -> list[dict]:
-    """
-    Retorna os campos personalizados cadastrados no Redmine.
-
-    O endpoint /custom_fields.json contém os possíveis valores dos campos
-    enumerados, permitindo traduzir IDs internos para os nomes exibidos
-    no Redmine, por exemplo:
-        243 -> SIM REDE
-        338 -> VENTUNO
-    """
     global _CUSTOM_FIELDS_CACHE, _CUSTOM_FIELDS_CACHE_AT
-
     agora = monotonic()
     cache_valido = (
         _CUSTOM_FIELDS_CACHE is not None
         and (agora - _CUSTOM_FIELDS_CACHE_AT) < _CUSTOM_FIELDS_TTL_SECONDS
     )
-
     if cache_valido and not force:
         return _CUSTOM_FIELDS_CACHE
 
     dados = _get("custom_fields.json")
     campos = dados.get("custom_fields", [])
-
     _CUSTOM_FIELDS_CACHE = campos
     _CUSTOM_FIELDS_CACHE_AT = agora
     return campos
 
 
 def mapa_custom_field(field_id: int, force: bool = False) -> dict[str, str]:
-    """Monta o mapa value -> label de um campo personalizado enumerado."""
     for campo in buscar_custom_fields(force=force):
         if int(campo.get("id", -1)) != int(field_id):
             continue
-
-        mapa: dict[str, str] = {}
+        mapa = {}
         for item in campo.get("possible_values", []) or []:
             valor = item.get("value")
             label = item.get("label")
-
             if valor in (None, ""):
                 continue
-
-            valor_texto = str(valor).strip()
-            label_texto = str(label).strip() if label not in (None, "") else valor_texto
-            mapa[valor_texto] = label_texto
-
+            chave = str(valor).strip()
+            mapa[chave] = str(label).strip() if label not in (None, "") else chave
         return mapa
-
     return {}
 
 
-def traduzir_custom_field(
-    valor,
-    field_id: int,
-    *,
-    retornar_lista: bool = False,
-):
-    """
-    Traduz um valor (ou lista de valores) usando os possible_values do Redmine.
-
-    Se um ID ainda não existir no mapa, preservamos o valor original para
-    não perder informação e para o painel continuar funcionando.
-    """
+def traduzir_custom_field(valor, field_id: int, *, retornar_lista: bool = False):
     if valor in (None, ""):
         return [] if retornar_lista else None
-
     valores = valor if isinstance(valor, list) else [valor]
-
     try:
         mapa = mapa_custom_field(field_id)
     except Exception:
-        # Falha na consulta de metadados não pode derrubar o dashboard.
         mapa = {}
 
-    traduzidos: list[str] = []
+    traduzidos = []
     for item in valores:
         if item in (None, ""):
             continue
         chave = str(item).strip()
         traduzidos.append(mapa.get(chave, chave))
 
-    if retornar_lista:
-        return traduzidos
-
-    return " / ".join(traduzidos) if traduzidos else None
-
+    return traduzidos if retornar_lista else (" / ".join(traduzidos) if traduzidos else None)
 
 
 def carregar_catalogos_redmine(force: bool = False) -> dict:
-    """Carrega os mapas value -> label de Clientes (ID 1) e Origem (ID 5)."""
     try:
         campos = buscar_custom_fields(force=force)
 
@@ -167,7 +141,7 @@ def carregar_catalogos_redmine(force: bool = False) -> dict:
             "origens": origens,
             "qtd_clientes": len(clientes),
             "qtd_origens": len(origens),
-            "erro": None if clientes else "Campo Clientes (ID 1) sem possible_values.",
+            "erro": None if clientes else "Campo Clientes (ID 1) sem valores.",
         }
     except Exception as exc:
         return {
@@ -194,8 +168,7 @@ def traduzir_valor_catalogo(valor, mapa: dict[str, str]):
 
 
 def buscar_chamados_projeto(project_id: int, status_id: str = "open") -> list[dict]:
-    """Busca todos os chamados de um projeto, vencendo o limite de paginação do Redmine."""
-    chamados: list[dict] = []
+    chamados = []
     offset = 0
     limit = 100
 
@@ -236,25 +209,44 @@ def pegar_custom_field(chamado: dict, field_id: int):
 
 
 def garantir_custom_fields(chamados: list[dict], max_workers: int = 12) -> list[dict]:
-    """Se a listagem não trouxer campos personalizados, busca detalhes em paralelo."""
+    global _LAST_DIAGNOSTICO
+
     if not chamados:
         return []
-    if all("custom_fields" in c for c in chamados[: min(10, len(chamados))]):
+
+    com_campos = [c for c in chamados if "custom_fields" in c]
+    sem_campos = [c for c in chamados if "custom_fields" not in c]
+
+    _LAST_DIAGNOSTICO["com_custom_fields"] = len(com_campos)
+    _LAST_DIAGNOSTICO["detalhes_consultados"] = len(sem_campos)
+
+    if not sem_campos:
         return chamados
 
-    completos: list[dict] = []
+    inicio = monotonic()
+    detalhes_por_id = {}
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(buscar_detalhes_chamado, c["id"]): c["id"]
-            for c in chamados
+            executor.submit(buscar_detalhes_chamado, c["id"]): int(c["id"])
+            for c in sem_campos
+            if c.get("id") is not None
         }
         for future in as_completed(futures):
+            chamado_id = futures[future]
             try:
-                completos.append(future.result())
+                detalhes_por_id[chamado_id] = future.result()
             except Exception:
-                # Mantemos o dashboard disponível mesmo se um chamado isolado falhar.
                 pass
-    return completos
+
+    _LAST_DIAGNOSTICO["tempo_detalhes_s"] = round(monotonic() - inicio, 3)
+
+    resultado = []
+    for chamado in chamados:
+        chamado_id = int(chamado["id"]) if chamado.get("id") is not None else None
+        resultado.append(detalhes_por_id.get(chamado_id, chamado))
+
+    return resultado
 
 
 def buscar_chamados_projetos(
@@ -262,23 +254,43 @@ def buscar_chamados_projetos(
     status_id: str = "open",
     completar_custom_fields: bool = True,
 ) -> list[dict]:
+    global _LAST_DIAGNOSTICO
+
+    inicio_total = monotonic()
+    inicio_listagem = monotonic()
+
     project_ids = list(project_ids or REDMINE_PROJECT_IDS)
-    todos: list[dict] = []
+    todos = []
     for project_id in project_ids:
         todos.extend(buscar_chamados_projeto(project_id, status_id=status_id))
 
-    # Proteção contra duplicidade caso um chamado apareça em mais de uma consulta.
+    _LAST_DIAGNOSTICO = {
+        "tempo_listagem_s": round(monotonic() - inicio_listagem, 3),
+        "tempo_detalhes_s": 0.0,
+        "tempo_total_s": 0.0,
+        "chamados_encontrados": 0,
+        "com_custom_fields": 0,
+        "detalhes_consultados": 0,
+    }
+
     unicos = {int(c["id"]): c for c in todos if c.get("id") is not None}
     chamados = list(unicos.values())
+    _LAST_DIAGNOSTICO["chamados_encontrados"] = len(chamados)
 
-    # Carrega o catálogo de campos enumerados uma única vez por ciclo de cache.
-    # Se o usuário não tiver acesso ao endpoint, seguimos com os IDs originais.
     try:
         buscar_custom_fields()
     except Exception:
         pass
 
-    return garantir_custom_fields(chamados) if completar_custom_fields else chamados
+    resultado = garantir_custom_fields(chamados) if completar_custom_fields else chamados
+
+    if not completar_custom_fields:
+        _LAST_DIAGNOSTICO["com_custom_fields"] = sum(
+            1 for c in chamados if "custom_fields" in c
+        )
+
+    _LAST_DIAGNOSTICO["tempo_total_s"] = round(monotonic() - inicio_total, 3)
+    return resultado
 
 
 def issue_para_linha(
