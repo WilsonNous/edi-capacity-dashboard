@@ -33,6 +33,8 @@ _LAST_DIAGNOSTICO = {
     "chamados_encontrados": 0,
     "com_custom_fields": 0,
     "detalhes_consultados": 0,
+    "projetos_consultados": 0,
+    "paginas_consultadas": 0,
 }
 
 
@@ -167,30 +169,68 @@ def traduzir_valor_catalogo(valor, mapa: dict[str, str]):
     return (" / ".join(nomes) if nomes else None), nomes
 
 
-def buscar_chamados_projeto(project_id: int, status_id: str = "open") -> list[dict]:
-    chamados = []
-    offset = 0
+def buscar_chamados_projeto(
+    project_id: int,
+    status_id: str = "open",
+    max_workers_paginas: int = 4,
+) -> list[dict]:
+    """
+    Busca todos os chamados de um projeto.
+
+    V3.5.4:
+    - consulta a primeira página para descobrir total_count;
+    - consulta páginas seguintes em paralelo;
+    - preserva a ordem por offset.
+    """
     limit = 100
 
-    while True:
-        dados = _get(
-            "issues.json",
-            {
-                "project_id": project_id,
-                "status_id": status_id,
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-        lote = dados.get("issues", [])
-        chamados.extend(lote)
-        total = int(dados.get("total_count", 0))
-        offset += limit
-        if offset >= total or not lote:
-            break
+    primeiro = _get(
+        "issues.json",
+        {
+            "project_id": project_id,
+            "status_id": status_id,
+            "limit": limit,
+            "offset": 0,
+        },
+    )
+
+    primeira_pagina = primeiro.get("issues", [])
+    total = int(primeiro.get("total_count", 0))
+
+    if total <= limit or not primeira_pagina:
+        return primeira_pagina
+
+    offsets = list(range(limit, total, limit))
+    paginas: dict[int, list[dict]] = {0: primeira_pagina}
+
+    with ThreadPoolExecutor(max_workers=max_workers_paginas) as executor:
+        futures = {
+            executor.submit(
+                _get,
+                "issues.json",
+                {
+                    "project_id": project_id,
+                    "status_id": status_id,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            ): offset
+            for offset in offsets
+        }
+
+        for future in as_completed(futures):
+            offset = futures[future]
+            try:
+                dados = future.result()
+                paginas[offset] = dados.get("issues", [])
+            except Exception:
+                paginas[offset] = []
+
+    chamados: list[dict] = []
+    for offset in sorted(paginas):
+        chamados.extend(paginas[offset])
 
     return chamados
-
 
 def buscar_detalhes_chamado(chamado_id: int, incluir_journals: bool = False) -> dict:
     params = {"include": "journals"} if incluir_journals else None
@@ -261,8 +301,39 @@ def buscar_chamados_projetos(
 
     project_ids = list(project_ids or REDMINE_PROJECT_IDS)
     todos = []
+
+    max_workers_projetos = min(
+        max(1, int(os.getenv("REDMINE_PROJECT_WORKERS", "2"))),
+        max(1, len(project_ids)),
+    )
+    max_workers_paginas = max(1, int(os.getenv("REDMINE_PAGE_WORKERS", "4")))
+
+    with ThreadPoolExecutor(max_workers=max_workers_projetos) as executor:
+        futures = {
+            executor.submit(
+                buscar_chamados_projeto,
+                project_id,
+                status_id,
+                max_workers_paginas,
+            ): project_id
+            for project_id in project_ids
+        }
+
+        resultados_por_projeto: dict[int, list[dict]] = {}
+        for future in as_completed(futures):
+            project_id = futures[future]
+            try:
+                resultados_por_projeto[project_id] = future.result()
+            except Exception:
+                resultados_por_projeto[project_id] = []
+
     for project_id in project_ids:
-        todos.extend(buscar_chamados_projeto(project_id, status_id=status_id))
+        todos.extend(resultados_por_projeto.get(project_id, []))
+
+    paginas_consultadas = 0
+    for project_id in project_ids:
+        qtd = len(resultados_por_projeto.get(project_id, []))
+        paginas_consultadas += max(1, (qtd + 99) // 100)
 
     _LAST_DIAGNOSTICO = {
         "tempo_listagem_s": round(monotonic() - inicio_listagem, 3),
@@ -271,6 +342,8 @@ def buscar_chamados_projetos(
         "chamados_encontrados": 0,
         "com_custom_fields": 0,
         "detalhes_consultados": 0,
+        "projetos_consultados": len(project_ids),
+        "paginas_consultadas": paginas_consultadas,
     }
 
     unicos = {int(c["id"]): c for c in todos if c.get("id") is not None}
