@@ -25,6 +25,11 @@ from ednna.sincronizador import (
     sincronizar_dataframe,
 )
 
+from ednna.sincronizador_journals import (
+    sincronizar_proximo_lote,
+    listar_pendentes_dataframe,
+)
+
 from ednna.armazenamento import (
     obter_diagnostico_banco,
     obter_metadado,
@@ -3355,18 +3360,128 @@ with main_col:
             st.markdown(
                 (
                     "<div class='section-title'>"
-                    "Próxima evolução da EDNNA"
+                    "Análise controlada de journals"
                     "</div>"
                 ),
                 unsafe_allow_html=True,
             )
 
+            pendentes_ednna_global = listar_pendentes_dataframe(df)
+
+            st.caption(
+                f"{len(pendentes_ednna_global)} chamado(s) ainda precisam "
+                "de análise ou reanálise. O processamento é sequencial e "
+                "limitado a 5 chamados por lote para proteger o Redmine."
+            )
+
+            if st.button(
+                "🤖 Analisar próximos 5",
+                type="primary",
+                width="stretch",
+                key="ednna_processar_proximos_5",
+            ):
+                if usando_memoria_ednna:
+                    st.warning(
+                        "O Redmine está indisponível. A EDNNA não fará "
+                        "novas consultas enquanto o painel estiver em "
+                        "contingência pela memória local."
+                    )
+                else:
+                    with st.spinner(
+                        "EDNNA analisando os próximos chamados..."
+                    ):
+                        resultado_lote = sincronizar_proximo_lote(
+                            df,
+                            limite=5,
+                        )
+
+                    st.session_state[
+                        "ednna_ultimo_lote"
+                    ] = resultado_lote
+
+                    st.rerun()
+
+            ultimo_lote = st.session_state.get(
+                "ednna_ultimo_lote"
+            )
+
+            if ultimo_lote:
+                mensagem = (
+                    f"Último lote: "
+                    f"{ultimo_lote.get('sucesso', 0)} sucesso(s), "
+                    f"{ultimo_lote.get('erros', 0)} erro(s), "
+                    f"{ultimo_lote.get('journals', 0)} journal(s) "
+                    "armazenado(s)."
+                )
+
+                if ultimo_lote.get("erros", 0):
+                    st.warning(mensagem)
+                else:
+                    st.success(mensagem)
+
+                with st.expander(
+                    "Ver resultado do último lote",
+                    expanded=False,
+                ):
+                    st.write(
+                        {
+                            "Pendentes antes":
+                                ultimo_lote.get(
+                                    "pendentes_antes",
+                                    0,
+                                ),
+                            "Selecionados":
+                                ultimo_lote.get(
+                                    "selecionados",
+                                    0,
+                                ),
+                            "Processados":
+                                ultimo_lote.get(
+                                    "processados",
+                                    0,
+                                ),
+                            "Sucesso":
+                                ultimo_lote.get(
+                                    "sucesso",
+                                    0,
+                                ),
+                            "Erros":
+                                ultimo_lote.get(
+                                    "erros",
+                                    0,
+                                ),
+                            "Journals encontrados":
+                                ultimo_lote.get(
+                                    "journals",
+                                    0,
+                                ),
+                            "Pendentes depois":
+                                ultimo_lote.get(
+                                    "pendentes_depois",
+                                    0,
+                                ),
+                        }
+                    )
+
+                    resultados_lote = (
+                        ultimo_lote.get(
+                            "resultados",
+                            [],
+                        )
+                    )
+
+                    if resultados_lote:
+                        st.dataframe(
+                            pd.DataFrame(
+                                resultados_lote
+                            ),
+                            width="stretch",
+                            hide_index=True,
+                        )
+
             st.info(
-                "A memória operacional SQLite já protege o painel "
-                "contra indisponibilidades temporárias do Redmine. "
-                "Na próxima etapa vamos analisar os journals dos "
-                "candidatos e reutilizar análises anteriores sempre "
-                "que o chamado não tiver sido alterado."
+                "Nesta versão a EDNNA apenas lê e classifica. "
+                "Nenhuma alteração é feita automaticamente no Redmine."
             )
 
 
@@ -4211,7 +4326,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.7.1 — EDNNA com memória operacional SQLite, "
+        "Versão 3.9.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )

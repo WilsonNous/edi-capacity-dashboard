@@ -5,6 +5,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import monotonic, sleep
 from typing import Iterable
 
+from painel_cache import (
+    cache_valido as painel_cache_valido,
+    carregar_snapshot as painel_carregar_snapshot,
+    salvar_snapshot as painel_salvar_snapshot,
+)
+
 import requests
 from requests.adapters import HTTPAdapter
 
@@ -16,6 +22,11 @@ REDMINE_PROJECT_IDS = [
     for x in os.getenv("REDMINE_PROJECT_IDS", "5,42").split(",")
     if x.strip()
 ]
+
+PAINEL_CACHE_TTL_SECONDS = max(
+    60,
+    int(os.getenv("PAINEL_CACHE_TTL_SECONDS", "600")),
+)
 
 _CUSTOM_FIELDS_CACHE: list[dict] | None = None
 _CUSTOM_FIELDS_CACHE_AT = 0.0
@@ -367,7 +378,7 @@ def garantir_custom_fields(chamados: list[dict], max_workers: int = 12) -> list[
     return resultado
 
 
-def buscar_chamados_projetos(
+def _buscar_chamados_projetos_remoto(
     project_ids: Iterable[int] | None = None,
     status_id: str = "open",
     completar_custom_fields: bool = True,
@@ -432,6 +443,150 @@ def buscar_chamados_projetos(
     _LAST_DIAGNOSTICO["tempo_total_s"] = round(monotonic() - inicio_total, 3)
     return resultado
 
+
+
+
+def _chave_snapshot_painel(
+    project_ids: Iterable[int],
+    status_id: str,
+    completar_custom_fields: bool,
+) -> str:
+    projetos = ",".join(str(int(x)) for x in sorted(project_ids))
+    return (
+        f"projects={projetos}"
+        f"|status={status_id}"
+        f"|custom={int(bool(completar_custom_fields))}"
+    )
+
+
+def buscar_chamados_projetos(
+    project_ids: Iterable[int] | None = None,
+    status_id: str = "open",
+    completar_custom_fields: bool = True,
+    force_refresh: bool = False,
+) -> list[dict]:
+    """
+    Fonte oficial do painel.
+
+    Enquanto o snapshot persistente estiver dentro do TTL,
+    o painel lê somente o SQLite. Quando vencer, a primeira
+    nova carga tenta atualizar pelo Redmine.
+
+    Se o Redmine falhar e existir snapshot anterior, o painel
+    continua operando com a última carga válida.
+    """
+    global _LAST_DIAGNOSTICO
+
+    ids = list(project_ids or REDMINE_PROJECT_IDS)
+    chave = _chave_snapshot_painel(
+        ids,
+        status_id,
+        completar_custom_fields,
+    )
+
+    snapshot = painel_carregar_snapshot(chave)
+
+    if (
+        snapshot
+        and not force_refresh
+        and painel_cache_valido(
+            snapshot.get("atualizado_em"),
+            PAINEL_CACHE_TTL_SECONDS,
+        )
+    ):
+        chamados = snapshot.get("payload") or []
+        idade = float(snapshot.get("idade_s") or 0)
+
+        _LAST_DIAGNOSTICO = {
+            "tempo_listagem_s": 0.0,
+            "tempo_detalhes_s": 0.0,
+            "tempo_total_s": 0.0,
+            "chamados_encontrados": len(chamados),
+            "com_custom_fields": sum(
+                1 for c in chamados if "custom_fields" in c
+            ),
+            "detalhes_consultados": 0,
+            "projetos_consultados": len(ids),
+            "paginas_consultadas": 0,
+            "fonte_dados": "painel_sqlite",
+            "cache_idade_s": round(idade, 1),
+            "cache_ttl_s": PAINEL_CACHE_TTL_SECONDS,
+        }
+
+        print(
+            "[PAINEL] Snapshot SQLite HIT | "
+            f"chamados={len(chamados)} | "
+            f"idade={idade:.0f}s | "
+            f"ttl={PAINEL_CACHE_TTL_SECONDS}s",
+            flush=True,
+        )
+        return chamados
+
+    if snapshot:
+        print(
+            "[PAINEL] Snapshot expirado | "
+            f"idade={float(snapshot.get('idade_s') or 0):.0f}s | "
+            "atualizando pelo Redmine",
+            flush=True,
+        )
+    else:
+        print(
+            "[PAINEL] Sem snapshot SQLite | carga inicial pelo Redmine",
+            flush=True,
+        )
+
+    try:
+        chamados = _buscar_chamados_projetos_remoto(
+            ids,
+            status_id,
+            completar_custom_fields,
+        )
+
+        painel_salvar_snapshot(chave, chamados)
+
+        _LAST_DIAGNOSTICO["fonte_dados"] = "redmine"
+        _LAST_DIAGNOSTICO["cache_idade_s"] = 0
+        _LAST_DIAGNOSTICO["cache_ttl_s"] = PAINEL_CACHE_TTL_SECONDS
+
+        print(
+            "[PAINEL] Snapshot SQLite atualizado | "
+            f"chamados={len(chamados)}",
+            flush=True,
+        )
+        return chamados
+
+    except Exception as exc:
+        if snapshot:
+            chamados = snapshot.get("payload") or []
+            idade = float(snapshot.get("idade_s") or 0)
+
+            _LAST_DIAGNOSTICO = {
+                "tempo_listagem_s": 0.0,
+                "tempo_detalhes_s": 0.0,
+                "tempo_total_s": 0.0,
+                "chamados_encontrados": len(chamados),
+                "com_custom_fields": sum(
+                    1 for c in chamados if "custom_fields" in c
+                ),
+                "detalhes_consultados": 0,
+                "projetos_consultados": len(ids),
+                "paginas_consultadas": 0,
+                "fonte_dados": "painel_sqlite_contingencia",
+                "cache_idade_s": round(idade, 1),
+                "cache_ttl_s": PAINEL_CACHE_TTL_SECONDS,
+                "erro_redmine": f"{type(exc).__name__}: {exc}",
+            }
+
+            print(
+                "[PAINEL] Redmine indisponível | "
+                "usando snapshot SQLite antigo | "
+                f"chamados={len(chamados)} | "
+                f"idade={idade:.0f}s",
+                flush=True,
+            )
+            return chamados
+
+        raise
 
 def issue_para_linha(
     chamado: dict,
