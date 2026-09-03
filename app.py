@@ -19,6 +19,9 @@ from redmine_api import (
 
 from ednna.primeiro_combate import (
     filtrar_estado_aberto_dataframe,
+    enriquecer_dataframe_com_analises,
+    resumo_analises_dataframe,
+    autores_edi_do_dataframe,
 )
 
 from ednna.sincronizador import (
@@ -27,6 +30,7 @@ from ednna.sincronizador import (
 
 from ednna.sincronizador_journals import (
     sincronizar_proximo_lote,
+    sincronizar_fila_completa,
     listar_pendentes_dataframe,
 )
 
@@ -2940,163 +2944,56 @@ with main_col:
 
     with tab_ednna:
 
-        st.markdown(
-            (
-                "<div class='section-title'>"
-                "EDNNA — Inteligência Operacional EDI"
-                "</div>"
-            ),
-            unsafe_allow_html=True,
+        # ====================================================
+        # CABEÇALHO EDNNA
+        # ====================================================
+
+        ed_head1, ed_head2 = st.columns(
+            [
+                1,
+                5,
+            ],
+            vertical_alignment="center",
         )
 
-        st.caption(
-            "Primeiro combate dos chamados: identificação "
-            "dos tickets que permanecem no estado Aberto "
-            "e ainda precisam de análise operacional."
-        )
-
-
-        # ----------------------------------------------------
-        # MEMÓRIA OPERACIONAL
-        # ----------------------------------------------------
-
-        try:
-
-            diagnostico_banco_ednna = (
-                obter_diagnostico_banco()
+        with ed_head1:
+            avatar_ednna = Path(
+                "assets/ednna_avatar.png"
             )
 
-            ultima_sync_ednna = (
-                obter_metadado(
-                    "ultima_sincronizacao_snapshot"
-                )
-            )
-
-        except Exception as exc:
-
-            diagnostico_banco_ednna = {}
-
-            ultima_sync_ednna = ""
-
-            if erro_ednna_sync is None:
-
-                erro_ednna_sync = exc
-
-
-        with st.expander(
-            "🧠 Memória operacional da EDNNA",
-            expanded=False,
-        ):
-
-            if erro_ednna_sync:
-
-                st.warning(
-                    "A EDNNA está funcionando no painel, "
-                    "mas houve uma falha ao atualizar "
-                    "sua memória local."
-                )
-
-                st.code(
+            if avatar_ednna.exists():
+                st.image(
                     str(
-                        erro_ednna_sync
-                    )
-                )
-
-            else:
-
-                db1, db2, db3 = (
-                    st.columns(
-                        3
-                    )
-                )
-
-                db1.metric(
-                    "Chamados armazenados",
-                    diagnostico_banco_ednna.get(
-                        "chamados",
-                        0,
+                        avatar_ednna
                     ),
+                    width=125,
                 )
 
-                db2.metric(
-                    "Journals armazenados",
-                    diagnostico_banco_ednna.get(
-                        "journals",
-                        0,
-                    ),
-                )
+        with ed_head2:
+            st.markdown(
+                (
+                    "<div class='section-title'>"
+                    "EDNNA — Central Operacional EDI"
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
-                db3.metric(
-                    "Análises armazenadas",
-                    diagnostico_banco_ednna.get(
-                        "analises_primeiro_combate",
-                        0,
-                    ),
-                )
+            st.caption(
+                "A EDNNA cruza o snapshot operacional com o histórico "
+                "dos chamados para identificar primeiro combate, atuação "
+                "já realizada e situações que precisam de revisão."
+            )
 
-                if usando_memoria_ednna:
-
-                    st.info(
-                        "🧠 Esta visualização está sendo atendida "
-                        "pela memória persistente da EDNNA."
-                    )
-
-                if diagnostico_ednna_sync:
-
-                    st.write(
-                        {
-                            "Recebidos nesta sincronização":
-                                diagnostico_ednna_sync.get(
-                                    "recebidos",
-                                    0,
-                                ),
-
-                            "Novos":
-                                diagnostico_ednna_sync.get(
-                                    "novos",
-                                    0,
-                                ),
-
-                            "Alterados":
-                                diagnostico_ednna_sync.get(
-                                    "alterados",
-                                    0,
-                                ),
-
-                            "Sem alteração":
-                                diagnostico_ednna_sync.get(
-                                    "sem_alteracao",
-                                    0,
-                                ),
-
-                            "Ignorados":
-                                diagnostico_ednna_sync.get(
-                                    "ignorados",
-                                    0,
-                                ),
-
-                            "Erros":
-                                diagnostico_ednna_sync.get(
-                                    "erros",
-                                    0,
-                                ),
-                        }
-                    )
-
-                if ultima_sync_ednna:
-
-                    st.caption(
-                        "Última sincronização da memória: "
-                        f"{ultima_sync_ednna}"
-                    )
+            st.info(
+                "Modo atual: leitura e classificação. "
+                "Nenhuma alteração automática é realizada no Redmine."
+            )
 
 
-        st.divider()
-
-
-        # ----------------------------------------------------
-        # FILA DE PRIMEIRO COMBATE
-        # ----------------------------------------------------
+        # ====================================================
+        # DADOS EDNNA
+        # ====================================================
 
         ednna_abertos = (
             filtrar_estado_aberto_dataframe(
@@ -3104,390 +3001,844 @@ with main_col:
             )
         )
 
-        total_abertos_ednna = len(
-            ednna_abertos
+        ednna_abertos_global = (
+            filtrar_estado_aberto_dataframe(
+                df
+            )
         )
 
-        mais_1_dia = (
-            int(
-                (
-                    ednna_abertos[
-                        "Tempo em aberto (dias)"
-                    ]
-                    >= 1
-                ).sum()
+        ednna_analisados = (
+            enriquecer_dataframe_com_analises(
+                ednna_abertos
             )
-            if (
-                "Tempo em aberto (dias)"
-                in ednna_abertos.columns
-            )
-            else 0
         )
 
-        criticos_ednna = (
-            int(
-                ednna_abertos[
-                    "Prioridade crítica"
-                ].sum()
+        ednna_analisados_global = (
+            enriquecer_dataframe_com_analises(
+                ednna_abertos_global
             )
-            if (
-                "Prioridade crítica"
-                in ednna_abertos.columns
-            )
-            else 0
         )
 
-        sem_responsavel = (
-            int(
-                ednna_abertos[
-                    "Atribuído a"
-                ]
-                .fillna("")
-                .astype(str)
-                .str.strip()
-                .eq("")
-                .sum()
+        resumo_ednna = (
+            resumo_analises_dataframe(
+                ednna_analisados
             )
-            if (
-                "Atribuído a"
-                in ednna_abertos.columns
+        )
+
+        resumo_global = (
+            resumo_analises_dataframe(
+                ednna_analisados_global
             )
-            else 0
+        )
+
+        pendentes_ednna_global = (
+            listar_pendentes_dataframe(
+                df
+            )
+        )
+
+        autores_edi_atual = (
+            autores_edi_do_dataframe(
+                df
+            )
         )
 
 
-        k1, k2, k3, k4 = (
+        # ====================================================
+        # KPIs
+        # ====================================================
+
+        e1, e2, e3, e4, e5, e6 = (
             st.columns(
+                6
+            )
+        )
+
+        e1.metric(
+            "Estado Aberto",
+            len(
+                ednna_abertos
+            ),
+        )
+
+        e2.metric(
+            "Não analisados",
+            resumo_ednna.get(
+                "nao_analisados",
+                0,
+            ),
+        )
+
+        e3.metric(
+            "Sem primeiro combate",
+            resumo_ednna.get(
+                "aguardando",
+                0,
+            ),
+        )
+
+        e4.metric(
+            "Já atuados",
+            resumo_ednna.get(
+                "ja_atuados",
+                0,
+            ),
+        )
+
+        e5.metric(
+            "Revisão",
+            resumo_ednna.get(
+                "revisao",
+                0,
+            ),
+        )
+
+        e6.metric(
+            "Pendentes globais",
+            len(
+                pendentes_ednna_global
+            ),
+        )
+
+
+        # ====================================================
+        # STATUS DA MEMÓRIA
+        # ====================================================
+
+        with st.expander(
+            "🧠 Memória e diagnóstico da EDNNA",
+            expanded=False,
+        ):
+
+            try:
+                diagnostico_banco_ednna = (
+                    obter_diagnostico_banco()
+                )
+
+                ultima_sync_ednna = (
+                    obter_metadado(
+                        "ultima_sincronizacao_snapshot"
+                    )
+                )
+
+                ultima_sync_journals = (
+                    obter_metadado(
+                        "ultima_sincronizacao_journals"
+                    )
+                )
+
+            except Exception as exc:
+                diagnostico_banco_ednna = {}
+                ultima_sync_ednna = ""
+                ultima_sync_journals = ""
+
+                st.warning(
+                    f"Falha ao consultar memória EDNNA: {exc}"
+                )
+
+
+            d1, d2, d3, d4 = st.columns(
                 4
             )
-        )
 
-        k1.metric(
-            "Aguardando análise EDNNA",
-            f"{total_abertos_ednna:,}".replace(
-                ",",
-                ".",
-            ),
-        )
+            d1.metric(
+                "Chamados armazenados",
+                diagnostico_banco_ednna.get(
+                    "chamados",
+                    0,
+                ),
+            )
 
-        k2.metric(
-            "Há 1 dia ou mais",
-            f"{mais_1_dia:,}".replace(
-                ",",
-                ".",
-            ),
-        )
+            d2.metric(
+                "Journals",
+                diagnostico_banco_ednna.get(
+                    "journals",
+                    0,
+                ),
+            )
 
-        k3.metric(
-            "Alta / Urgente",
-            f"{criticos_ednna:,}".replace(
-                ",",
-                ".",
-            ),
-        )
+            d3.metric(
+                "Análises",
+                diagnostico_banco_ednna.get(
+                    "analises_primeiro_combate",
+                    0,
+                ),
+            )
 
-        k4.metric(
-            "Sem responsável",
-            f"{sem_responsavel:,}".replace(
-                ",",
-                ".",
-            ),
-        )
+            d4.metric(
+                "Integrantes EDI reconhecidos",
+                len(
+                    autores_edi_atual
+                ),
+            )
+
+            if autores_edi_atual:
+                st.caption(
+                    "Equipe reconhecida automaticamente a partir "
+                    "do campo Atribuído a: "
+                    + ", ".join(
+                        sorted(
+                            autores_edi_atual
+                        )
+                    )
+                )
+
+            if ultima_sync_ednna:
+                st.caption(
+                    "Último snapshot EDNNA: "
+                    f"{ultima_sync_ednna}"
+                )
+
+            if ultima_sync_journals:
+                st.caption(
+                    "Última análise de journals: "
+                    f"{ultima_sync_journals}"
+                )
 
 
         st.divider()
 
 
-        if ednna_abertos.empty:
+        # ====================================================
+        # AÇÕES
+        # ====================================================
 
-            st.success(
-                "Não existem chamados no estado Aberto "
-                "no filtro atual."
-            )
+        st.markdown(
+            (
+                "<div class='section-title'>"
+                "Atualização da inteligência"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
 
-        else:
-
-            st.markdown(
-                (
-                    "<div class='section-title'>"
-                    "Fila de primeiro combate"
-                    "</div>"
-                ),
-                unsafe_allow_html=True,
-            )
-
-            st.caption(
-                "A EDNNA ainda está em modo de observação. "
-                "Nesta etapa ela apenas identifica os candidatos "
-                "ao primeiro combate; nenhuma ação é realizada "
-                "automaticamente no Redmine."
-            )
-
-            pesquisa_ednna = st.text_input(
-                "Pesquisar na fila EDNNA",
-                placeholder=(
-                    "Número, cliente, origem ou assunto"
-                ),
-                key="pesquisa_fila_ednna",
-            )
-
-            fila_ednna = (
-                ednna_abertos.copy()
-            )
-
-            if pesquisa_ednna.strip():
-
-                termo = (
-                    pesquisa_ednna.strip()
-                )
-
-                mascara_busca = pd.Series(
-                    False,
-                    index=fila_ednna.index,
-                )
-
-                for coluna in [
-                    "#",
-                    "Clientes",
-                    "Origem",
-                    "Tipo",
-                    "Assunto",
-                    "Descrição",
-                ]:
-
-                    if coluna in fila_ednna.columns:
-
-                        mascara_busca |= (
-                            fila_ednna[coluna]
-                            .astype(str)
-                            .str.contains(
-                                termo,
-                                case=False,
-                                na=False,
-                                regex=False,
-                            )
-                        )
-
-                fila_ednna = fila_ednna[
-                    mascara_busca
-                ]
-
-
-            colunas_ordenacao = []
-            ascending = []
-
-
-            if (
-                "Prioridade crítica"
-                in fila_ednna.columns
-            ):
-
-                colunas_ordenacao.append(
-                    "Prioridade crítica"
-                )
-
-                ascending.append(
-                    False
-                )
-
-
-            if (
-                "Tempo em aberto (dias)"
-                in fila_ednna.columns
-            ):
-
-                colunas_ordenacao.append(
-                    "Tempo em aberto (dias)"
-                )
-
-                ascending.append(
-                    False
-                )
-
-
-            if colunas_ordenacao:
-
-                fila_ednna = (
-                    fila_ednna.sort_values(
-                        colunas_ordenacao,
-                        ascending=ascending,
-                    )
-                )
-
-
-            colunas_ednna = [
-                coluna
-                for coluna in [
-                    "#",
-                    "Clientes",
-                    "Origem",
-                    "Atribuído a",
-                    "Projeto",
-                    "Tipo",
-                    "Prioridade",
-                    "Assunto",
-                    "Criado",
-                    "Tempo em aberto (dias)",
-                ]
-                if coluna in fila_ednna.columns
+        ac1, ac2, ac3 = st.columns(
+            [
+                1.5,
+                1.5,
+                3,
             ]
+        )
 
-
-            tabela_ednna, config_ednna = (
-                preparar_tabela_com_link_redmine(
-                    fila_ednna[
-                        colunas_ednna
-                    ]
-                )
-            )
-
-
-            st.dataframe(
-                tabela_ednna,
-                width="stretch",
-                hide_index=True,
-                column_config=config_ednna,
-            )
-
-            st.caption(
-                f"{len(fila_ednna)} chamado(s) exibido(s) "
-                "na fila atual. Clique no número para abrir "
-                "diretamente no Redmine."
-            )
-
-            st.divider()
-
-            st.markdown(
-                (
-                    "<div class='section-title'>"
-                    "Análise controlada de journals"
-                    "</div>"
-                ),
-                unsafe_allow_html=True,
-            )
-
-            pendentes_ednna_global = listar_pendentes_dataframe(df)
-
-            st.caption(
-                f"{len(pendentes_ednna_global)} chamado(s) ainda precisam "
-                "de análise ou reanálise. O processamento é sequencial e "
-                "limitado a 5 chamados por lote para proteger o Redmine."
-            )
-
-            if st.button(
-                "🤖 Analisar próximos 5",
+        with ac1:
+            analisar_tudo = st.button(
+                "🤖 Analisar fila completa",
                 type="primary",
                 width="stretch",
-                key="ednna_processar_proximos_5",
-            ):
-                if usando_memoria_ednna:
-                    st.warning(
-                        "O Redmine está indisponível. A EDNNA não fará "
-                        "novas consultas enquanto o painel estiver em "
-                        "contingência pela memória local."
+                key="ednna_analisar_tudo",
+            )
+
+        with ac2:
+            analisar_5 = st.button(
+                "Analisar próximos 5",
+                width="stretch",
+                key="ednna_analisar_5",
+            )
+
+        with ac3:
+            st.caption(
+                f"{len(pendentes_ednna_global)} chamado(s) precisam "
+                "de análise ou reanálise. Chamados já analisados e sem "
+                "alteração são reaproveitados automaticamente."
+            )
+
+
+        if analisar_tudo:
+
+            if usando_memoria_ednna:
+                st.warning(
+                    "O Redmine está indisponível. "
+                    "A análise completa não será iniciada."
+                )
+
+            elif pendentes_ednna_global.empty:
+                st.success(
+                    "Toda a fila já está analisada e atualizada."
+                )
+
+            else:
+                barra = st.progress(
+                    0,
+                    text="Iniciando análise da fila..."
+                )
+
+                status_box = st.empty()
+
+                total_fila = len(
+                    pendentes_ednna_global
+                )
+
+                def atualizar_progresso(
+                    info: dict,
+                ):
+                    processados = int(
+                        info.get(
+                            "processados",
+                            0,
+                        )
                     )
-                else:
-                    with st.spinner(
-                        "EDNNA analisando os próximos chamados..."
-                    ):
-                        resultado_lote = sincronizar_proximo_lote(
+
+                    percentual = min(
+                        1.0,
+                        (
+                            processados
+                            / total_fila
+                        )
+                        if total_fila
+                        else 1.0,
+                    )
+
+                    barra.progress(
+                        percentual,
+                        text=(
+                            f"EDNNA analisando {processados}/{total_fila} "
+                            f"• chamado #{info.get('atual_id', '')} "
+                            f"• {info.get('atual_situacao', '')}"
+                        ),
+                    )
+
+                    status_box.caption(
+                        f"Sucessos: {info.get('sucesso', 0)} • "
+                        f"Erros: {info.get('erros', 0)} • "
+                        f"Journals: {info.get('journals', 0)}"
+                    )
+
+
+                resultado_lote = (
+                    sincronizar_fila_completa(
+                        df,
+                        progresso_callback=atualizar_progresso,
+                    )
+                )
+
+                st.session_state[
+                    "ednna_ultimo_lote"
+                ] = resultado_lote
+
+                barra.progress(
+                    1.0,
+                    text="Análise concluída."
+                )
+
+                st.rerun()
+
+
+        if analisar_5:
+
+            if usando_memoria_ednna:
+                st.warning(
+                    "O Redmine está indisponível. "
+                    "A EDNNA não fará novas consultas."
+                )
+
+            else:
+                with st.spinner(
+                    "EDNNA analisando os próximos chamados..."
+                ):
+                    resultado_lote = (
+                        sincronizar_proximo_lote(
                             df,
                             limite=5,
                         )
+                    )
 
-                    st.session_state[
-                        "ednna_ultimo_lote"
-                    ] = resultado_lote
+                st.session_state[
+                    "ednna_ultimo_lote"
+                ] = resultado_lote
 
-                    st.rerun()
+                st.rerun()
 
-            ultimo_lote = st.session_state.get(
+
+        ultimo_lote = (
+            st.session_state.get(
                 "ednna_ultimo_lote"
             )
+        )
 
-            if ultimo_lote:
-                mensagem = (
-                    f"Último lote: "
-                    f"{ultimo_lote.get('sucesso', 0)} sucesso(s), "
-                    f"{ultimo_lote.get('erros', 0)} erro(s), "
-                    f"{ultimo_lote.get('journals', 0)} journal(s) "
-                    "armazenado(s)."
-                )
+        if ultimo_lote:
 
-                if ultimo_lote.get("erros", 0):
-                    st.warning(mensagem)
-                else:
-                    st.success(mensagem)
-
-                with st.expander(
-                    "Ver resultado do último lote",
-                    expanded=False,
-                ):
-                    st.write(
-                        {
-                            "Pendentes antes":
-                                ultimo_lote.get(
-                                    "pendentes_antes",
-                                    0,
-                                ),
-                            "Selecionados":
-                                ultimo_lote.get(
-                                    "selecionados",
-                                    0,
-                                ),
-                            "Processados":
-                                ultimo_lote.get(
-                                    "processados",
-                                    0,
-                                ),
-                            "Sucesso":
-                                ultimo_lote.get(
-                                    "sucesso",
-                                    0,
-                                ),
-                            "Erros":
-                                ultimo_lote.get(
-                                    "erros",
-                                    0,
-                                ),
-                            "Journals encontrados":
-                                ultimo_lote.get(
-                                    "journals",
-                                    0,
-                                ),
-                            "Pendentes depois":
-                                ultimo_lote.get(
-                                    "pendentes_depois",
-                                    0,
-                                ),
-                        }
-                    )
-
-                    resultados_lote = (
-                        ultimo_lote.get(
-                            "resultados",
-                            [],
-                        )
-                    )
-
-                    if resultados_lote:
-                        st.dataframe(
-                            pd.DataFrame(
-                                resultados_lote
-                            ),
-                            width="stretch",
-                            hide_index=True,
-                        )
-
-            st.info(
-                "Nesta versão a EDNNA apenas lê e classifica. "
-                "Nenhuma alteração é feita automaticamente no Redmine."
+            mensagem = (
+                f"Última execução: "
+                f"{ultimo_lote.get('processados', 0)} processado(s), "
+                f"{ultimo_lote.get('sucesso', 0)} sucesso(s), "
+                f"{ultimo_lote.get('erros', 0)} erro(s), "
+                f"{ultimo_lote.get('journals', 0)} journal(s)."
             )
 
+            if ultimo_lote.get(
+                "interrompido"
+            ):
+                st.warning(
+                    mensagem
+                    + " A fila foi interrompida por erros consecutivos."
+                )
 
-    # ========================================================
-    # EQUIPE
-    # ========================================================
+            elif ultimo_lote.get(
+                "erros",
+                0,
+            ):
+                st.warning(
+                    mensagem
+                )
+
+            else:
+                st.success(
+                    mensagem
+                )
+
+
+        st.divider()
+
+
+        # ====================================================
+        # SUBABAS EDNNA
+        # ====================================================
+
+        (
+            ed_visao,
+            ed_primeiro,
+            ed_atuados,
+            ed_revisao,
+            ed_equipe,
+        ) = st.tabs(
+            [
+                "Visão EDNNA",
+                "Primeiro combate",
+                "Já atuados",
+                "Revisão",
+                "Equipe EDI",
+            ]
+        )
+
+
+        # ----------------------------------------------------
+        # VISÃO EDNNA
+        # ----------------------------------------------------
+
+        with ed_visao:
+
+            c1, c2 = st.columns(
+                2
+            )
+
+            with c1:
+
+                st.markdown(
+                    "**Situação das análises**"
+                )
+
+                if (
+                    "EDNNA - Situação"
+                    in ednna_analisados.columns
+                    and len(
+                        ednna_analisados
+                    )
+                ):
+
+                    resumo_situacao = (
+                        ednna_analisados[
+                            "EDNNA - Situação"
+                        ]
+                        .fillna(
+                            "NAO_ANALISADO"
+                        )
+                        .value_counts()
+                        .rename_axis(
+                            "Situação"
+                        )
+                        .reset_index(
+                            name="Chamados"
+                        )
+                    )
+
+                    fig_ed = px.bar(
+                        resumo_situacao,
+                        x="Chamados",
+                        y="Situação",
+                        orientation="h",
+                        text_auto=True,
+                        color_discrete_sequence=FACEBOOK_COLORS,
+                    )
+
+                    fig_ed.update_layout(
+                        height=350,
+                        xaxis_title="Chamados",
+                        yaxis_title="",
+                    )
+
+                    ajustar_grafico(
+                        fig_ed
+                    )
+
+                    st.plotly_chart(
+                        fig_ed,
+                        width="stretch",
+                    )
+
+
+            with c2:
+
+                st.markdown(
+                    "**Sem primeiro combate por responsável**"
+                )
+
+                sem_pc = (
+                    ednna_analisados[
+                        ednna_analisados[
+                            "EDNNA - Situação"
+                        ]
+                        == "AGUARDANDO_PRIMEIRO_COMBATE"
+                    ].copy()
+                )
+
+                if (
+                    not sem_pc.empty
+                    and "Atribuído a"
+                    in sem_pc.columns
+                ):
+
+                    resp_pc = (
+                        sem_pc[
+                            "Atribuído a"
+                        ]
+                        .fillna(
+                            "Sem responsável"
+                        )
+                        .value_counts()
+                        .head(
+                            15
+                        )
+                        .rename_axis(
+                            "Responsável"
+                        )
+                        .reset_index(
+                            name="Chamados"
+                        )
+                    )
+
+                    fig_resp = px.bar(
+                        resp_pc.sort_values(
+                            "Chamados"
+                        ),
+                        x="Chamados",
+                        y="Responsável",
+                        orientation="h",
+                        text_auto=True,
+                        color_discrete_sequence=FACEBOOK_COLORS,
+                    )
+
+                    fig_resp.update_layout(
+                        height=350,
+                        xaxis_title="Chamados",
+                        yaxis_title="",
+                    )
+
+                    ajustar_grafico(
+                        fig_resp
+                    )
+
+                    st.plotly_chart(
+                        fig_resp,
+                        width="stretch",
+                    )
+
+                else:
+                    st.info(
+                        "Nenhum chamado analisado está aguardando primeiro combate."
+                    )
+
+
+            sem_pc_global = (
+                ednna_analisados[
+                    ednna_analisados[
+                        "EDNNA - Situação"
+                    ]
+                    == "AGUARDANDO_PRIMEIRO_COMBATE"
+                ].copy()
+            )
+
+            if not sem_pc_global.empty:
+
+                st.markdown(
+                    "**Prioridades da EDNNA**"
+                )
+
+                prioridades_ed = (
+                    sem_pc_global.sort_values(
+                        [
+                            "Prioridade crítica",
+                            "Tempo em aberto (dias)",
+                        ],
+                        ascending=[
+                            False,
+                            False,
+                        ],
+                    )
+                    .head(
+                        15
+                    )
+                )
+
+                cols_prioridade = [
+                    c
+                    for c in [
+                        "#",
+                        "Clientes",
+                        "Atribuído a",
+                        "Prioridade",
+                        "Tipo",
+                        "Assunto",
+                        "Tempo em aberto (dias)",
+                    ]
+                    if c in prioridades_ed.columns
+                ]
+
+                tab_prioridade, cfg_prioridade = (
+                    preparar_tabela_com_link_redmine(
+                        prioridades_ed[
+                            cols_prioridade
+                        ]
+                    )
+                )
+
+                st.dataframe(
+                    tab_prioridade,
+                    width="stretch",
+                    hide_index=True,
+                    column_config=cfg_prioridade,
+                )
+
+
+        # ----------------------------------------------------
+        # PRIMEIRO COMBATE
+        # ----------------------------------------------------
+
+        with ed_primeiro:
+
+            fila_pc = (
+                ednna_analisados[
+                    ednna_analisados[
+                        "EDNNA - Situação"
+                    ]
+                    == "AGUARDANDO_PRIMEIRO_COMBATE"
+                ].copy()
+            )
+
+            st.caption(
+                f"{len(fila_pc)} chamado(s) analisado(s) "
+                "sem atuação EDI identificada."
+            )
+
+            if fila_pc.empty:
+                st.success(
+                    "Nenhum chamado analisado está aguardando primeiro combate."
+                )
+
+            else:
+                fila_pc = (
+                    fila_pc.sort_values(
+                        [
+                            "Prioridade crítica",
+                            "Tempo em aberto (dias)",
+                        ],
+                        ascending=[
+                            False,
+                            False,
+                        ],
+                    )
+                )
+
+                cols_pc = [
+                    c
+                    for c in [
+                        "#",
+                        "Clientes",
+                        "Origem",
+                        "Atribuído a",
+                        "Prioridade",
+                        "Tipo",
+                        "Assunto",
+                        "Criado",
+                        "Tempo em aberto (dias)",
+                    ]
+                    if c in fila_pc.columns
+                ]
+
+                tab_pc, cfg_pc = (
+                    preparar_tabela_com_link_redmine(
+                        fila_pc[
+                            cols_pc
+                        ]
+                    )
+                )
+
+                st.dataframe(
+                    tab_pc,
+                    width="stretch",
+                    hide_index=True,
+                    column_config=cfg_pc,
+                )
+
+
+        # ----------------------------------------------------
+        # JÁ ATUADOS
+        # ----------------------------------------------------
+
+        with ed_atuados:
+
+            atuados = (
+                ednna_analisados[
+                    ednna_analisados[
+                        "EDNNA - Situação"
+                    ]
+                    == "JA_ATUADO"
+                ].copy()
+            )
+
+            st.caption(
+                f"{len(atuados)} chamado(s) com atuação EDI identificada."
+            )
+
+            if atuados.empty:
+                st.info(
+                    "Nenhum chamado analisado foi classificado como já atuado."
+                )
+
+            else:
+
+                cols_atuados = [
+                    c
+                    for c in [
+                        "#",
+                        "Clientes",
+                        "Atribuído a",
+                        "Prioridade",
+                        "Tipo",
+                        "Assunto",
+                        "EDNNA - Autor",
+                        "EDNNA - Data atuação",
+                        "EDNNA - Tipo atuação",
+                    ]
+                    if c in atuados.columns
+                ]
+
+                tab_atuados, cfg_atuados = (
+                    preparar_tabela_com_link_redmine(
+                        atuados[
+                            cols_atuados
+                        ]
+                    )
+                )
+
+                st.dataframe(
+                    tab_atuados,
+                    width="stretch",
+                    hide_index=True,
+                    column_config=cfg_atuados,
+                )
+
+
+        # ----------------------------------------------------
+        # REVISÃO
+        # ----------------------------------------------------
+
+        with ed_revisao:
+
+            revisao = (
+                ednna_analisados[
+                    ednna_analisados[
+                        "EDNNA - Situação"
+                    ]
+                    .isin(
+                        [
+                            "REVISAO_NECESSARIA",
+                            "ERRO_ANALISE",
+                        ]
+                    )
+                ].copy()
+            )
+
+            st.caption(
+                f"{len(revisao)} chamado(s) precisam de validação humana."
+            )
+
+            if revisao.empty:
+                st.success(
+                    "Nenhum chamado está aguardando revisão."
+                )
+
+            else:
+
+                cols_revisao = [
+                    c
+                    for c in [
+                        "#",
+                        "Clientes",
+                        "Atribuído a",
+                        "Prioridade",
+                        "Assunto",
+                        "EDNNA - Situação",
+                        "EDNNA - Autor",
+                        "EDNNA - Tipo atuação",
+                        "EDNNA - Erro",
+                    ]
+                    if c in revisao.columns
+                ]
+
+                tab_rev, cfg_rev = (
+                    preparar_tabela_com_link_redmine(
+                        revisao[
+                            cols_revisao
+                        ]
+                    )
+                )
+
+                st.dataframe(
+                    tab_rev,
+                    width="stretch",
+                    hide_index=True,
+                    column_config=cfg_rev,
+                )
+
+
+        # ----------------------------------------------------
+        # EQUIPE EDI
+        # ----------------------------------------------------
+
+        with ed_equipe:
+
+            st.markdown(
+                "**Catálogo dinâmico de integrantes EDI**"
+            )
+
+            st.caption(
+                "A EDNNA considera como integrante EDI quem aparece "
+                "no campo Atribuído a do snapshot completo. "
+                "EDNNA_AUTORES_EDI pode complementar nomes históricos."
+            )
+
+            if autores_edi_atual:
+
+                equipe_df = pd.DataFrame(
+                    {
+                        "Integrante EDI":
+                            sorted(
+                                autores_edi_atual
+                            )
+                    }
+                )
+
+                st.dataframe(
+                    equipe_df,
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            else:
+                st.warning(
+                    "Nenhum integrante EDI foi reconhecido no snapshot."
+                )
+
 
     with tab_team:
 
@@ -4326,7 +4677,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.9.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
+        "Versão 3.10.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )
