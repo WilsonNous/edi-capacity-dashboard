@@ -3,6 +3,11 @@ from __future__ import annotations
 import pandas as pd
 
 
+# ============================================================
+# EDNNA — INTELIGÊNCIA OPERACIONAL EDI
+# Módulo: Primeiro Combate
+# ============================================================
+
 STATUS_PRIMEIRO_COMBATE = "Aberto"
 
 
@@ -21,26 +26,45 @@ def eh_estado_aberto(valor) -> bool:
     Retorna True somente quando o nome real do estado é 'Aberto'.
 
     Importante:
-    O Redmine usa status_id='open' para representar todos os chamados
-    que ainda não estão fechados. Para a EDNNA, entretanto, queremos
-    inicialmente apenas o estado operacional chamado 'Aberto'.
+    No Redmine, status_id='open' representa todos os chamados
+    que ainda não estão fechados.
+
+    Para o primeiro combate da EDNNA queremos, nesta etapa,
+    somente os chamados cujo Estado real seja 'Aberto'.
     """
-    return normalizar_texto(valor).casefold() == STATUS_PRIMEIRO_COMBATE.casefold()
+    return (
+        normalizar_texto(valor).casefold()
+        == STATUS_PRIMEIRO_COMBATE.casefold()
+    )
 
 
-def filtrar_estado_aberto_dataframe(frame: pd.DataFrame) -> pd.DataFrame:
+def filtrar_estado_aberto_dataframe(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
     """
-    Filtra o DataFrame já carregado pelo dashboard e retorna apenas
-    chamados cujo campo Estado seja exatamente 'Aberto'.
+    Recebe o DataFrame que já foi carregado pelo dashboard
+    e retorna somente os chamados cujo Estado seja 'Aberto'.
 
-    Esta função:
-    - não consulta o Redmine;
-    - não altera chamados;
-    - não executa automações;
-    - apenas identifica a fila inicial de primeiro combate.
+    IMPORTANTE:
+
+    Esta função NÃO:
+    - consulta novamente o Redmine;
+    - altera chamados;
+    - envia e-mails;
+    - muda status;
+    - executa automações.
+
+    Ela apenas identifica a fila inicial de primeiro combate.
     """
-    if frame is None or frame.empty:
-        return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+
+    if frame is None:
+        return pd.DataFrame()
+
+    if not isinstance(frame, pd.DataFrame):
+        return pd.DataFrame()
+
+    if frame.empty:
+        return frame.copy()
 
     if "Estado" not in frame.columns:
         return frame.iloc[0:0].copy()
@@ -57,31 +81,56 @@ def filtrar_estado_aberto_dataframe(frame: pd.DataFrame) -> pd.DataFrame:
     return frame[mascara].copy()
 
 
-def resumo_fila_primeiro_combate(frame: pd.DataFrame) -> dict:
+def resumo_fila_primeiro_combate(
+    frame: pd.DataFrame,
+) -> dict:
     """
-    Gera métricas simples da fila EDNNA.
+    Gera um resumo simples da fila inicial da EDNNA.
 
-    O dashboard pode usar este retorno futuramente para reduzir
-    duplicação de regras na camada visual.
+    Retorna:
+    - total de chamados em estado Aberto;
+    - chamados com 1 dia ou mais;
+    - chamados com prioridade crítica;
+    - chamados sem responsável.
     """
+
     fila = filtrar_estado_aberto_dataframe(frame)
 
     total = len(fila)
 
-    mais_1_dia = (
-        int((fila["Tempo em aberto (dias)"] >= 1).sum())
-        if "Tempo em aberto (dias)" in fila.columns
-        else 0
-    )
+    # --------------------------------------------------------
+    # CHAMADOS COM 1 DIA OU MAIS
+    # --------------------------------------------------------
 
-    criticos = (
-        int(fila["Prioridade crítica"].sum())
-        if "Prioridade crítica" in fila.columns
-        else 0
-    )
+    if "Tempo em aberto (dias)" in fila.columns:
+        mais_1_dia = int(
+            (
+                fila["Tempo em aberto (dias)"] >= 1
+            ).sum()
+        )
+    else:
+        mais_1_dia = 0
 
-    sem_responsavel = (
-        int(
+    # --------------------------------------------------------
+    # PRIORIDADE CRÍTICA
+    # --------------------------------------------------------
+
+    if "Prioridade crítica" in fila.columns:
+        criticos = int(
+            fila["Prioridade crítica"]
+            .fillna(False)
+            .astype(bool)
+            .sum()
+        )
+    else:
+        criticos = 0
+
+    # --------------------------------------------------------
+    # SEM RESPONSÁVEL
+    # --------------------------------------------------------
+
+    if "Atribuído a" in fila.columns:
+        sem_responsavel = int(
             fila["Atribuído a"]
             .fillna("")
             .astype(str)
@@ -89,9 +138,12 @@ def resumo_fila_primeiro_combate(frame: pd.DataFrame) -> dict:
             .eq("")
             .sum()
         )
-        if "Atribuído a" in fila.columns
-        else 0
-    )
+    else:
+        sem_responsavel = 0
+
+    # --------------------------------------------------------
+    # RETORNO
+    # --------------------------------------------------------
 
     return {
         "total_estado_aberto": total,
