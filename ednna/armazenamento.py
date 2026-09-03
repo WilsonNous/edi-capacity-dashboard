@@ -13,16 +13,40 @@ from zoneinfo import ZoneInfo
 # ============================================================
 # EDNNA — INTELIGÊNCIA OPERACIONAL EDI
 # Módulo: Armazenamento
+#
+# Responsabilidades:
+#
+# - manter a memória operacional da EDNNA;
+# - armazenar snapshot dos chamados;
+# - armazenar journals;
+# - armazenar análises de primeiro combate;
+# - fornecer contingência quando o Redmine estiver indisponível.
+#
+# Azure App Service:
+# banco persistente em /home/data/ednna.db
 # ============================================================
 
-FUSO_BRASIL = ZoneInfo("America/Sao_Paulo")
 
+FUSO_BRASIL = ZoneInfo(
+    "America/Sao_Paulo"
+)
+
+
+# ============================================================
+# DATA / HORA
+# ============================================================
 
 def agora_brasil_iso() -> str:
     """
-    Retorna data/hora atual de São Paulo em ISO 8601.
+    Retorna data/hora atual de São Paulo
+    no padrão ISO 8601.
     """
-    return datetime.now(FUSO_BRASIL).isoformat(timespec="seconds")
+
+    return datetime.now(
+        FUSO_BRASIL
+    ).isoformat(
+        timespec="seconds"
+    )
 
 
 # ============================================================
@@ -30,10 +54,12 @@ def agora_brasil_iso() -> str:
 # ============================================================
 #
 # Azure App Service Linux:
+#
 # somente /home é persistente.
 #
 # Local:
-# usa ./data/ednna.db
+#
+# ./data/ednna.db
 #
 # Pode ser sobrescrito pela variável:
 #
@@ -41,14 +67,40 @@ def agora_brasil_iso() -> str:
 # ============================================================
 
 def obter_caminho_banco() -> Path:
-    caminho_configurado = os.getenv("EDNNA_DB_PATH", "").strip()
+    """
+    Define o local do banco SQLite da EDNNA.
+
+    Ordem de prioridade:
+
+    1. EDNNA_DB_PATH
+    2. Azure App Service -> /home/data/ednna.db
+    3. Ambiente local -> data/ednna.db
+    """
+
+    caminho_configurado = os.getenv(
+        "EDNNA_DB_PATH",
+        "",
+    ).strip()
 
     if caminho_configurado:
-        caminho = Path(caminho_configurado)
-    elif os.getenv("WEBSITE_INSTANCE_ID"):
-        caminho = Path("/home/data/ednna.db")
+
+        caminho = Path(
+            caminho_configurado
+        )
+
+    elif os.getenv(
+        "WEBSITE_INSTANCE_ID"
+    ):
+
+        caminho = Path(
+            "/home/data/ednna.db"
+        )
+
     else:
-        caminho = Path("data/ednna.db")
+
+        caminho = Path(
+            "data/ednna.db"
+        )
 
     caminho.parent.mkdir(
         parents=True,
@@ -66,15 +118,19 @@ DB_PATH = obter_caminho_banco()
 # ============================================================
 
 @contextmanager
-def conectar() -> Iterator[sqlite3.Connection]:
+def conectar() -> Iterator[
+    sqlite3.Connection
+]:
     """
-    Abre conexão SQLite de forma controlada.
+    Abre uma conexão SQLite controlada.
 
-    Para este MVP não usamos WAL.
+    Para este MVP não utilizamos WAL.
 
-    O App Service utiliza armazenamento persistente em /home,
-    e queremos manter o modelo mais conservador possível
-    enquanto trabalhamos com apenas uma instância.
+    No Azure App Service o banco ficará em /home,
+    utilizando armazenamento persistente.
+
+    busy_timeout evita falhas imediatas caso duas
+    operações tentem acessar o SQLite ao mesmo tempo.
     """
 
     conn = sqlite3.connect(
@@ -82,9 +138,12 @@ def conectar() -> Iterator[sqlite3.Connection]:
         timeout=30,
     )
 
-    conn.row_factory = sqlite3.Row
+    conn.row_factory = (
+        sqlite3.Row
+    )
 
     try:
+
         conn.execute(
             "PRAGMA foreign_keys = ON"
         )
@@ -98,10 +157,13 @@ def conectar() -> Iterator[sqlite3.Connection]:
         conn.commit()
 
     except Exception:
+
         conn.rollback()
+
         raise
 
     finally:
+
         conn.close()
 
 
@@ -111,7 +173,12 @@ def conectar() -> Iterator[sqlite3.Connection]:
 
 def inicializar_banco() -> None:
     """
-    Cria as tabelas da EDNNA caso ainda não existam.
+    Cria as tabelas da EDNNA caso
+    ainda não existam.
+
+    CREATE TABLE IF NOT EXISTS permite executar
+    esta função em todo início da aplicação sem
+    perder os dados existentes.
     """
 
     with conectar() as conn:
@@ -178,7 +245,10 @@ def inicializar_banco() -> None:
                 alterado_em_redmine TEXT,
 
                 situacao TEXT NOT NULL,
-                teve_atuacao INTEGER NOT NULL DEFAULT 0,
+
+                teve_atuacao INTEGER
+                    NOT NULL
+                    DEFAULT 0,
 
                 autor_primeira_atuacao TEXT,
                 data_primeira_atuacao TEXT,
@@ -196,7 +266,9 @@ def inicializar_banco() -> None:
 
             CREATE TABLE IF NOT EXISTS metadados (
                 chave TEXT PRIMARY KEY,
+
                 valor TEXT,
+
                 atualizado_em TEXT NOT NULL
             );
             """
@@ -207,33 +279,74 @@ def inicializar_banco() -> None:
 # UTILIDADES
 # ============================================================
 
-def _texto(valor: Any) -> str:
+def _texto(
+    valor: Any,
+) -> str:
+    """
+    Converte valores diversos para texto.
+
+    Também trata objetos de data/hora
+    que possuem método isoformat().
+    """
+
     if valor is None:
         return ""
 
     try:
-        if hasattr(valor, "isoformat"):
+
+        if hasattr(
+            valor,
+            "isoformat",
+        ):
+
             return valor.isoformat()
+
     except Exception:
+
         pass
 
-    return str(valor).strip()
+    return str(
+        valor
+    ).strip()
 
 
-def _float(valor: Any) -> float | None:
+def _float(
+    valor: Any,
+) -> float | None:
+    """
+    Converte um valor para float.
+
+    Retorna None quando não for possível.
+    """
+
     if valor is None:
         return None
 
     try:
-        return float(valor)
-    except (TypeError, ValueError):
+
+        return float(
+            valor
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
         return None
 
 
-def _json_seguro(valor: Any) -> str:
+def _json_seguro(
+    valor: Any,
+) -> str:
     """
-    Serializa estruturas Python/Pandas sem quebrar
-    com datas e tipos desconhecidos.
+    Serializa estruturas Python/Pandas.
+
+    default=str evita erros com:
+    - Timestamp
+    - datetime
+    - tipos especiais do Pandas
+    - objetos desconhecidos
     """
 
     return json.dumps(
@@ -252,10 +365,19 @@ def salvar_chamado(
     dados: dict,
 ) -> None:
     """
-    Insere ou atualiza um chamado no cache local da EDNNA.
+    Insere ou atualiza um chamado
+    na memória operacional da EDNNA.
+
+    O payload completo da linha também é
+    armazenado em JSON.
+
+    Isso permitirá reconstruir o DataFrame
+    quando o Redmine estiver indisponível.
     """
 
-    agora = agora_brasil_iso()
+    agora = (
+        agora_brasil_iso()
+    )
 
     with conectar() as conn:
 
@@ -277,42 +399,124 @@ def salvar_chamado(
                 payload_json,
                 sincronizado_em
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
 
             ON CONFLICT(id) DO UPDATE SET
 
-                cliente = excluded.cliente,
-                origem = excluded.origem,
-                responsavel = excluded.responsavel,
-                projeto = excluded.projeto,
-                tipo = excluded.tipo,
-                estado = excluded.estado,
-                prioridade = excluded.prioridade,
-                assunto = excluded.assunto,
-                criado_em = excluded.criado_em,
-                alterado_em = excluded.alterado_em,
-                tempo_aberto_dias = excluded.tempo_aberto_dias,
-                payload_json = excluded.payload_json,
-                sincronizado_em = excluded.sincronizado_em
+                cliente =
+                    excluded.cliente,
+
+                origem =
+                    excluded.origem,
+
+                responsavel =
+                    excluded.responsavel,
+
+                projeto =
+                    excluded.projeto,
+
+                tipo =
+                    excluded.tipo,
+
+                estado =
+                    excluded.estado,
+
+                prioridade =
+                    excluded.prioridade,
+
+                assunto =
+                    excluded.assunto,
+
+                criado_em =
+                    excluded.criado_em,
+
+                alterado_em =
+                    excluded.alterado_em,
+
+                tempo_aberto_dias =
+                    excluded.tempo_aberto_dias,
+
+                payload_json =
+                    excluded.payload_json,
+
+                sincronizado_em =
+                    excluded.sincronizado_em
             """,
             (
                 chamado_id,
-                _texto(dados.get("Clientes")),
-                _texto(dados.get("Origem")),
-                _texto(dados.get("Atribuído a")),
-                _texto(dados.get("Projeto")),
-                _texto(dados.get("Tipo")),
-                _texto(dados.get("Estado")),
-                _texto(dados.get("Prioridade")),
-                _texto(dados.get("Assunto")),
-                _texto(dados.get("Criado")),
-                _texto(dados.get("Alterado")),
+
+                _texto(
+                    dados.get(
+                        "Clientes"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Origem"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Atribuído a"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Projeto"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Tipo"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Estado"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Prioridade"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Assunto"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Criado"
+                    )
+                ),
+
+                _texto(
+                    dados.get(
+                        "Alterado"
+                    )
+                ),
+
                 _float(
                     dados.get(
                         "Tempo em aberto (dias)"
                     )
                 ),
-                _json_seguro(dados),
+
+                _json_seguro(
+                    dados
+                ),
+
                 agora,
             ),
         )
@@ -322,7 +526,8 @@ def obter_chamado(
     chamado_id: int,
 ) -> dict | None:
     """
-    Retorna um chamado armazenado.
+    Retorna um chamado armazenado
+    na memória da EDNNA.
     """
 
     with conectar() as conn:
@@ -333,20 +538,26 @@ def obter_chamado(
             FROM chamados
             WHERE id = ?
             """,
-            (chamado_id,),
+            (
+                chamado_id,
+            ),
         ).fetchone()
 
     if linha is None:
         return None
 
-    return dict(linha)
+    return dict(
+        linha
+    )
 
 
 def listar_chamados(
     estado: str | None = None,
 ) -> list[dict]:
     """
-    Lista os chamados existentes no cache.
+    Lista chamados armazenados.
+
+    Opcionalmente filtra pelo estado.
     """
 
     with conectar() as conn:
@@ -357,10 +568,17 @@ def listar_chamados(
                 """
                 SELECT *
                 FROM chamados
-                WHERE LOWER(TRIM(estado)) = LOWER(TRIM(?))
+
+                WHERE
+                    LOWER(TRIM(estado))
+                    =
+                    LOWER(TRIM(?))
+
                 ORDER BY id DESC
                 """,
-                (estado,),
+                (
+                    estado,
+                ),
             ).fetchall()
 
         else:
@@ -374,7 +592,9 @@ def listar_chamados(
             ).fetchall()
 
     return [
-        dict(linha)
+        dict(
+            linha
+        )
         for linha in linhas
     ]
 
@@ -383,7 +603,11 @@ def obter_alterado_em(
     chamado_id: int,
 ) -> str:
     """
-    Obtém o updated_on/Alterado conhecido pela EDNNA.
+    Retorna o valor Alterado armazenado
+    para determinado chamado.
+
+    Utilizado para identificar se houve
+    mudança desde a última sincronização.
     """
 
     with conectar() as conn:
@@ -394,15 +618,109 @@ def obter_alterado_em(
             FROM chamados
             WHERE id = ?
             """,
-            (chamado_id,),
+            (
+                chamado_id,
+            ),
         ).fetchone()
 
     if not linha:
+
         return ""
 
     return _texto(
-        linha["alterado_em"]
+        linha[
+            "alterado_em"
+        ]
     )
+
+
+# ============================================================
+# SNAPSHOT / CONTINGÊNCIA
+# ============================================================
+
+def carregar_snapshot_chamados() -> list[dict]:
+    """
+    Recupera o último snapshot completo conhecido
+    dos chamados armazenados pela EDNNA.
+
+    Esta função é utilizada pelo app.py quando:
+
+        Redmine falha
+            ↓
+        session_state não possui carga
+            ↓
+        SQLite assume como contingência
+
+    O retorno possui o mesmo formato de linhas utilizado
+    para reconstruir um DataFrame Pandas.
+    """
+
+    inicializar_banco()
+
+    with conectar() as conn:
+
+        linhas = conn.execute(
+            """
+            SELECT
+                id,
+                payload_json
+
+            FROM chamados
+
+            WHERE
+                payload_json IS NOT NULL
+
+                AND TRIM(
+                    payload_json
+                ) <> ''
+
+            ORDER BY id
+            """
+        ).fetchall()
+
+    resultado: list[dict] = []
+
+    for linha in linhas:
+
+        try:
+
+            payload = json.loads(
+                linha[
+                    "payload_json"
+                ]
+            )
+
+            if not isinstance(
+                payload,
+                dict,
+            ):
+                continue
+
+            # Segurança:
+            # garante que o ID exista mesmo
+            # em um payload antigo/incompleto.
+            if "#" not in payload:
+
+                payload["#"] = (
+                    linha[
+                        "id"
+                    ]
+                )
+
+            resultado.append(
+                payload
+            )
+
+        except Exception as exc:
+
+            print(
+                "[EDNNA] Payload inválido "
+                "no SQLite | "
+                f"chamado={linha['id']} | "
+                f"erro={exc}"
+            )
+
+    return resultado
 
 
 # ============================================================
@@ -417,9 +735,13 @@ def salvar_journals(
     Armazena os journals de um chamado.
 
     Journals já existentes são atualizados.
+
+    Retorna a quantidade de journals processados.
     """
 
-    agora = agora_brasil_iso()
+    agora = (
+        agora_brasil_iso()
+    )
 
     quantidade = 0
 
@@ -427,30 +749,44 @@ def salvar_journals(
 
         for journal in journals:
 
-            journal_id = journal.get("id")
+            journal_id = (
+                journal.get(
+                    "id"
+                )
+            )
 
             if journal_id is None:
                 continue
 
             usuario = (
-                journal.get("user")
+                journal.get(
+                    "user"
+                )
                 or {}
             )
 
             autor = _texto(
-                usuario.get("name")
+                usuario.get(
+                    "name"
+                )
             )
 
             criado_em = _texto(
-                journal.get("created_on")
+                journal.get(
+                    "created_on"
+                )
             )
 
             notas = _texto(
-                journal.get("notes")
+                journal.get(
+                    "notes"
+                )
             )
 
             detalhes = (
-                journal.get("details")
+                journal.get(
+                    "details"
+                )
                 or []
             )
 
@@ -465,24 +801,48 @@ def salvar_journals(
                     detalhes_json,
                     sincronizado_em
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?
+                )
 
                 ON CONFLICT(id) DO UPDATE SET
 
-                    chamado_id = excluded.chamado_id,
-                    autor = excluded.autor,
-                    criado_em = excluded.criado_em,
-                    notas = excluded.notas,
-                    detalhes_json = excluded.detalhes_json,
-                    sincronizado_em = excluded.sincronizado_em
+                    chamado_id =
+                        excluded.chamado_id,
+
+                    autor =
+                        excluded.autor,
+
+                    criado_em =
+                        excluded.criado_em,
+
+                    notas =
+                        excluded.notas,
+
+                    detalhes_json =
+                        excluded.detalhes_json,
+
+                    sincronizado_em =
+                        excluded.sincronizado_em
                 """,
                 (
-                    int(journal_id),
+                    int(
+                        journal_id
+                    ),
+
                     chamado_id,
+
                     autor,
+
                     criado_em,
+
                     notas,
-                    _json_seguro(detalhes),
+
+                    _json_seguro(
+                        detalhes
+                    ),
+
                     agora,
                 ),
             )
@@ -496,7 +856,8 @@ def listar_journals(
     chamado_id: int,
 ) -> list[dict]:
     """
-    Retorna journals armazenados de um chamado.
+    Retorna journals armazenados
+    para determinado chamado.
     """
 
     with conectar() as conn:
@@ -505,14 +866,22 @@ def listar_journals(
             """
             SELECT *
             FROM journals
+
             WHERE chamado_id = ?
-            ORDER BY criado_em, id
+
+            ORDER BY
+                criado_em,
+                id
             """,
-            (chamado_id,),
+            (
+                chamado_id,
+            ),
         ).fetchall()
 
     return [
-        dict(linha)
+        dict(
+            linha
+        )
         for linha in linhas
     ]
 
@@ -532,7 +901,14 @@ def salvar_analise_primeiro_combate(
     erro: str = "",
 ) -> None:
     """
-    Persiste o resultado da análise de primeiro combate.
+    Persiste o resultado da análise
+    de primeiro combate.
+
+    alterado_em_redmine será utilizado para saber
+    se a análise armazenada ainda é válida.
+
+    Se o chamado tiver sido alterado depois da análise,
+    a EDNNA poderá buscar novamente seus journals.
     """
 
     with conectar() as conn:
@@ -550,7 +926,10 @@ def salvar_analise_primeiro_combate(
                 erro,
                 analisado_em
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+            VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
 
             ON CONFLICT(chamado_id) DO UPDATE SET
 
@@ -580,13 +959,37 @@ def salvar_analise_primeiro_combate(
             """,
             (
                 chamado_id,
-                alterado_em_redmine,
-                situacao,
-                int(bool(teve_atuacao)),
-                autor_primeira_atuacao,
-                data_primeira_atuacao,
-                tipo_primeira_atuacao,
-                erro,
+
+                _texto(
+                    alterado_em_redmine
+                ),
+
+                _texto(
+                    situacao
+                ),
+
+                int(
+                    bool(
+                        teve_atuacao
+                    )
+                ),
+
+                _texto(
+                    autor_primeira_atuacao
+                ),
+
+                _texto(
+                    data_primeira_atuacao
+                ),
+
+                _texto(
+                    tipo_primeira_atuacao
+                ),
+
+                _texto(
+                    erro
+                ),
+
                 agora_brasil_iso(),
             ),
         )
@@ -596,7 +999,8 @@ def obter_analise_primeiro_combate(
     chamado_id: int,
 ) -> dict | None:
     """
-    Obtém a última análise conhecida de um chamado.
+    Obtém a última análise conhecida
+    de determinado chamado.
     """
 
     with conectar() as conn:
@@ -605,15 +1009,21 @@ def obter_analise_primeiro_combate(
             """
             SELECT *
             FROM analises_primeiro_combate
+
             WHERE chamado_id = ?
             """,
-            (chamado_id,),
+            (
+                chamado_id,
+            ),
         ).fetchone()
 
     if linha is None:
+
         return None
 
-    return dict(linha)
+    return dict(
+        linha
+    )
 
 
 # ============================================================
@@ -624,6 +1034,14 @@ def salvar_metadado(
     chave: str,
     valor: str,
 ) -> None:
+    """
+    Salva informação auxiliar da EDNNA.
+
+    Exemplos:
+
+    ultima_sincronizacao_snapshot
+    ultima_sincronizacao_journals
+    """
 
     with conectar() as conn:
 
@@ -634,11 +1052,18 @@ def salvar_metadado(
                 valor,
                 atualizado_em
             )
-            VALUES (?, ?, ?)
+
+            VALUES (
+                ?, ?, ?
+            )
 
             ON CONFLICT(chave) DO UPDATE SET
-                valor = excluded.valor,
-                atualizado_em = excluded.atualizado_em
+
+                valor =
+                    excluded.valor,
+
+                atualizado_em =
+                    excluded.atualizado_em
             """,
             (
                 chave,
@@ -652,7 +1077,8 @@ def obter_metadado(
     chave: str,
 ) -> str:
     """
-    Retorna um metadado da EDNNA.
+    Retorna um metadado armazenado
+    pela EDNNA.
     """
 
     with conectar() as conn:
@@ -661,16 +1087,22 @@ def obter_metadado(
             """
             SELECT valor
             FROM metadados
+
             WHERE chave = ?
             """,
-            (chave,),
+            (
+                chave,
+            ),
         ).fetchone()
 
     if linha is None:
+
         return ""
 
     return _texto(
-        linha["valor"]
+        linha[
+            "valor"
+        ]
     )
 
 
@@ -680,7 +1112,8 @@ def obter_metadado(
 
 def obter_diagnostico_banco() -> dict:
     """
-    Retorna informações básicas do banco local.
+    Retorna informações básicas
+    sobre a memória SQLite da EDNNA.
     """
 
     inicializar_banco()
@@ -692,27 +1125,64 @@ def obter_diagnostico_banco() -> dict:
             SELECT COUNT(*) AS total
             FROM chamados
             """
-        ).fetchone()["total"]
+        ).fetchone()[
+            "total"
+        ]
 
         journals = conn.execute(
             """
             SELECT COUNT(*) AS total
             FROM journals
             """
-        ).fetchone()["total"]
+        ).fetchone()[
+            "total"
+        ]
 
         analises = conn.execute(
             """
             SELECT COUNT(*) AS total
             FROM analises_primeiro_combate
             """
-        ).fetchone()["total"]
+        ).fetchone()[
+            "total"
+        ]
+
+        snapshots_validos = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+
+            FROM chamados
+
+            WHERE
+                payload_json IS NOT NULL
+
+                AND TRIM(
+                    payload_json
+                ) <> ''
+            """
+        ).fetchone()[
+            "total"
+        ]
 
     return {
-        "arquivo": str(DB_PATH),
-        "chamados": chamados,
-        "journals": journals,
-        "analises_primeiro_combate": analises,
+        "arquivo": str(
+            DB_PATH
+        ),
+
+        "existe":
+            DB_PATH.exists(),
+
+        "chamados":
+            chamados,
+
+        "snapshots_validos":
+            snapshots_validos,
+
+        "journals":
+            journals,
+
+        "analises_primeiro_combate":
+            analises,
     }
 
 
@@ -721,3 +1191,9 @@ def obter_diagnostico_banco() -> dict:
 # ============================================================
 
 inicializar_banco()
+
+
+print(
+    "[EDNNA] SQLite inicializado | "
+    f"arquivo={DB_PATH}"
+)
