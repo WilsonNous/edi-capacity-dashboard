@@ -50,6 +50,39 @@ def _texto(valor: Any) -> str:
     return str(valor).strip()
 
 
+def normalizar_marca_alteracao(
+    valor: Any,
+) -> str:
+    """
+    Normaliza o campo Alterado para comparação estável.
+
+    Evita considerar o mesmo instante como diferente por causa
+    de representações como:
+      2026-09-03 18:40:00
+      2026-09-03T18:40:00
+      2026-09-03T18:40:00+00:00
+    """
+    texto = _texto(valor)
+
+    if not texto:
+        return ""
+
+    try:
+        data = pd.to_datetime(
+            texto,
+            errors="raise",
+            utc=True,
+        )
+
+        if isinstance(data, pd.Timestamp):
+            return data.isoformat()
+
+    except Exception:
+        pass
+
+    return texto
+
+
 # ============================================================
 # SINCRONIZAÇÃO DO SNAPSHOT
 # ============================================================
@@ -107,12 +140,14 @@ def sincronizar_dataframe(
 
             dados = linha.to_dict()
 
-            alterado_atual = _texto(
+            alterado_atual = normalizar_marca_alteracao(
                 dados.get("Alterado")
             )
 
-            alterado_cache = obter_alterado_em(
-                chamado_id
+            alterado_cache = normalizar_marca_alteracao(
+                obter_alterado_em(
+                    chamado_id
+                )
             )
 
             # ------------------------------------------------

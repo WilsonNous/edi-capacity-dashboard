@@ -264,6 +264,35 @@ def inicializar_banco() -> None:
             );
 
 
+            CREATE TABLE IF NOT EXISTS classificacoes_demandas (
+                chamado_id INTEGER PRIMARY KEY,
+
+                alterado_em_redmine TEXT,
+
+                intencao TEXT NOT NULL,
+
+                confianca REAL NOT NULL DEFAULT 0,
+
+                regra_candidata TEXT,
+
+                acao_sugerida TEXT,
+
+                executavel INTEGER NOT NULL DEFAULT 0,
+
+                evidencias_json TEXT,
+
+                classificado_em TEXT NOT NULL,
+
+                FOREIGN KEY (chamado_id)
+                    REFERENCES chamados(id)
+                    ON DELETE CASCADE
+            );
+
+
+            CREATE INDEX IF NOT EXISTS idx_classificacoes_intencao
+            ON classificacoes_demandas (intencao);
+
+
             CREATE TABLE IF NOT EXISTS metadados (
                 chave TEXT PRIMARY KEY,
 
@@ -1043,6 +1072,123 @@ def listar_analises_primeiro_combate() -> list[dict]:
         ).fetchall()
 
     return [dict(linha) for linha in linhas]
+
+
+# ============================================================
+# CLASSIFICAÇÃO DE DEMANDAS
+# ============================================================
+
+def salvar_classificacao_demanda(
+    chamado_id: int,
+    alterado_em_redmine: str,
+    intencao: str,
+    confianca: float,
+    regra_candidata: str = "",
+    acao_sugerida: str = "",
+    executavel: bool = False,
+    evidencias: list[str] | None = None,
+) -> None:
+    with conectar() as conn:
+        conn.execute(
+            """
+            INSERT INTO classificacoes_demandas (
+                chamado_id,
+                alterado_em_redmine,
+                intencao,
+                confianca,
+                regra_candidata,
+                acao_sugerida,
+                executavel,
+                evidencias_json,
+                classificado_em
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+
+            ON CONFLICT(chamado_id) DO UPDATE SET
+                alterado_em_redmine = excluded.alterado_em_redmine,
+                intencao = excluded.intencao,
+                confianca = excluded.confianca,
+                regra_candidata = excluded.regra_candidata,
+                acao_sugerida = excluded.acao_sugerida,
+                executavel = excluded.executavel,
+                evidencias_json = excluded.evidencias_json,
+                classificado_em = excluded.classificado_em
+            """,
+            (
+                int(chamado_id),
+                _texto(alterado_em_redmine),
+                _texto(intencao),
+                float(confianca or 0),
+                _texto(regra_candidata),
+                _texto(acao_sugerida),
+                1 if executavel else 0,
+                _json_seguro(evidencias or []),
+                agora_brasil_iso(),
+            ),
+        )
+
+
+def obter_classificacao_demanda(
+    chamado_id: int,
+) -> dict | None:
+    with conectar() as conn:
+        linha = conn.execute(
+            """
+            SELECT *
+            FROM classificacoes_demandas
+            WHERE chamado_id = ?
+            """,
+            (int(chamado_id),),
+        ).fetchone()
+
+    if linha is None:
+        return None
+
+    item = dict(linha)
+
+    try:
+        item["evidencias"] = json.loads(
+            item.get("evidencias_json") or "[]"
+        )
+    except Exception:
+        item["evidencias"] = []
+
+    item["executavel"] = bool(
+        item.get("executavel")
+    )
+
+    return item
+
+
+def listar_classificacoes_demandas() -> list[dict]:
+    with conectar() as conn:
+        linhas = conn.execute(
+            """
+            SELECT *
+            FROM classificacoes_demandas
+            ORDER BY intencao, confianca DESC, chamado_id
+            """
+        ).fetchall()
+
+    resultado = []
+
+    for linha in linhas:
+        item = dict(linha)
+
+        try:
+            item["evidencias"] = json.loads(
+                item.get("evidencias_json") or "[]"
+            )
+        except Exception:
+            item["evidencias"] = []
+
+        item["executavel"] = bool(
+            item.get("executavel")
+        )
+
+        resultado.append(item)
+
+    return resultado
 
 
 # ============================================================

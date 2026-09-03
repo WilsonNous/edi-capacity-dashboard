@@ -19,6 +19,7 @@ from ednna.primeiro_combate import (
     classificar_journals_primeiro_combate,
     filtrar_estado_aberto_dataframe,
 )
+from ednna.sincronizador import normalizar_marca_alteracao
 
 BATCH_SIZE = max(
     1,
@@ -64,10 +65,12 @@ def chamado_precisa_analise(
         return True
 
     return (
-        _texto(
+        normalizar_marca_alteracao(
             analise.get("alterado_em_redmine")
         )
-        != _texto(alterado_em)
+        != normalizar_marca_alteracao(
+            alterado_em
+        )
     )
 
 
@@ -145,7 +148,7 @@ def processar_chamado(
             "erro": "ID inválido.",
         }
 
-    alterado_em = _texto(
+    alterado_em = normalizar_marca_alteracao(
         row.get("Alterado")
     )
 
