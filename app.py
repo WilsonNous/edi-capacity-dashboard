@@ -40,6 +40,12 @@ from ednna.armazenamento import (
     carregar_snapshot_chamados,
 )
 
+from ednna.classificador_demandas import (
+    classificar_dataframe,
+    enriquecer_dataframe_com_classificacoes,
+    carregar_catalogo,
+)
+
 
 # ============================================================
 # DIAGNÓSTICO REDMINE
@@ -2078,6 +2084,27 @@ except Exception as exc:
 
 
 # ============================================================
+# EDNNA — CLASSIFICAÇÃO DE DEMANDAS
+# ============================================================
+
+diagnostico_classificacao_ednna = None
+
+try:
+    if not usando_memoria_ednna:
+        diagnostico_classificacao_ednna = (
+            classificar_dataframe(
+                df
+            )
+        )
+except Exception as exc:
+    print(
+        "[EDNNA] Falha na classificação de demandas: "
+        f"{exc}",
+        flush=True,
+    )
+
+
+# ============================================================
 # VALIDAÇÃO DE COLUNAS
 # ============================================================
 
@@ -3019,6 +3046,21 @@ with main_col:
             )
         )
 
+
+        ednna_analisados = (
+            enriquecer_dataframe_com_classificacoes(
+                ednna_analisados
+            )
+        )
+
+        ednna_analisados_global = (
+            enriquecer_dataframe_com_classificacoes(
+                ednna_analisados_global
+            )
+        )
+
+        catalogo_ednna = carregar_catalogo()
+
         resumo_ednna = (
             resumo_analises_dataframe(
                 ednna_analisados
@@ -3399,6 +3441,7 @@ with main_col:
             ed_primeiro,
             ed_atuados,
             ed_revisao,
+            ed_demandas,
             ed_equipe,
         ) = st.tabs(
             [
@@ -3406,6 +3449,7 @@ with main_col:
                 "Primeiro combate",
                 "Já atuados",
                 "Revisão",
+                "Demandas e automação",
                 "Equipe EDI",
             ]
         )
@@ -3798,6 +3842,221 @@ with main_col:
                     width="stretch",
                     hide_index=True,
                     column_config=cfg_rev,
+                )
+
+
+        # ----------------------------------------------------
+        # DEMANDAS E AUTOMAÇÃO
+        # ----------------------------------------------------
+
+        with ed_demandas:
+
+            st.markdown(
+                "**Mapa de oportunidades de automação**"
+            )
+
+            st.caption(
+                "A classificação desta versão é heurística e conservadora. "
+                "Ela identifica padrões e sugere regras candidatas; "
+                "nenhuma regra executa ações automaticamente."
+            )
+
+            base_demandas = (
+                ednna_analisados[
+                    ednna_analisados[
+                        "EDNNA - Situação"
+                    ]
+                    == "AGUARDANDO_PRIMEIRO_COMBATE"
+                ].copy()
+            )
+
+            if base_demandas.empty:
+                st.info(
+                    "Não há chamados analisados aguardando primeiro combate."
+                )
+
+            else:
+                intencoes = (
+                    base_demandas[
+                        "EDNNA - Intenção"
+                    ]
+                    .fillna(
+                        "NAO_CLASSIFICADO"
+                    )
+                    .value_counts()
+                    .rename_axis(
+                        "Intenção"
+                    )
+                    .reset_index(
+                        name="Chamados"
+                    )
+                )
+
+                k1, k2, k3, k4 = st.columns(
+                    4
+                )
+
+                k1.metric(
+                    "Sem primeiro combate",
+                    len(base_demandas),
+                )
+
+                reconhecidos = int(
+                    (
+                        base_demandas[
+                            "EDNNA - Intenção"
+                        ]
+                        != "NAO_CLASSIFICADO"
+                    ).sum()
+                )
+
+                k2.metric(
+                    "Padrão reconhecido",
+                    reconhecidos,
+                )
+
+                k3.metric(
+                    "Não classificados",
+                    len(base_demandas)
+                    - reconhecidos,
+                )
+
+                regras_candidatas = int(
+                    (
+                        base_demandas[
+                            "EDNNA - Regra"
+                        ]
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                k4.metric(
+                    "Com regra candidata",
+                    regras_candidatas,
+                )
+
+                fig_intencoes = px.bar(
+                    intencoes.sort_values(
+                        "Chamados"
+                    ),
+                    x="Chamados",
+                    y="Intenção",
+                    orientation="h",
+                    text_auto=True,
+                    color_discrete_sequence=FACEBOOK_COLORS,
+                )
+
+                fig_intencoes.update_layout(
+                    height=max(
+                        350,
+                        45 * len(intencoes),
+                    ),
+                    xaxis_title="Chamados",
+                    yaxis_title="",
+                )
+
+                ajustar_grafico(
+                    fig_intencoes
+                )
+
+                st.plotly_chart(
+                    fig_intencoes,
+                    width="stretch",
+                )
+
+                st.markdown(
+                    "**Chamados classificados**"
+                )
+
+                cols_demanda = [
+                    c
+                    for c in [
+                        "#",
+                        "Clientes",
+                        "Atribuído a",
+                        "Prioridade",
+                        "Tipo",
+                        "Assunto",
+                        "Tempo em aberto (dias)",
+                        "EDNNA - Intenção",
+                        "EDNNA - Confiança",
+                        "EDNNA - Regra",
+                        "EDNNA - Ação sugerida",
+                    ]
+                    if c in base_demandas.columns
+                ]
+
+                tab_dem, cfg_dem = (
+                    preparar_tabela_com_link_redmine(
+                        base_demandas[
+                            cols_demanda
+                        ].sort_values(
+                            [
+                                "EDNNA - Intenção",
+                                "EDNNA - Confiança",
+                            ],
+                            ascending=[
+                                True,
+                                False,
+                            ],
+                        )
+                    )
+                )
+
+                st.dataframe(
+                    tab_dem,
+                    width="stretch",
+                    hide_index=True,
+                    column_config=cfg_dem,
+                )
+
+            st.divider()
+
+            st.markdown(
+                "**Catálogo de regras candidatas**"
+            )
+
+            regras_catalogo = (
+                catalogo_ednna.get(
+                    "regras",
+                    []
+                )
+            )
+
+            if regras_catalogo:
+                catalogo_df = pd.DataFrame(
+                    regras_catalogo
+                )
+
+                colunas_catalogo = [
+                    c
+                    for c in [
+                        "id",
+                        "nome",
+                        "intencao",
+                        "acao_sugerida",
+                        "risco",
+                        "homologada",
+                        "executavel",
+                    ]
+                    if c in catalogo_df.columns
+                ]
+
+                st.dataframe(
+                    catalogo_df[
+                        colunas_catalogo
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                st.warning(
+                    "Modo do catálogo: OBSERVAÇÃO. "
+                    "Todas as regras estão com executável = falso "
+                    "até validação e homologação operacional."
                 )
 
 
@@ -4677,7 +4936,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.10.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
+        "Versão 3.11.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )
