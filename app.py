@@ -10,6 +10,7 @@ import pandas as pd
 import plotly.express as px
 import requests
 from redmine_api import buscar_chamados_projetos, issue_para_linha, carregar_catalogos_redmine
+from ednna.primeiro_combate import filtrar_estado_aberto_dataframe
 
 try:
     from redmine_api import obter_diagnostico_redmine
@@ -615,7 +616,10 @@ st.markdown(
           <div class="fb-subtitle">Acompanhamento operacional dos chamados do Redmine</div>
         </div>
       </div>
-      <div class="fb-badge">● Dados operacionais</div>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <div class="fb-badge">● Dados operacionais</div>
+        <div class="fb-badge">🤖 EDNNA ativa</div>
+      </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -945,8 +949,15 @@ with main_col:
 
     st.divider()
 
-    tab_exec, tab_team, tab_aging, tab_demand, tab_detail = st.tabs(
-        ["Visão geral", "Equipe", "Tempo em aberto", "Tipos de demanda", "Lista de chamados"]
+    tab_exec, tab_ednna, tab_team, tab_aging, tab_demand, tab_detail = st.tabs(
+        [
+            "Visão geral",
+            "🤖 EDNNA",
+            "Equipe",
+            "Tempo em aberto",
+            "Tipos de demanda",
+            "Lista de chamados",
+        ]
     )
 
     with tab_exec:
@@ -1139,6 +1150,184 @@ with main_col:
                     pass
 
             st.caption("Este gráfico mostra em que meses foram criados os chamados que continuam abertos. Ele não representa todo o volume recebido em cada mês; essa visão será incluída quando adicionarmos os chamados fechados.")
+
+
+    with tab_ednna:
+        st.markdown(
+            "<div class='section-title'>EDNNA — Inteligência Operacional EDI</div>",
+            unsafe_allow_html=True,
+        )
+
+        st.caption(
+            "Primeiro combate dos chamados: identificação dos tickets que permanecem "
+            "no estado Aberto e ainda precisam de análise operacional."
+        )
+
+        # Nesta primeira etapa, a EDNNA reaproveita os dados que o dashboard
+        # já carregou do Redmine. Nenhuma nova consulta é feita aqui e nenhuma
+        # alteração é realizada no chamado.
+        ednna_abertos = filtrar_estado_aberto_dataframe(f)
+
+        total_abertos_ednna = len(ednna_abertos)
+
+        mais_1_dia = (
+            int((ednna_abertos["Tempo em aberto (dias)"] >= 1).sum())
+            if "Tempo em aberto (dias)" in ednna_abertos.columns
+            else 0
+        )
+
+        criticos_ednna = (
+            int(ednna_abertos["Prioridade crítica"].sum())
+            if "Prioridade crítica" in ednna_abertos.columns
+            else 0
+        )
+
+        sem_responsavel = (
+            int(
+                ednna_abertos["Atribuído a"]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .eq("")
+                .sum()
+            )
+            if "Atribuído a" in ednna_abertos.columns
+            else 0
+        )
+
+        k1, k2, k3, k4 = st.columns(4)
+
+        k1.metric(
+            "Aguardando análise EDNNA",
+            f"{total_abertos_ednna:,}".replace(",", "."),
+        )
+
+        k2.metric(
+            "Há 1 dia ou mais",
+            f"{mais_1_dia:,}".replace(",", "."),
+        )
+
+        k3.metric(
+            "Alta / Urgente",
+            f"{criticos_ednna:,}".replace(",", "."),
+        )
+
+        k4.metric(
+            "Sem responsável",
+            f"{sem_responsavel:,}".replace(",", "."),
+        )
+
+        st.divider()
+
+        if ednna_abertos.empty:
+            st.success(
+                "Não existem chamados no estado Aberto no filtro atual."
+            )
+
+        else:
+            st.markdown(
+                "<div class='section-title'>Fila de primeiro combate</div>",
+                unsafe_allow_html=True,
+            )
+
+            st.caption(
+                "A EDNNA ainda está em modo de observação. Nesta etapa ela apenas "
+                "identifica os candidatos ao primeiro combate; nenhuma ação é "
+                "realizada automaticamente no Redmine."
+            )
+
+            # Busca textual específica da EDNNA.
+            pesquisa_ednna = st.text_input(
+                "Pesquisar na fila EDNNA",
+                placeholder="Número, cliente, origem ou assunto",
+                key="pesquisa_fila_ednna",
+            )
+
+            fila_ednna = ednna_abertos.copy()
+
+            if pesquisa_ednna.strip():
+                termo = pesquisa_ednna.strip()
+                mascara_busca = pd.Series(False, index=fila_ednna.index)
+
+                for coluna in ["#", "Clientes", "Origem", "Tipo", "Assunto", "Descrição"]:
+                    if coluna in fila_ednna.columns:
+                        mascara_busca |= (
+                            fila_ednna[coluna]
+                            .astype(str)
+                            .str.contains(
+                                termo,
+                                case=False,
+                                na=False,
+                                regex=False,
+                            )
+                        )
+
+                fila_ednna = fila_ednna[mascara_busca]
+
+            # Chamados críticos primeiro; depois os mais antigos.
+            colunas_ordenacao = []
+            ascending = []
+
+            if "Prioridade crítica" in fila_ednna.columns:
+                colunas_ordenacao.append("Prioridade crítica")
+                ascending.append(False)
+
+            if "Tempo em aberto (dias)" in fila_ednna.columns:
+                colunas_ordenacao.append("Tempo em aberto (dias)")
+                ascending.append(False)
+
+            if colunas_ordenacao:
+                fila_ednna = fila_ednna.sort_values(
+                    colunas_ordenacao,
+                    ascending=ascending,
+                )
+
+            colunas_ednna = [
+                coluna
+                for coluna in [
+                    "#",
+                    "Clientes",
+                    "Origem",
+                    "Atribuído a",
+                    "Projeto",
+                    "Tipo",
+                    "Prioridade",
+                    "Assunto",
+                    "Criado",
+                    "Tempo em aberto (dias)",
+                ]
+                if coluna in fila_ednna.columns
+            ]
+
+            tabela_ednna, config_ednna = preparar_tabela_com_link_redmine(
+                fila_ednna[colunas_ednna]
+            )
+
+            st.dataframe(
+                tabela_ednna,
+                width="stretch",
+                hide_index=True,
+                column_config=config_ednna,
+            )
+
+            st.caption(
+                f"{len(fila_ednna)} chamado(s) exibido(s) na fila atual. "
+                "Clique no número para abrir diretamente no Redmine."
+            )
+
+            st.divider()
+
+            st.markdown(
+                "<div class='section-title'>Próxima evolução da EDNNA</div>",
+                unsafe_allow_html=True,
+            )
+
+            st.info(
+                "Na próxima etapa vamos analisar o histórico (journals) dos chamados "
+                "para separar os que realmente ainda não tiveram primeiro combate. "
+                "Depois disso entra o classificador de solicitações e o catálogo "
+                "de automações por adquirente."
+            )
 
     with tab_team:
         if "Atribuído a" in f.columns and len(f):
@@ -1434,5 +1623,5 @@ with main_col:
 
     st.divider()
     st.caption(
-        "Versão 3.5.4b — resiliência de conexão: tentativas controladas no Redmine, diagnóstico no Log Stream e última carga válida da sessão."
+        "Versão 3.6.0 — EDNNA integrada ao dashboard: fila inicial de primeiro combate, mantendo a consulta Redmine resiliente."
     )
