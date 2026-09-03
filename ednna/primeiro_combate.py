@@ -9,6 +9,10 @@ import pandas as pd
 
 from redmine_api import buscar_detalhes_chamado
 
+from ednna.armazenamento import (
+    listar_analises_primeiro_combate,
+)
+
 
 # ============================================================
 # EDNNA — INTELIGÊNCIA OPERACIONAL EDI
@@ -299,16 +303,46 @@ def _autor_deve_ser_ignorado(
     return autor_normalizado in AUTORES_IGNORADOS
 
 
+def autores_edi_do_dataframe(
+    frame: pd.DataFrame,
+) -> set[str]:
+    """
+    Cria dinamicamente o catálogo de integrantes do EDI usando
+    os nomes existentes na coluna 'Atribuído a' do snapshot completo.
+
+    A variável EDNNA_AUTORES_EDI continua funcionando como complemento
+    para analistas históricos que eventualmente não apareçam na carga atual.
+    """
+    autores = set(AUTORES_EDI)
+
+    if (
+        frame is None
+        or not isinstance(frame, pd.DataFrame)
+        or frame.empty
+        or "Atribuído a" not in frame.columns
+    ):
+        return autores
+
+    for valor in frame["Atribuído a"].dropna().astype(str):
+        nome = normalizar_nome(valor)
+        if nome:
+            autores.add(nome)
+
+    return autores
+
+
 def _autor_eh_edi(
     autor: str,
+    autores_edi: set[str] | None = None,
 ) -> bool:
     """
     Verifica se o autor pertence à equipe EDI.
 
-    Se EDNNA_AUTORES_EDI estiver vazio, qualquer autor
-    humano não ignorado será aceito nesta primeira fase.
+    Regra conservadora:
+    - catálogo dinâmico vindo de 'Atribuído a';
+    - EDNNA_AUTORES_EDI funciona apenas como complemento;
+    - autor desconhecido nunca é assumido como EDI.
     """
-
     autor_normalizado = normalizar_nome(autor)
 
     if not autor_normalizado:
@@ -317,27 +351,30 @@ def _autor_eh_edi(
     if _autor_deve_ser_ignorado(autor):
         return False
 
-    if not AUTORES_EDI:
-        return True
+    catalogo = set(AUTORES_EDI)
+    if autores_edi:
+        catalogo.update(
+            normalizar_nome(nome)
+            for nome in autores_edi
+            if normalizar_nome(nome)
+        )
 
-    return autor_normalizado in AUTORES_EDI
+    return autor_normalizado in catalogo
 
 
 def _journal_representa_atuacao(
     journal: dict,
+    autores_edi: set[str] | None = None,
 ) -> bool:
     """
-    Decide se um journal representa atuação válida.
-
-    Consideramos inicialmente:
-    - comentário;
-    - ou alteração relevante;
-    - realizada por autor aceito.
+    Decide se um journal representa atuação válida do EDI.
     """
-
     autor = _autor_journal(journal)
 
-    if not _autor_eh_edi(autor):
+    if not _autor_eh_edi(
+        autor,
+        autores_edi,
+    ):
         return False
 
     if _journal_tem_nota(journal):
@@ -386,12 +423,11 @@ def _parse_data_redmine(
 
 def localizar_primeira_atuacao(
     journals: list[dict],
+    autores_edi: set[str] | None = None,
 ) -> dict | None:
     """
-    Percorre os journals em ordem cronológica e retorna
-    a primeira atuação considerada válida.
+    Retorna a primeira atuação comprovadamente feita por integrante do EDI.
     """
-
     if not journals:
         return None
 
@@ -406,21 +442,15 @@ def localizar_primeira_atuacao(
     )
 
     for journal in journals_ordenados:
-
         if not _journal_representa_atuacao(
-            journal
+            journal,
+            autores_edi,
         ):
             continue
 
         autor = _autor_journal(journal)
-
-        notas = normalizar_texto(
-            journal.get("notes")
-        )
-
-        data = normalizar_texto(
-            journal.get("created_on")
-        )
+        notas = normalizar_texto(journal.get("notes"))
+        data = normalizar_texto(journal.get("created_on"))
 
         tipo = (
             "comentario"
@@ -436,6 +466,216 @@ def localizar_primeira_atuacao(
         }
 
     return None
+
+
+def classificar_journals_primeiro_combate(
+    journals: list[dict],
+    autores_edi: set[str],
+    solicitante: str = "",
+) -> dict:
+    """
+    Classificação conservadora da EDNNA.
+
+    JA_ATUADO:
+        existe journal relevante de alguém reconhecido como EDI.
+
+    AGUARDANDO_PRIMEIRO_COMBATE:
+        não há atuação EDI e os journals são apenas do solicitante
+        ou não possuem conteúdo relevante.
+
+    REVISAO_NECESSARIA:
+        existe comentário relevante de autor que não é reconhecido
+        como EDI nem como solicitante.
+    """
+    primeira = localizar_primeira_atuacao(
+        journals,
+        autores_edi,
+    )
+
+    if primeira:
+        return {
+            "situacao": "JA_ATUADO",
+            "teve_atuacao": True,
+            "autor": primeira.get("autor", ""),
+            "data": primeira.get("data", ""),
+            "tipo": primeira.get("tipo", ""),
+            "erro": "",
+        }
+
+    solicitante_n = normalizar_nome(solicitante)
+    desconhecido = None
+
+    for journal in journals or []:
+        autor = _autor_journal(journal)
+        autor_n = normalizar_nome(autor)
+
+        if not autor_n or _autor_deve_ser_ignorado(autor):
+            continue
+
+        tem_conteudo = (
+            _journal_tem_nota(journal)
+            or _journal_tem_alteracao_relevante(journal)
+        )
+
+        if not tem_conteudo:
+            continue
+
+        if autor_n in autores_edi:
+            continue
+
+        if solicitante_n and autor_n == solicitante_n:
+            continue
+
+        desconhecido = {
+            "autor": autor,
+            "data": normalizar_texto(
+                journal.get("created_on")
+            ),
+            "tipo": (
+                "comentario_autor_desconhecido"
+                if _journal_tem_nota(journal)
+                else "alteracao_autor_desconhecido"
+            ),
+        }
+        break
+
+    if desconhecido:
+        return {
+            "situacao": "REVISAO_NECESSARIA",
+            "teve_atuacao": False,
+            "autor": desconhecido["autor"],
+            "data": desconhecido["data"],
+            "tipo": desconhecido["tipo"],
+            "erro": "",
+        }
+
+    return {
+        "situacao": "AGUARDANDO_PRIMEIRO_COMBATE",
+        "teve_atuacao": False,
+        "autor": "",
+        "data": "",
+        "tipo": "",
+        "erro": "",
+    }
+
+
+def enriquecer_dataframe_com_analises(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Junta o snapshot do painel com as análises já persistidas na EDNNA.
+    """
+    if frame is None or not isinstance(frame, pd.DataFrame):
+        return pd.DataFrame()
+
+    resultado = frame.copy()
+
+    if resultado.empty:
+        return resultado
+
+    mapa = {
+        int(item["chamado_id"]): item
+        for item in listar_analises_primeiro_combate()
+        if item.get("chamado_id") is not None
+    }
+
+    situacoes = []
+    autores = []
+    datas = []
+    tipos = []
+    erros = []
+
+    for _, row in resultado.iterrows():
+        try:
+            chamado_id = int(float(row.get("#")))
+        except Exception:
+            chamado_id = -1
+
+        analise = mapa.get(chamado_id) or {}
+
+        situacoes.append(
+            analise.get(
+                "situacao",
+                "NAO_ANALISADO",
+            )
+        )
+        autores.append(
+            analise.get(
+                "autor_primeira_atuacao",
+                "",
+            )
+        )
+        datas.append(
+            analise.get(
+                "data_primeira_atuacao",
+                "",
+            )
+        )
+        tipos.append(
+            analise.get(
+                "tipo_primeira_atuacao",
+                "",
+            )
+        )
+        erros.append(
+            analise.get(
+                "erro",
+                "",
+            )
+        )
+
+    resultado["EDNNA - Situação"] = situacoes
+    resultado["EDNNA - Autor"] = autores
+    resultado["EDNNA - Data atuação"] = datas
+    resultado["EDNNA - Tipo atuação"] = tipos
+    resultado["EDNNA - Erro"] = erros
+
+    return resultado
+
+
+def resumo_analises_dataframe(
+    frame: pd.DataFrame,
+) -> dict:
+    if (
+        frame is None
+        or frame.empty
+        or "EDNNA - Situação" not in frame.columns
+    ):
+        return {
+            "nao_analisados": 0,
+            "aguardando": 0,
+            "ja_atuados": 0,
+            "revisao": 0,
+            "erros": 0,
+        }
+
+    situacao = (
+        frame["EDNNA - Situação"]
+        .fillna("NAO_ANALISADO")
+        .astype(str)
+    )
+
+    return {
+        "nao_analisados":
+            int((situacao == "NAO_ANALISADO").sum()),
+
+        "aguardando":
+            int(
+                (
+                    situacao
+                    == "AGUARDANDO_PRIMEIRO_COMBATE"
+                ).sum()
+            ),
+
+        "ja_atuados":
+            int((situacao == "JA_ATUADO").sum()),
+
+        "revisao":
+            int((situacao == "REVISAO_NECESSARIA").sum()),
+
+        "erros":
+            int((situacao == "ERRO_ANALISE").sum()),
+    }
 
 
 # ============================================================

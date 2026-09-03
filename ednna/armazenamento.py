@@ -1026,6 +1026,25 @@ def obter_analise_primeiro_combate(
     )
 
 
+def listar_analises_primeiro_combate() -> list[dict]:
+    """
+    Retorna todas as análises de primeiro combate armazenadas.
+
+    Utilizado pelo dashboard para montar a Central Operacional
+    da EDNNA sem abrir uma conexão SQLite para cada chamado.
+    """
+    with conectar() as conn:
+        linhas = conn.execute(
+            """
+            SELECT *
+            FROM analises_primeiro_combate
+            ORDER BY chamado_id
+            """
+        ).fetchall()
+
+    return [dict(linha) for linha in linhas]
+
+
 # ============================================================
 # METADADOS
 # ============================================================
