@@ -28,6 +28,7 @@ from ednna.sincronizador import (
 from ednna.armazenamento import (
     obter_diagnostico_banco,
     obter_metadado,
+    carregar_snapshot_chamados,
 )
 
 
@@ -53,7 +54,7 @@ except ImportError:
 
 
 # ============================================================
-# CONFIGURAÇÃO VISUAL
+# PALETA
 # ============================================================
 
 FACEBOOK_COLORS = [
@@ -67,6 +68,10 @@ FACEBOOK_COLORS = [
 ]
 
 
+# ============================================================
+# CONFIGURAÇÃO STREAMLIT
+# ============================================================
+
 st.set_page_config(
     page_title="EDI — Painel de Capacidade e Atendimento",
     page_icon="📊",
@@ -74,6 +79,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+
+# ============================================================
+# CSS
+# ============================================================
 
 st.markdown(
     """
@@ -306,7 +315,6 @@ CRITICAL_PRIORITIES = {
     "Prioritário",
 }
 
-
 REDMINE_WEB_URL = os.getenv(
     "REDMINE_URL",
     "https://chamados.nteia.com",
@@ -314,19 +322,14 @@ REDMINE_WEB_URL = os.getenv(
 
 
 # ============================================================
-# LINKS REDMINE
+# LINKS DO REDMINE
 # ============================================================
 
 def preparar_tabela_com_link_redmine(
     frame: pd.DataFrame,
 ) -> tuple[pd.DataFrame, dict]:
-    """
-    Converte a coluna de ID (#) em link clicável
-    para o chamado no Redmine.
-    """
 
     tabela = frame.copy()
-
     configuracao = {}
 
     if "#" in tabela.columns:
@@ -341,9 +344,7 @@ def preparar_tabela_com_link_redmine(
             if texto.endswith(".0"):
                 texto = texto[:-2]
 
-            return (
-                f"{REDMINE_WEB_URL}/issues/{texto}"
-            )
+            return f"{REDMINE_WEB_URL}/issues/{texto}"
 
         tabela["#"] = tabela["#"].apply(
             montar_url
@@ -351,10 +352,7 @@ def preparar_tabela_com_link_redmine(
 
         configuracao["#"] = st.column_config.LinkColumn(
             "Chamado",
-            help=(
-                "Clique no número para abrir "
-                "o chamado no Redmine"
-            ),
+            help="Clique no número para abrir o chamado no Redmine",
             display_text=r"issues/(\d+)$",
         )
 
@@ -365,10 +363,8 @@ def preparar_tabela_com_link_redmine(
 # GRÁFICOS
 # ============================================================
 
-def ajustar_grafico(
-    fig,
-    altura=None,
-):
+def ajustar_grafico(fig, altura=None):
+
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#FFFFFF",
@@ -409,13 +405,7 @@ def ajustar_grafico(
 # CSV
 # ============================================================
 
-def read_redmine_csv(
-    source,
-) -> pd.DataFrame:
-    """
-    Lê exportação do Redmine tentando os encodings
-    mais comuns no Windows/BR.
-    """
+def read_redmine_csv(source) -> pd.DataFrame:
 
     raw = (
         source.read()
@@ -431,6 +421,7 @@ def read_redmine_csv(
     ):
 
         try:
+
             return pd.read_csv(
                 io.BytesIO(raw),
                 encoding=enc,
@@ -445,8 +436,7 @@ def read_redmine_csv(
             continue
 
     raise ValueError(
-        "Não foi possível identificar "
-        "o encoding/separador do CSV."
+        "Não foi possível identificar o encoding/separador do CSV."
     )
 
 
@@ -458,9 +448,6 @@ def prepare(
     df: pd.DataFrame,
     origem: str = "csv",
 ) -> pd.DataFrame:
-    """
-    Normaliza os dados vindos da API ou CSV.
-    """
 
     df = df.copy()
 
@@ -502,8 +489,7 @@ def prepare(
     if "Criado" not in df.columns:
 
         raise ValueError(
-            "Os dados precisam conter "
-            "a coluna 'Criado'."
+            "Os dados precisam conter a coluna 'Criado'."
         )
 
     today = pd.Timestamp(
@@ -588,8 +574,7 @@ def prepare(
         df["Prazo vencido"] = (
             df["Data de fim"].notna()
             & (
-                df["Data de fim"]
-                .dt.normalize()
+                df["Data de fim"].dt.normalize()
                 < today.normalize()
             )
         )
@@ -608,24 +593,14 @@ def prepare(
 def assinatura_dataframe_ednna(
     frame: pd.DataFrame,
 ) -> str:
-    """
-    Cria uma assinatura simples do snapshot atual.
-
-    Isso evita sincronizar novamente o SQLite
-    quando o Streamlit reexecuta apenas porque:
-    - usuário mudou filtro;
-    - trocou aba;
-    - digitou uma pesquisa;
-    - clicou em um gráfico.
-
-    Utilizamos apenas colunas relevantes e convertidas
-    para texto para evitar problemas com listas e datas.
-    """
 
     if frame is None:
         return "sem-frame"
 
-    if not isinstance(frame, pd.DataFrame):
+    if not isinstance(
+        frame,
+        pd.DataFrame,
+    ):
         return "frame-invalido"
 
     if frame.empty:
@@ -677,14 +652,14 @@ def multiselect_filter(
     col: str,
     container,
 ):
+
     if col not in frame.columns:
         return []
 
     values = sorted(
         [
             x
-            for x
-            in frame[col]
+            for x in frame[col]
             .dropna()
             .astype(str)
             .unique()
@@ -699,13 +674,7 @@ def multiselect_filter(
     )
 
 
-def _normalizar_lista_clientes(
-    valor,
-) -> list[str]:
-    """
-    Converte o campo interno de clientes
-    para uma lista limpa.
-    """
+def _normalizar_lista_clientes(valor) -> list[str]:
 
     if isinstance(
         valor,
@@ -773,7 +742,9 @@ def todos_clientes(
             lista_clientes_linha(row)
         )
 
-    return sorted(valores)
+    return sorted(
+        valores
+    )
 
 
 def filtrar_por_clientes(
@@ -800,7 +771,9 @@ def filtrar_por_clientes(
         axis=1,
     )
 
-    return frame[mascara]
+    return frame[
+        mascara
+    ]
 
 
 def mascara_cliente(
@@ -808,7 +781,9 @@ def mascara_cliente(
     cliente: str,
 ) -> pd.Series:
 
-    cliente = str(cliente)
+    cliente = str(
+        cliente
+    )
 
     return frame.apply(
         lambda row: (
@@ -831,8 +806,10 @@ def ranking_clientes(
 
     for _, row in frame.iterrows():
 
-        clientes = lista_clientes_linha(
-            row
+        clientes = (
+            lista_clientes_linha(
+                row
+            )
         )
 
         valores.extend(
@@ -874,7 +851,7 @@ def ranking_clientes(
 
 
 # ============================================================
-# INTERATIVIDADE
+# LEGENDA INTERATIVA
 # ============================================================
 
 def legenda_interativa(
@@ -896,7 +873,9 @@ def legenda_interativa(
         .astype(str)
     )
 
-    contagens = serie.value_counts()
+    contagens = (
+        serie.value_counts()
+    )
 
     categorias = (
         valores
@@ -912,7 +891,9 @@ def legenda_interativa(
     if not categorias:
         return
 
-    st.caption(titulo)
+    st.caption(
+        titulo
+    )
 
     for inicio in range(
         0,
@@ -957,7 +938,12 @@ def legenda_interativa(
                     ] = valor
 
 
+# ============================================================
+# SELEÇÕES DOS GRÁFICOS
+# ============================================================
+
 def registrar_selecao_status():
+
     estado_grafico = (
         st.session_state.get(
             "grafico_chamados_por_situacao",
@@ -988,13 +974,17 @@ def registrar_selecao_status():
 
     ponto = pontos[0]
 
-    estado = ponto.get("y")
+    estado = ponto.get(
+        "y"
+    )
 
     if estado is not None:
 
         st.session_state[
             "estado_status_selecionado"
-        ] = str(estado)
+        ] = str(
+            estado
+        )
 
 
 def registrar_selecao_generica(
@@ -1038,8 +1028,14 @@ def registrar_selecao_generica(
 
             st.session_state[
                 chave_estado
-            ] = str(valor)
+            ] = str(
+                valor
+            )
 
+
+# ============================================================
+# TABELA DE DETALHE
+# ============================================================
 
 def mostrar_chamados_selecionados(
     frame: pd.DataFrame,
@@ -1094,7 +1090,7 @@ def mostrar_chamados_selecionados(
 
     st.caption(
         f"{len(detalhe)} chamado(s) "
-        f"correspondente(s) ao item selecionado."
+        "correspondente(s) ao item selecionado."
     )
 
     colunas = [
@@ -1114,7 +1110,10 @@ def mostrar_chamados_selecionados(
         if c in detalhe.columns
     ]
 
-    if "Tempo em aberto (dias)" in detalhe.columns:
+    if (
+        "Tempo em aberto (dias)"
+        in detalhe.columns
+    ):
 
         detalhe = detalhe.sort_values(
             "Tempo em aberto (dias)",
@@ -1123,7 +1122,9 @@ def mostrar_chamados_selecionados(
 
     tabela, config = (
         preparar_tabela_com_link_redmine(
-            detalhe[colunas]
+            detalhe[
+                colunas
+            ]
         )
     )
 
@@ -1135,7 +1136,10 @@ def mostrar_chamados_selecionados(
     )
 
     a1, a2 = st.columns(
-        [1, 4]
+        [
+            1,
+            4,
+        ]
     )
 
     with a1:
@@ -1165,36 +1169,26 @@ def mostrar_chamados_selecionados(
 # TOPO
 # ============================================================
 
+# IMPORTANTE:
+# este HTML é propositalmente compacto.
+# Evita o Streamlit interpretar parte do badge
+# como Markdown/código.
+
 st.markdown(
     """
-    <div class="fb-topbar">
-      <div class="fb-brand">
-        <div class="fb-logo">EDI</div>
-        <div>
-          <div class="fb-title">
-            Painel de Capacidade e Atendimento
-          </div>
-          <div class="fb-subtitle">
-            Acompanhamento operacional dos chamados do Redmine
-          </div>
-        </div>
-      </div>
-
-      <div style="
-        display:flex;
-        gap:8px;
-        align-items:center;
-        flex-wrap:wrap;
-      ">
-        <div class="fb-badge">
-          ● Dados operacionais
-        </div>
-
-        <div class="fb-badge">
-          🤖 EDNNA ativa
-        </div>
-      </div>
+<div class="fb-topbar">
+  <div class="fb-brand">
+    <div class="fb-logo">EDI</div>
+    <div>
+      <div class="fb-title">Painel de Capacidade e Atendimento</div>
+      <div class="fb-subtitle">Acompanhamento operacional dos chamados do Redmine</div>
     </div>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <div class="fb-badge">● Dados operacionais</div>
+    <div class="fb-badge">🤖 EDNNA ativa</div>
+  </div>
+</div>
     """,
     unsafe_allow_html=True,
 )
@@ -1210,7 +1204,7 @@ filter_col, main_col = st.columns(
 
 
 # ============================================================
-# FILTROS — FONTE
+# FILTROS — FONTE DOS DADOS
 # ============================================================
 
 with filter_col:
@@ -1220,19 +1214,15 @@ with filter_col:
     ):
 
         st.markdown(
-            (
-                '<div class="filter-title">'
-                'Filtros'
-                '</div>'
-            ),
+            '<div class="filter-title">Filtros</div>',
             unsafe_allow_html=True,
         )
 
         st.markdown(
             (
                 '<div class="filter-note">'
-                'Refine os chamados sem depender '
-                'da barra lateral do navegador.'
+                'Refine os chamados sem depender da '
+                'barra lateral do navegador.'
                 '</div>'
             ),
             unsafe_allow_html=True,
@@ -1254,7 +1244,7 @@ with filter_col:
 
 
 # ============================================================
-# API REDMINE
+# CACHE DA API
 # ============================================================
 
 @st.cache_data(
@@ -1263,7 +1253,9 @@ with filter_col:
 )
 def carregar_api_abertos():
 
-    inicio = time.perf_counter()
+    inicio = (
+        time.perf_counter()
+    )
 
     inicio_redmine = (
         time.perf_counter()
@@ -1326,17 +1318,13 @@ def carregar_api_abertos():
     linhas = [
         issue_para_linha(
             chamado,
-            mapa_clientes=(
-                catalogos.get(
-                    "clientes",
-                    {},
-                )
+            mapa_clientes=catalogos.get(
+                "clientes",
+                {},
             ),
-            mapa_origens=(
-                catalogos.get(
-                    "origens",
-                    {},
-                )
+            mapa_origens=catalogos.get(
+                "origens",
+                {},
             ),
         )
         for chamado in chamados
@@ -1418,11 +1406,12 @@ def classificar_erro_api(
         return (
             "Tempo esgotado ao conectar com o Redmine",
 
-            "O Azure não conseguiu estabelecer a conexão "
-            "HTTPS com o Redmine mesmo após as tentativas "
-            "automáticas. Isso normalmente indica "
-            "indisponibilidade temporária, oscilação de "
-            "rede, nginx/proxy ou rota.",
+            (
+                "O Azure não conseguiu estabelecer a conexão HTTPS "
+                "com o Redmine mesmo após as tentativas automáticas. "
+                "Isso normalmente indica indisponibilidade temporária, "
+                "oscilação de rede, nginx/proxy ou rota."
+            ),
         )
 
     if isinstance(
@@ -1433,9 +1422,10 @@ def classificar_erro_api(
         return (
             "O Redmine demorou demais para responder",
 
-            "A conexão foi estabelecida, mas a resposta "
-            "não chegou dentro do tempo limite. "
-            "Tente novamente em alguns instantes.",
+            (
+                "A conexão foi estabelecida, mas a resposta não chegou "
+                "dentro do tempo limite. Tente novamente em alguns instantes."
+            ),
         )
 
     if isinstance(
@@ -1446,10 +1436,10 @@ def classificar_erro_api(
         return (
             "Falha de comunicação com o Redmine",
 
-            "Não foi possível completar a comunicação "
-            "entre o Azure e o Redmine. A aplicação "
-            "continuará usando a última carga válida, "
-            "quando disponível.",
+            (
+                "Não foi possível completar a comunicação entre o Azure "
+                "e o Redmine. A aplicação tentará utilizar sua contingência."
+            ),
         )
 
     if isinstance(
@@ -1469,15 +1459,11 @@ def classificar_erro_api(
         ):
 
             return (
-                (
-                    "Redmine recusou a "
-                    f"autenticação ({status})"
-                ),
+                f"Redmine recusou a autenticação ({status})",
 
                 (
-                    "Nesse caso, confira "
-                    "REDMINE_API_KEY e "
-                    "REDMINE_AUTHORIZATION."
+                    "Nesse caso, confira REDMINE_API_KEY "
+                    "e REDMINE_AUTHORIZATION."
                 ),
             )
 
@@ -1488,8 +1474,8 @@ def classificar_erro_api(
             ).strip(),
 
             (
-                "A conexão ocorreu, mas o "
-                "servidor respondeu com erro HTTP."
+                "A conexão ocorreu, mas o servidor "
+                "respondeu com erro HTTP."
             ),
         )
 
@@ -1497,28 +1483,36 @@ def classificar_erro_api(
         "Não foi possível consultar a API do Redmine",
 
         (
-            "Consulte o diagnóstico técnico abaixo. "
-            "Se o erro for de autenticação, revise as "
-            "variáveis do ambiente; se for de conexão, "
-            "aguarde e tente novamente."
+            "Consulte o diagnóstico técnico. Se o erro for "
+            "de autenticação, revise as variáveis do ambiente; "
+            "se for de conexão, a aplicação tentará utilizar "
+            "a memória operacional da EDNNA."
         ),
     )
 
 
 # ============================================================
-# CARGA DOS DADOS
+# ESTADO DE CONTINGÊNCIA
 # ============================================================
 
 diagnostico_catalogos = None
 
+usando_ultima_carga = False
+usando_memoria_ednna = False
+
+erro_atualizacao = None
+
+
+# ============================================================
+# CARGA — API REDMINE
+# ============================================================
 
 if fonte == "API do Redmine":
 
     with filter_col:
 
         st.caption(
-            "Atualização automática. "
-            "Cache de 5 minutos."
+            "Atualização automática. Cache de 5 minutos."
         )
 
         if st.button(
@@ -1528,9 +1522,6 @@ if fonte == "API do Redmine":
 
             carregar_api_abertos.clear()
 
-    usando_ultima_carga = False
-
-    erro_atualizacao = None
 
     try:
 
@@ -1547,9 +1538,13 @@ if fonte == "API do Redmine":
         if raw_df.empty:
 
             raise RuntimeError(
-                "A API não retornou "
-                "chamados em aberto."
+                "A API não retornou chamados em aberto."
             )
+
+
+        # ----------------------------------------------------
+        # ÚLTIMA CARGA VÁLIDA DA SESSÃO
+        # ----------------------------------------------------
 
         st.session_state[
             "ultima_carga_api_df"
@@ -1565,9 +1560,15 @@ if fonte == "API do Redmine":
             "%d/%m/%Y %H:%M:%S"
         )
 
+
     except Exception as exc:
 
         erro_atualizacao = exc
+
+
+        # ====================================================
+        # CONTINGÊNCIA 1 — SESSION_STATE
+        # ====================================================
 
         ultima_df = (
             st.session_state.get(
@@ -1583,7 +1584,9 @@ if fonte == "API do Redmine":
             and not ultima_df.empty
         ):
 
-            raw_df = ultima_df.copy()
+            raw_df = (
+                ultima_df.copy()
+            )
 
             diagnostico_catalogos = (
                 st.session_state.get(
@@ -1594,34 +1597,163 @@ if fonte == "API do Redmine":
 
             usando_ultima_carga = True
 
-        else:
-
-            titulo_erro, orientacao = (
-                classificar_erro_api(
-                    exc
-                )
+            print(
+                "[EDNNA] Redmine indisponível | "
+                "usando última carga da sessão | "
+                f"{len(raw_df)} chamados"
             )
 
-            with main_col:
 
-                st.error(
-                    f"{titulo_erro}: {exc}"
+        # ====================================================
+        # CONTINGÊNCIA 2 — SQLITE EDNNA
+        # ====================================================
+
+        else:
+
+            try:
+
+                snapshot_ednna = (
+                    carregar_snapshot_chamados()
                 )
 
-                st.info(
-                    orientacao
+            except Exception as exc_sqlite:
+
+                snapshot_ednna = []
+
+                print(
+                    "[EDNNA] Falha ao carregar "
+                    "contingência SQLite: "
+                    f"{exc_sqlite}"
                 )
 
-            st.stop()
+
+            if snapshot_ednna:
+
+                raw_df = pd.DataFrame(
+                    snapshot_ednna
+                )
+
+                diagnostico_catalogos = {}
+
+                usando_memoria_ednna = True
+
+                print(
+                    "[EDNNA] Redmine indisponível | "
+                    "usando SQLite | "
+                    f"{len(raw_df)} chamados"
+                )
+
+
+            # ================================================
+            # SEM REDMINE, SEM SESSION E SEM SQLITE
+            # ================================================
+
+            else:
+
+                titulo_erro, orientacao = (
+                    classificar_erro_api(
+                        exc
+                    )
+                )
+
+                with main_col:
+
+                    st.error(
+                        f"{titulo_erro}: {exc}"
+                    )
+
+                    st.info(
+                        orientacao
+                    )
+
+                    st.warning(
+                        "A memória SQLite da EDNNA ainda não "
+                        "possui uma carga válida para ser "
+                        "utilizada como contingência."
+                    )
+
+                st.stop()
+
+
+    # --------------------------------------------------------
+    # PREPARA TANTO API QUANTO SNAPSHOT SQLITE
+    # --------------------------------------------------------
 
     df = prepare(
         raw_df,
         origem="api",
     )
 
+
+    # ========================================================
+    # AVISOS DE ORIGEM
+    # ========================================================
+
     with main_col:
 
-        if usando_ultima_carga:
+        # ----------------------------------------------------
+        # REDMINE CAIU, MAS SQLITE SALVOU O PAINEL
+        # ----------------------------------------------------
+
+        if usando_memoria_ednna:
+
+            titulo_erro, orientacao = (
+                classificar_erro_api(
+                    erro_atualizacao
+                )
+            )
+
+            try:
+
+                ultima_sync_sqlite = (
+                    obter_metadado(
+                        "ultima_sincronizacao_snapshot"
+                    )
+                )
+
+            except Exception:
+
+                ultima_sync_sqlite = None
+
+
+            st.warning(
+                "🧠 Redmine temporariamente indisponível. "
+                "O painel está operando com a memória "
+                "persistente da EDNNA."
+            )
+
+            if ultima_sync_sqlite:
+
+                st.caption(
+                    "Dados da última sincronização EDNNA: "
+                    f"{ultima_sync_sqlite}"
+                )
+
+            with st.expander(
+                "Detalhes da indisponibilidade do Redmine",
+                expanded=False,
+            ):
+
+                st.write(
+                    f"**{titulo_erro}**"
+                )
+
+                st.write(
+                    orientacao
+                )
+
+                st.code(
+                    str(
+                        erro_atualizacao
+                    )
+                )
+
+
+        # ----------------------------------------------------
+        # REDMINE CAIU, MAS SESSION_STATE AINDA POSSUI CARGA
+        # ----------------------------------------------------
+
+        elif usando_ultima_carga:
 
             titulo_erro, orientacao = (
                 classificar_erro_api(
@@ -1661,6 +1793,11 @@ if fonte == "API do Redmine":
                     )
                 )
 
+
+        # ----------------------------------------------------
+        # REDMINE OK
+        # ----------------------------------------------------
+
         elif diagnostico_catalogos:
 
             if diagnostico_catalogos.get(
@@ -1685,13 +1822,20 @@ if fonte == "API do Redmine":
             else:
 
                 st.warning(
-                    "Chamados carregados, mas o catálogo "
-                    "de nomes não foi carregado. "
-                    "Diagnóstico: "
+                    "Chamados carregados, mas o catálogo de nomes "
+                    "não foi carregado. Diagnóstico: "
                     f"{diagnostico_catalogos.get('erro_catalogo') or 'não informado'}"
                 )
 
-        if diagnostico_catalogos:
+
+        # ----------------------------------------------------
+        # DIAGNÓSTICO DE PERFORMANCE
+        # ----------------------------------------------------
+
+        if (
+            diagnostico_catalogos
+            and not usando_memoria_ednna
+        ):
 
             with st.expander(
                 "Desempenho da carga",
@@ -1768,12 +1912,15 @@ if fonte == "API do Redmine":
 
                         "Usando última carga válida":
                             usando_ultima_carga,
+
+                        "Usando memória EDNNA":
+                            usando_memoria_ednna,
                     }
                 )
 
 
 # ============================================================
-# CSV
+# CARGA — CSV
 # ============================================================
 
 else:
@@ -1801,8 +1948,7 @@ else:
             st.info(
                 "Carregue o CSV no painel de filtros. "
                 "Para uso local fixo, você também pode "
-                "salvar o arquivo como `issues.csv` "
-                "ao lado do `app.py`."
+                "salvar o arquivo como `issues.csv` ao lado do `app.py`."
             )
 
         st.stop()
@@ -1832,18 +1978,16 @@ else:
 
 
 # ============================================================
-# EDNNA — SINCRONIZAÇÃO DA MEMÓRIA OPERACIONAL
+# EDNNA — MEMÓRIA OPERACIONAL SQLITE
 # ============================================================
 #
-# ATENÇÃO:
+# Regras:
 #
-# Aqui usamos "df", ou seja, a carga COMPLETA.
-#
-# Não usamos "f", porque "f" será o DataFrame filtrado
-# posteriormente pelo usuário.
-#
-# A sincronização aqui NÃO consulta novamente o Redmine.
-# Ela apenas persiste os dados já carregados.
+# 1. Usa sempre o DataFrame COMPLETO "df".
+# 2. Nunca usa o DataFrame visual filtrado "f".
+# 3. Não grava novamente se os dados foram recuperados
+#    do próprio SQLite.
+# 4. Evita nova sincronização em cada rerun do Streamlit.
 # ============================================================
 
 diagnostico_ednna_sync = None
@@ -1865,12 +2009,17 @@ try:
         )
     )
 
+
     # --------------------------------------------------------
-    # SOMENTE SINCRONIZA QUANDO O SNAPSHOT MUDOU
+    # SOMENTE SINCRONIZA:
+    #
+    # - se NÃO estamos lendo do SQLite;
+    # - e o snapshot mudou nesta sessão.
     # --------------------------------------------------------
 
     if (
-        assinatura_anterior
+        not usando_memoria_ednna
+        and assinatura_anterior
         != assinatura_snapshot
     ):
 
@@ -1898,6 +2047,7 @@ try:
             f"erros={diagnostico_ednna_sync.get('erros', 0)}"
         )
 
+
     else:
 
         diagnostico_ednna_sync = (
@@ -1907,13 +2057,14 @@ try:
             )
         )
 
+
 except Exception as exc:
 
     erro_ednna_sync = exc
 
     print(
-        "[EDNNA] Falha ao atualizar "
-        f"SQLite: {exc}"
+        "[EDNNA] Falha ao atualizar SQLite: "
+        f"{exc}"
     )
 
 
@@ -1939,14 +2090,16 @@ if missing:
     with main_col:
 
         st.warning(
-            "Algumas análises ficarão limitadas "
-            "porque faltam estas colunas: "
-            + ", ".join(missing)
+            "Algumas análises ficarão limitadas porque "
+            "faltam estas colunas: "
+            + ", ".join(
+                missing
+            )
         )
 
 
 # ============================================================
-# FILTROS VISUAIS
+# FILTROS
 # ============================================================
 
 with filter_col:
@@ -1996,10 +2149,16 @@ with filter_col:
 
         clients = st.multiselect(
             "Cliente",
-            todos_clientes(df),
+            todos_clientes(
+                df
+            ),
             placeholder="Selecione",
         )
 
+
+# ============================================================
+# DATAFRAME VISUAL FILTRADO
+# ============================================================
 
 f = df.copy()
 
@@ -2104,8 +2263,7 @@ f = f[
 with filter_col:
 
     st.caption(
-        f"{len(f)} chamado(s) "
-        "no filtro atual"
+        f"{len(f)} chamado(s) no filtro atual"
     )
 
 
@@ -2165,7 +2323,9 @@ with main_col:
     )
 
 
-    cols = st.columns(6)
+    cols = st.columns(
+        6
+    )
 
     cols[0].metric(
         "Chamados em aberto",
@@ -2224,23 +2384,25 @@ with main_col:
             * 100
         )
 
-        med = f[
-            "Tempo em aberto (dias)"
-        ].median()
+        med = (
+            f[
+                "Tempo em aberto (dias)"
+            ].median()
+        )
 
-        avg = f[
-            "Tempo em aberto (dias)"
-        ].mean()
+        avg = (
+            f[
+                "Tempo em aberto (dias)"
+            ].mean()
+        )
 
         st.markdown(
             (
                 "<div class='small-note'>"
                 f"No filtro atual, <b>{pct_wait:.1f}%</b> "
                 "dos chamados estão aguardando terceiros. "
-                "Tempo mediano em aberto: "
-                f"<b>{med:.0f} dias</b> · "
-                "tempo médio em aberto: "
-                f"<b>{avg:.0f} dias</b>."
+                f"Tempo mediano em aberto: <b>{med:.0f} dias</b> · "
+                f"tempo médio em aberto: <b>{avg:.0f} dias</b>."
                 "</div>"
             ),
             unsafe_allow_html=True,
@@ -2287,13 +2449,16 @@ with main_col:
         )
 
 
+        # ----------------------------------------------------
+        # RESPONSÁVEIS
+        # ----------------------------------------------------
+
         with c1:
 
             st.markdown(
                 (
                     "<div class='section-title'>"
-                    "Distribuição dos chamados "
-                    "por responsável"
+                    "Distribuição dos chamados por responsável"
                     "</div>"
                 ),
                 unsafe_allow_html=True,
@@ -2325,15 +2490,10 @@ with main_col:
                     color="Responsabilidade atual",
                     barmode="stack",
                     text_auto=True,
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                     labels={
-                        "Atribuído a":
-                            "Responsável",
-
-                        "Responsabilidade atual":
-                            "Situação",
+                        "Atribuído a": "Responsável",
+                        "Responsabilidade atual": "Situação",
                     },
                 )
 
@@ -2349,20 +2509,18 @@ with main_col:
                 )
 
                 st.caption(
-                    "Clique em uma barra para "
-                    "abrir os chamados do responsável."
+                    "Clique em uma barra para abrir "
+                    "os chamados do responsável."
                 )
 
                 st.plotly_chart(
                     fig,
                     width="stretch",
                     key="grafico_responsavel",
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_responsavel",
-                            "sel_responsavel",
-                            "x",
-                        )
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_responsavel",
+                        "sel_responsavel",
+                        "x",
                     ),
                     selection_mode="points",
                 )
@@ -2378,10 +2536,7 @@ with main_col:
                 legenda_interativa(
                     f,
                     "Responsabilidade atual",
-                    (
-                        "Legenda interativa — clique "
-                        "para abrir os chamados:"
-                    ),
+                    "Legenda interativa — clique para abrir os chamados:",
                     "sel_responsabilidade_legenda",
                     "legenda_responsabilidade",
                     valores=[
@@ -2396,11 +2551,13 @@ with main_col:
                     "Chamados",
                     "sel_responsabilidade_legenda",
                     "Responsabilidade atual",
-                    key_prefix=(
-                        "responsabilidade_legenda"
-                    ),
+                    key_prefix="responsabilidade_legenda",
                 )
 
+
+        # ----------------------------------------------------
+        # STATUS
+        # ----------------------------------------------------
 
         with c2:
 
@@ -2438,9 +2595,7 @@ with main_col:
                     y="Estado",
                     orientation="h",
                     text_auto=True,
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                 )
 
                 fig.update_layout(
@@ -2462,19 +2617,15 @@ with main_col:
                 st.plotly_chart(
                     fig,
                     width="stretch",
-                    key=(
-                        "grafico_chamados_por_situacao"
-                    ),
-                    on_select=(
-                        registrar_selecao_status
-                    ),
+                    key="grafico_chamados_por_situacao",
+                    on_select=registrar_selecao_status,
                     selection_mode="points",
                 )
 
 
-        # ====================================================
-        # DETALHAMENTO STATUS
-        # ====================================================
+        # ----------------------------------------------------
+        # DETALHE STATUS
+        # ----------------------------------------------------
 
         estado_selecionado = (
             st.session_state.get(
@@ -2513,8 +2664,7 @@ with main_col:
             st.markdown(
                 (
                     "<div class='section-title'>"
-                    "Chamados da situação: "
-                    f"{estado_selecionado}"
+                    f"Chamados da situação: {estado_selecionado}"
                     "</div>"
                 ),
                 unsafe_allow_html=True,
@@ -2522,8 +2672,7 @@ with main_col:
 
             st.caption(
                 f"{len(chamados_status)} chamado(s) "
-                "correspondente(s) ao item selecionado "
-                "no gráfico."
+                "correspondente(s) ao item selecionado no gráfico."
             )
 
             colunas_status = [
@@ -2539,8 +2688,7 @@ with main_col:
                     "Criado",
                     "Tempo em aberto (dias)",
                 ]
-                if c
-                in chamados_status.columns
+                if c in chamados_status.columns
             ]
 
             chamados_status = (
@@ -2550,13 +2698,12 @@ with main_col:
                 )
             )
 
-            (
-                tabela_status,
-                config_status,
-            ) = preparar_tabela_com_link_redmine(
-                chamados_status[
-                    colunas_status
-                ]
+            tabela_status, config_status = (
+                preparar_tabela_com_link_redmine(
+                    chamados_status[
+                        colunas_status
+                    ]
+                )
             )
 
             st.dataframe(
@@ -2577,9 +2724,7 @@ with main_col:
 
                 if st.button(
                     "Fechar seleção",
-                    key=(
-                        "fechar_selecao_status"
-                    ),
+                    key="fechar_selecao_status",
                     width="stretch",
                 ):
 
@@ -2593,18 +2738,17 @@ with main_col:
             with acao2:
 
                 st.caption(
-                    "Clique no número do chamado para "
-                    "abrir diretamente no Redmine. "
-                    "Para trocar a seleção, clique em "
-                    "outra barra do gráfico."
+                    "Clique no número do chamado para abrir "
+                    "diretamente no Redmine. Para trocar a seleção, "
+                    "clique em outra barra do gráfico."
                 )
 
             st.divider()
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # ORIGEM TEMPORAL
-        # ====================================================
+        # ----------------------------------------------------
 
         st.markdown(
             (
@@ -2638,9 +2782,7 @@ with main_col:
                 )
                 .size()
                 .reset_index(
-                    name=(
-                        "Chamados ainda abertos"
-                    )
+                    name="Chamados ainda abertos"
                 )
             )
 
@@ -2649,16 +2791,12 @@ with main_col:
                 x="Mês",
                 y="Chamados ainda abertos",
                 markers=True,
-                color_discrete_sequence=(
-                    FACEBOOK_COLORS
-                ),
+                color_discrete_sequence=FACEBOOK_COLORS,
             )
 
             fig.update_layout(
                 xaxis_title="",
-                yaxis_title=(
-                    "Chamados ainda abertos"
-                ),
+                yaxis_title="Chamados ainda abertos",
                 height=360,
             )
 
@@ -2667,21 +2805,18 @@ with main_col:
             )
 
             st.caption(
-                "Clique em um ponto para abrir os "
-                "chamados ainda abertos criados "
-                "naquele mês."
+                "Clique em um ponto para abrir os chamados "
+                "ainda abertos criados naquele mês."
             )
 
             st.plotly_chart(
                 fig,
                 width="stretch",
                 key="grafico_mes_origem",
-                on_select=lambda: (
-                    registrar_selecao_generica(
-                        "grafico_mes_origem",
-                        "sel_mes_origem",
-                        "x",
-                    )
+                on_select=lambda: registrar_selecao_generica(
+                    "grafico_mes_origem",
+                    "sel_mes_origem",
+                    "x",
                 ),
                 selection_mode="points",
             )
@@ -2705,7 +2840,8 @@ with main_col:
                             f["Criado"].dt.year
                             == mes_ts.year
                         )
-                        & (
+                        &
+                        (
                             f["Criado"].dt.month
                             == mes_ts.month
                         )
@@ -2724,17 +2860,15 @@ with main_col:
                     st.markdown(
                         (
                             "<div class='section-title'>"
-                            "Chamados criados em "
-                            f"{rotulo_mes}"
+                            f"Chamados criados em {rotulo_mes}"
                             "</div>"
                         ),
                         unsafe_allow_html=True,
                     )
 
                     st.caption(
-                        f"{len(detalhe_mes)} chamado(s) "
-                        "ainda aberto(s) criado(s) "
-                        "no mês selecionado."
+                        f"{len(detalhe_mes)} chamado(s) ainda "
+                        "aberto(s) criado(s) no mês selecionado."
                     )
 
                     cols_mes = [
@@ -2750,14 +2884,10 @@ with main_col:
                             "Criado",
                             "Tempo em aberto (dias)",
                         ]
-                        if c
-                        in detalhe_mes.columns
+                        if c in detalhe_mes.columns
                     ]
 
-                    (
-                        tabela_mes,
-                        config_mes,
-                    ) = (
+                    tabela_mes, config_mes = (
                         preparar_tabela_com_link_redmine(
                             detalhe_mes
                             .sort_values(
@@ -2778,9 +2908,7 @@ with main_col:
 
                     if st.button(
                         "Fechar seleção",
-                        key=(
-                            "fechar_mes_origem"
-                        ),
+                        key="fechar_mes_origem",
                     ):
 
                         st.session_state.pop(
@@ -2794,12 +2922,10 @@ with main_col:
                     pass
 
             st.caption(
-                "Este gráfico mostra em que meses "
-                "foram criados os chamados que continuam "
-                "abertos. Ele não representa todo o volume "
-                "recebido em cada mês; essa visão será "
-                "incluída quando adicionarmos os chamados "
-                "fechados."
+                "Este gráfico mostra em que meses foram criados "
+                "os chamados que continuam abertos. Ele não representa "
+                "todo o volume recebido em cada mês; essa visão será "
+                "incluída quando adicionarmos os chamados fechados."
             )
 
 
@@ -2825,9 +2951,9 @@ with main_col:
         )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # MEMÓRIA OPERACIONAL
-        # ====================================================
+        # ----------------------------------------------------
 
         try:
 
@@ -2848,6 +2974,7 @@ with main_col:
             ultima_sync_ednna = ""
 
             if erro_ednna_sync is None:
+
                 erro_ednna_sync = exc
 
 
@@ -2873,7 +3000,9 @@ with main_col:
             else:
 
                 db1, db2, db3 = (
-                    st.columns(3)
+                    st.columns(
+                        3
+                    )
                 )
 
                 db1.metric(
@@ -2899,6 +3028,13 @@ with main_col:
                         0,
                     ),
                 )
+
+                if usando_memoria_ednna:
+
+                    st.info(
+                        "🧠 Esta visualização está sendo atendida "
+                        "pela memória persistente da EDNNA."
+                    )
 
                 if diagnostico_ednna_sync:
 
@@ -2953,9 +3089,9 @@ with main_col:
         st.divider()
 
 
-        # ====================================================
-        # FILA INICIAL
-        # ====================================================
+        # ----------------------------------------------------
+        # FILA DE PRIMEIRO COMBATE
+        # ----------------------------------------------------
 
         ednna_abertos = (
             filtrar_estado_aberto_dataframe(
@@ -3016,7 +3152,9 @@ with main_col:
 
 
         k1, k2, k3, k4 = (
-            st.columns(4)
+            st.columns(
+                4
+            )
         )
 
         k1.metric(
@@ -3058,8 +3196,8 @@ with main_col:
         if ednna_abertos.empty:
 
             st.success(
-                "Não existem chamados no estado "
-                "Aberto no filtro atual."
+                "Não existem chamados no estado Aberto "
+                "no filtro atual."
             )
 
         else:
@@ -3075,11 +3213,10 @@ with main_col:
 
             st.caption(
                 "A EDNNA ainda está em modo de observação. "
-                "Nesta etapa ela apenas identifica os "
-                "candidatos ao primeiro combate; nenhuma "
-                "ação é realizada automaticamente no Redmine."
+                "Nesta etapa ela apenas identifica os candidatos "
+                "ao primeiro combate; nenhuma ação é realizada "
+                "automaticamente no Redmine."
             )
-
 
             pesquisa_ednna = st.text_input(
                 "Pesquisar na fila EDNNA",
@@ -3089,11 +3226,9 @@ with main_col:
                 key="pesquisa_fila_ednna",
             )
 
-
             fila_ednna = (
                 ednna_abertos.copy()
             )
-
 
             if pesquisa_ednna.strip():
 
@@ -3134,7 +3269,6 @@ with main_col:
 
 
             colunas_ordenacao = []
-
             ascending = []
 
 
@@ -3190,15 +3324,11 @@ with main_col:
                     "Criado",
                     "Tempo em aberto (dias)",
                 ]
-                if coluna
-                in fila_ednna.columns
+                if coluna in fila_ednna.columns
             ]
 
 
-            (
-                tabela_ednna,
-                config_ednna,
-            ) = (
+            tabela_ednna, config_ednna = (
                 preparar_tabela_com_link_redmine(
                     fila_ednna[
                         colunas_ednna
@@ -3214,17 +3344,13 @@ with main_col:
                 column_config=config_ednna,
             )
 
-
             st.caption(
-                f"{len(fila_ednna)} chamado(s) "
-                "exibido(s) na fila atual. "
-                "Clique no número para abrir "
+                f"{len(fila_ednna)} chamado(s) exibido(s) "
+                "na fila atual. Clique no número para abrir "
                 "diretamente no Redmine."
             )
 
-
             st.divider()
-
 
             st.markdown(
                 (
@@ -3235,14 +3361,12 @@ with main_col:
                 unsafe_allow_html=True,
             )
 
-
             st.info(
-                "A memória operacional SQLite já está "
-                "preparada para reduzir chamadas à API. "
-                "Na próxima etapa vamos analisar os journals "
-                "dos candidatos e reutilizar análises "
-                "anteriores sempre que o chamado não tiver "
-                "sido alterado no Redmine."
+                "A memória operacional SQLite já protege o painel "
+                "contra indisponibilidades temporárias do Redmine. "
+                "Na próxima etapa vamos analisar os journals dos "
+                "candidatos e reutilizar análises anteriores sempre "
+                "que o chamado não tiver sido alterado."
             )
 
 
@@ -3341,7 +3465,9 @@ with main_col:
                 summary[
                     "Tempo médio em aberto"
                 ]
-                .round(1)
+                .round(
+                    1
+                )
             )
 
             st.dataframe(
@@ -3350,8 +3476,11 @@ with main_col:
                 hide_index=True,
             )
 
-
-            c1, c2 = st.columns(2)
+            c1, c2 = (
+                st.columns(
+                    2
+                )
+            )
 
 
             with c1:
@@ -3372,7 +3501,9 @@ with main_col:
                 top_types = (
                     f["Tipo"]
                     .value_counts()
-                    .head(7)
+                    .head(
+                        7
+                    )
                     .index
                 )
 
@@ -3388,17 +3519,13 @@ with main_col:
                     y="Chamados",
                     color="Tipo",
                     barmode="stack",
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                 )
 
                 fig.update_layout(
                     xaxis_title="",
                     yaxis_title="Chamados",
-                    legend_title_text=(
-                        "Tipo de chamado"
-                    ),
+                    legend_title_text="Tipo de chamado",
                     height=450,
                 )
 
@@ -3407,20 +3534,18 @@ with main_col:
                 )
 
                 st.caption(
-                    "Clique em um segmento para abrir "
-                    "os chamados daquele responsável e tipo."
+                    "Clique em um segmento para abrir os "
+                    "chamados daquele responsável e tipo."
                 )
 
                 st.plotly_chart(
                     fig,
                     width="stretch",
                     key="grafico_equipe_tipo",
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_equipe_tipo",
-                            "sel_equipe_resp",
-                            "x",
-                        )
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_equipe_tipo",
+                        "sel_equipe_resp",
+                        "x",
                     ),
                     selection_mode="points",
                 )
@@ -3432,10 +3557,7 @@ with main_col:
                         )
                     ],
                     "Tipo",
-                    (
-                        "Legenda interativa — clique no tipo "
-                        "para abrir os chamados:"
-                    ),
+                    "Legenda interativa — clique no tipo para abrir os chamados:",
                     "sel_tipo_legenda_equipe",
                     "legenda_tipo_equipe",
                     valores=[
@@ -3450,9 +3572,7 @@ with main_col:
                     "Chamados do tipo",
                     "sel_tipo_legenda_equipe",
                     "Tipo",
-                    key_prefix=(
-                        "tipo_legenda_equipe"
-                    ),
+                    key_prefix="tipo_legenda_equipe",
                 )
 
                 resp_sel = (
@@ -3492,9 +3612,7 @@ with main_col:
                     x="Atribuído a",
                     y="Tempo em aberto (dias)",
                     text_auto=".0f",
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                 )
 
                 fig.update_layout(
@@ -3517,15 +3635,11 @@ with main_col:
                 st.plotly_chart(
                     fig,
                     width="stretch",
-                    key=(
-                        "grafico_tempo_mediano_responsavel"
-                    ),
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_tempo_mediano_responsavel",
-                            "sel_mediana_resp",
-                            "x",
-                        )
+                    key="grafico_tempo_mediano_responsavel",
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_tempo_mediano_responsavel",
+                        "sel_mediana_resp",
+                        "x",
                     ),
                     selection_mode="points",
                 )
@@ -3579,9 +3693,7 @@ with main_col:
             x="Faixa",
             y="Chamados",
             text_auto=True,
-            color_discrete_sequence=(
-                FACEBOOK_COLORS
-            ),
+            color_discrete_sequence=FACEBOOK_COLORS,
         )
 
         fig.update_layout(
@@ -3603,12 +3715,10 @@ with main_col:
             fig,
             width="stretch",
             key="grafico_faixa_tempo",
-            on_select=lambda: (
-                registrar_selecao_generica(
-                    "grafico_faixa_tempo",
-                    "sel_faixa_tempo",
-                    "x",
-                )
+            on_select=lambda: registrar_selecao_generica(
+                "grafico_faixa_tempo",
+                "sel_faixa_tempo",
+                "x",
             ),
             selection_mode="points",
         )
@@ -3621,13 +3731,14 @@ with main_col:
             key_prefix="faixa_tempo",
         )
 
-
         old = (
             f.sort_values(
                 "Tempo em aberto (dias)",
                 ascending=False,
             )
-            .head(30)
+            .head(
+                30
+            )
         )
 
         cols_show = [
@@ -3650,13 +3761,12 @@ with main_col:
             "**30 chamados há mais tempo em aberto**"
         )
 
-        (
-            tabela_antigos,
-            config_antigos,
-        ) = preparar_tabela_com_link_redmine(
-            old[
-                cols_show
-            ]
+        tabela_antigos, config_antigos = (
+            preparar_tabela_com_link_redmine(
+                old[
+                    cols_show
+                ]
+            )
         )
 
         st.dataframe(
@@ -3673,7 +3783,11 @@ with main_col:
 
     with tab_demand:
 
-        c1, c2 = st.columns(2)
+        c1, c2 = (
+            st.columns(
+                2
+            )
+        )
 
 
         with c1:
@@ -3699,9 +3813,7 @@ with main_col:
                     y="Tipo",
                     orientation="h",
                     text_auto=True,
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                 )
 
                 fig.update_layout(
@@ -3723,12 +3835,10 @@ with main_col:
                     fig,
                     width="stretch",
                     key="grafico_tipo_demanda",
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_tipo_demanda",
-                            "sel_tipo_demanda",
-                            "y",
-                        )
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_tipo_demanda",
+                        "sel_tipo_demanda",
+                        "y",
                     ),
                     selection_mode="points",
                 )
@@ -3762,9 +3872,7 @@ with main_col:
                     names="Prioridade",
                     values="Chamados",
                     hole=.45,
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                     custom_data=[
                         "Prioridade"
                     ],
@@ -3788,12 +3896,10 @@ with main_col:
                     fig,
                     width="stretch",
                     key="grafico_prioridade",
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_prioridade",
-                            "sel_prioridade",
-                            "label",
-                        )
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_prioridade",
+                        "sel_prioridade",
+                        "label",
                     ),
                     selection_mode="points",
                 )
@@ -3809,10 +3915,7 @@ with main_col:
                 legenda_interativa(
                     f,
                     "Prioridade",
-                    (
-                        "Legenda interativa — clique na "
-                        "prioridade para abrir os chamados:"
-                    ),
+                    "Legenda interativa — clique na prioridade para abrir os chamados:",
                     "sel_prioridade_legenda",
                     "legenda_prioridade",
                     valores=(
@@ -3830,15 +3933,13 @@ with main_col:
                     "Chamados com prioridade",
                     "sel_prioridade_legenda",
                     "Prioridade",
-                    key_prefix=(
-                        "prioridade_legenda"
-                    ),
+                    key_prefix="prioridade_legenda",
                 )
 
 
-        # ====================================================
-        # CLIENTES
-        # ====================================================
+        # ----------------------------------------------------
+        # RANKING CLIENTES
+        # ----------------------------------------------------
 
         if "Clientes" in f.columns:
 
@@ -3851,15 +3952,19 @@ with main_col:
                 unsafe_allow_html=True,
             )
 
-            ranking = ranking_clientes(
-                f
+            ranking = (
+                ranking_clientes(
+                    f
+                )
             )
 
             if len(ranking):
 
                 top = (
                     ranking
-                    .head(20)
+                    .head(
+                        20
+                    )
                     .copy()
                 )
 
@@ -3882,15 +3987,11 @@ with main_col:
                     y="Cliente",
                     orientation="h",
                     text="Chamados",
-                    color_discrete_sequence=(
-                        FACEBOOK_COLORS
-                    ),
+                    color_discrete_sequence=FACEBOOK_COLORS,
                 )
 
                 fig.update_traces(
-                    texttemplate=(
-                        "%{text} chamados"
-                    ),
+                    texttemplate="%{text} chamados",
                     textposition="outside",
                     cliponaxis=False,
                 )
@@ -3918,22 +4019,19 @@ with main_col:
                 )
 
                 st.caption(
-                    "Ranking dos 20 clientes com mais "
-                    "chamados no filtro atual. Clique em "
-                    "uma barra para abrir os chamados "
-                    "daquele cliente."
+                    "Ranking dos 20 clientes com mais chamados "
+                    "no filtro atual. Clique em uma barra para "
+                    "abrir os chamados daquele cliente."
                 )
 
                 st.plotly_chart(
                     fig,
                     width="stretch",
                     key="grafico_cliente",
-                    on_select=lambda: (
-                        registrar_selecao_generica(
-                            "grafico_cliente",
-                            "sel_cliente",
-                            "y",
-                        )
+                    on_select=lambda: registrar_selecao_generica(
+                        "grafico_cliente",
+                        "sel_cliente",
+                        "y",
                     ),
                     selection_mode="points",
                 )
@@ -3951,12 +4049,9 @@ with main_col:
                         "Chamados do cliente",
                         "sel_cliente",
                         "Clientes",
-                        mascara=(
-                            lambda frame, valor:
-                            mascara_cliente(
-                                frame,
-                                valor,
-                            )
+                        mascara=lambda frame, valor: mascara_cliente(
+                            frame,
+                            valor,
                         ),
                         key_prefix="cliente",
                     )
@@ -4006,7 +4101,9 @@ with main_col:
             "Pesquisar por número, cliente ou assunto"
         )
 
-        detail = f.copy()
+        detail = (
+            f.copy()
+        )
 
         if q.strip():
 
@@ -4071,11 +4168,10 @@ with main_col:
         )
 
 
-        (
-            tabela_detalhe,
-            config_detalhe,
-        ) = preparar_tabela_com_link_redmine(
-            detalhe_ordenado
+        tabela_detalhe, config_detalhe = (
+            preparar_tabela_com_link_redmine(
+                detalhe_ordenado
+            )
         )
 
 
@@ -4103,9 +4199,7 @@ with main_col:
         st.download_button(
             "Baixar chamados filtrados (CSV)",
             data=csv_out,
-            file_name=(
-                "edi_backlog_filtrado.csv"
-            ),
+            file_name="edi_backlog_filtrado.csv",
             mime="text/csv",
         )
 
@@ -4117,6 +4211,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.7.0 — EDNNA com memória operacional SQLite, "
-        "sincronização incremental e fila inicial de primeiro combate."
+        "Versão 3.7.1 — EDNNA com memória operacional SQLite, "
+        "contingência persistente contra indisponibilidade do Redmine "
+        "e fila inicial de primeiro combate."
     )
