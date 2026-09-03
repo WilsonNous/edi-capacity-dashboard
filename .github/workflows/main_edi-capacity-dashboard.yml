@@ -6,12 +6,24 @@ on:
       - main
   workflow_dispatch:
 
+# ============================================================
+# CONTROLE DE CONCORRÊNCIA
+# ============================================================
+# Não cancelar um deployment que já esteja em andamento.
+#
+# O azure/webapps-deploy@v3 usa OneDeploy.
+# Cancelar o workflow durante essa operação pode deixar
+# o App Service com lock de deployment e causar erro 409.
+# ============================================================
 concurrency:
   group: edi-capacity-dashboard-production
-  cancel-in-progress: true
+  cancel-in-progress: false
+
 
 jobs:
+
   build-and-deploy:
+
     runs-on: ubuntu-latest
 
     permissions:
@@ -19,26 +31,181 @@ jobs:
       contents: read
 
     steps:
+
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
+
       - name: Checkout
         uses: actions/checkout@v4
+
+
+      # ======================================================
+      # PYTHON
+      # ======================================================
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Validate project
+
+      # ======================================================
+      # INSTALAÇÃO DE DEPENDÊNCIAS
+      # ======================================================
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m compileall app.py redmine_api.py
+
+
+      # ======================================================
+      # MOSTRAR ESTRUTURA DO PROJETO
+      # ======================================================
+      #
+      # Isso vai nos permitir confirmar no próprio log
+      # do GitHub se a pasta ednna realmente chegou.
+      # ======================================================
+
+      - name: Show project structure
+        run: |
+          echo "=========================================="
+          echo "ESTRUTURA DO PROJETO"
+          echo "=========================================="
+
+          find . \
+            -maxdepth 3 \
+            -type f \
+            ! -path "./.git/*" \
+            ! -path "./.github/*" \
+            | sort
+
+
+      # ======================================================
+      # VALIDAR ARQUIVOS OBRIGATÓRIOS
+      # ======================================================
+
+      - name: Validate required files
+        run: |
+          echo "Validando arquivos principais..."
+
+          test -f app.py
+          test -f redmine_api.py
+          test -f requirements.txt
+
+          echo "Validando estrutura EDNNA..."
+
+          test -f ednna/__init__.py
+          test -f ednna/primeiro_combate.py
+
+          echo "Arquivos obrigatórios encontrados."
+
+
+      # ======================================================
+      # COMPILAÇÃO DE TODO O PROJETO
+      # ======================================================
+
+      - name: Compile Python project
+        run: |
+          echo "Compilando aplicação..."
+
+          python -m compileall \
+            app.py \
+            redmine_api.py \
+            ednna
+
+          echo "Compilação concluída."
+
+
+      # ======================================================
+      # TESTAR IMPORT DA EDNNA
+      # ======================================================
+      #
+      # Essa etapa impediria exatamente o erro que tivemos
+      # anteriormente no Azure.
+      # ======================================================
+
+      - name: Validate EDNNA import
+        run: |
+          python - <<'PY'
+          from ednna.primeiro_combate import filtrar_estado_aberto_dataframe
+
+          print("EDNNA importada corretamente.")
+          print(
+              "Função encontrada:",
+              filtrar_estado_aberto_dataframe.__name__
+          )
+          PY
+
+
+      # ======================================================
+      # TESTAR IMPORT DO APP
+      # ======================================================
+
+      - name: Validate application imports
+        run: |
+          python - <<'PY'
+          import redmine_api
+
+          from ednna.primeiro_combate import (
+              filtrar_estado_aberto_dataframe,
+          )
+
+          print("redmine_api: OK")
+          print("ednna.primeiro_combate: OK")
+          PY
+
+
+      # ======================================================
+      # CRIAR PACOTE
+      # ======================================================
 
       - name: Create deployment ZIP
         run: |
-          zip -r deploy.zip .             -x ".git/*"             -x ".github/*"             -x ".venv/*"             -x "venv/*"             -x "antenv/*"             -x "__pycache__/*"             -x "*.pyc"             -x "deploy.zip"
 
-          echo "Conteúdo do pacote:"
-          unzip -l deploy.zip | head -100
+          echo "Criando pacote de deployment..."
+
+          zip -r deploy.zip . \
+            -x ".git/*" \
+            -x ".github/*" \
+            -x ".venv/*" \
+            -x "venv/*" \
+            -x "antenv/*" \
+            -x "__pycache__/*" \
+            -x "*/__pycache__/*" \
+            -x "*.pyc" \
+            -x "deploy.zip"
+
+
+      # ======================================================
+      # VALIDAR O ZIP
+      # ======================================================
+
+      - name: Validate deployment package
+        run: |
+
+          echo "=========================================="
+          echo "CONTEÚDO DO PACOTE"
+          echo "=========================================="
+
+          unzip -l deploy.zip
+
+          echo ""
+          echo "=========================================="
+          echo "VALIDANDO EDNNA NO PACOTE"
+          echo "=========================================="
+
+          unzip -l deploy.zip | grep "ednna/__init__.py"
+          unzip -l deploy.zip | grep "ednna/primeiro_combate.py"
+
+          echo ""
+          echo "EDNNA encontrada dentro do deploy.zip."
+
+
+      # ======================================================
+      # LOGIN AZURE
+      # ======================================================
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -47,9 +214,24 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A4D6C73FF6914FDABD78762DCEF95B2A }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_28FA8B0DF7BD44AA8E12086638FD46A8 }}
 
+
+      # ======================================================
+      # DEPLOY
+      # ======================================================
+
       - name: Deploy ZIP to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'edi-capacity-dashboard'
           slot-name: 'Production'
           package: 'deploy.zip'
+
+
+      # ======================================================
+      # LOGOUT
+      # ======================================================
+
+      - name: Logout from Azure
+        if: always()
+        run: |
+          az logout
