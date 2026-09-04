@@ -386,3 +386,50 @@ def enriquecer_dataframe_com_classificacoes(
     resultado["EDNNA - Ação sugerida"] = acoes
 
     return resultado
+
+
+
+def calcular_prontidao_automacao(frame: pd.DataFrame) -> pd.DataFrame:
+    """Resume oportunidades de automação por intenção.
+
+    A pontuação serve apenas para priorização. Não autoriza execução.
+    """
+    if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty or 'EDNNA - Intenção' not in frame.columns:
+        return pd.DataFrame(columns=['Intenção','Chamados','Confiança média','Com regra candidata','Prontidão','Faixa'])
+
+    base = frame.copy()
+    if 'EDNNA - Confiança' not in base.columns:
+        base['EDNNA - Confiança'] = 0.0
+    if 'EDNNA - Regra' not in base.columns:
+        base['EDNNA - Regra'] = ''
+
+    linhas = []
+    for intencao, grupo in base.groupby('EDNNA - Intenção', dropna=False):
+        intencao = str(intencao if pd.notna(intencao) else 'NAO_CLASSIFICADO')
+        total = len(grupo)
+        confianca_media = float(pd.to_numeric(grupo['EDNNA - Confiança'], errors='coerce').fillna(0).mean())
+        com_regra = int((grupo['EDNNA - Regra'].fillna('').astype(str).str.strip() != '').sum())
+        pct_regra = (com_regra/total) if total else 0
+        score_volume = min(1.0, total/20.0)
+        score = score_volume*0.45 + confianca_media*0.40 + pct_regra*0.15
+        if intencao == 'NAO_CLASSIFICADO': score = 0.0
+        if score >= 0.80: faixa = 'Alta'
+        elif score >= 0.60: faixa = 'Média'
+        elif score > 0: faixa = 'Baixa'
+        else: faixa = 'Não aplicável'
+        linhas.append({'Intenção':intencao,'Chamados':total,'Confiança média':round(confianca_media,2),'Com regra candidata':com_regra,'Prontidão':round(score,2),'Faixa':faixa})
+
+    resultado = pd.DataFrame(linhas)
+    if resultado.empty: return resultado
+    return resultado.sort_values(['Prontidão','Chamados','Confiança média'], ascending=[False,False,False]).reset_index(drop=True)
+
+
+def resumo_oportunidades(frame: pd.DataFrame) -> dict:
+    if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
+        return {'total':0,'reconhecidos':0,'nao_classificados':0,'com_regra':0,'alta_prontidao':0}
+    total = len(frame)
+    reconhecidos = int((frame['EDNNA - Intenção'].fillna('NAO_CLASSIFICADO').astype(str) != 'NAO_CLASSIFICADO').sum())
+    com_regra = int((frame['EDNNA - Regra'].fillna('').astype(str).str.strip() != '').sum())
+    prontidao = calcular_prontidao_automacao(frame)
+    alta = int((prontidao['Faixa'] == 'Alta').sum()) if not prontidao.empty else 0
+    return {'total':total,'reconhecidos':reconhecidos,'nao_classificados':total-reconhecidos,'com_regra':com_regra,'alta_prontidao':alta}
