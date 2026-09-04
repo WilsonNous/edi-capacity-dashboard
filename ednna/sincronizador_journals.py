@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from time import sleep
 from typing import Any, Callable
 
@@ -13,6 +14,10 @@ from ednna.armazenamento import (
     salvar_analise_primeiro_combate,
     salvar_journals,
     salvar_metadado,
+    adquirir_lock,
+    liberar_lock,
+    cooldown_ativo,
+    definir_cooldown,
 )
 from ednna.primeiro_combate import (
     autores_edi_do_dataframe,
@@ -35,6 +40,8 @@ MAX_ERROS_CONSECUTIVOS = max(
     1,
     int(os.getenv("EDNNA_MAX_ERROS_CONSECUTIVOS", "3")),
 )
+
+JOURNAL_COOLDOWN_SECONDS = max(60, int(os.getenv("EDNNA_JOURNAL_COOLDOWN_SECONDS", "600")))
 
 
 def _inteiro(valor: Any) -> int | None:
@@ -152,6 +159,11 @@ def processar_chamado(
         row.get("Alterado")
     )
 
+    chave_cooldown = f"journal:{chamado_id}"
+    if cooldown_ativo(chave_cooldown):
+        print(f"[EDNNA] Journals | chamado={chamado_id} | cooldown ativo | ignorando", flush=True)
+        return {"ok": True, "id": chamado_id, "journals": 0, "situacao": "COOLDOWN", "ignorado_cooldown": True}
+
     solicitante = _texto(
         row.get("Autor")
     )
@@ -234,6 +246,7 @@ def processar_chamado(
 
     except Exception as exc:
         erro = str(exc)
+        definir_cooldown(chave_cooldown, JOURNAL_COOLDOWN_SECONDS, erro)
 
         print(
             "[EDNNA] Journals ERRO | "
@@ -382,18 +395,15 @@ def sincronizar_proximo_lote(
         )
     )
 
-    pendentes = (
-        listar_pendentes_dataframe(
-            frame
-        )
-    )
-
-    return _processar_lote(
-        frame,
-        pendentes.head(
-            limite
-        ),
-    )
+    dono = f"{os.getenv('WEBSITE_INSTANCE_ID', 'local')}:{uuid.uuid4().hex[:8]}"
+    if not adquirir_lock("fila_journals", dono, ttl_seconds=900):
+        print("[EDNNA] Fila journals já em processamento por outra sessão | ignorando", flush=True)
+        return {"pendentes_antes": len(listar_pendentes_dataframe(frame)), "selecionados": 0, "processados": 0, "sucesso": 0, "erros": 0, "journals": 0, "ja_atuados": 0, "aguardando": 0, "revisao": 0, "interrompido": False, "bloqueado_por_outra_sessao": True, "resultados": []}
+    try:
+        pendentes = listar_pendentes_dataframe(frame)
+        return _processar_lote(frame, pendentes.head(limite))
+    finally:
+        liberar_lock("fila_journals", dono)
 
 
 def sincronizar_fila_completa(
@@ -409,14 +419,12 @@ def sincronizar_fila_completa(
     A fila é interrompida automaticamente se ocorrerem
     erros consecutivos acima do limite configurado.
     """
-    pendentes = (
-        listar_pendentes_dataframe(
-            frame
-        )
-    )
-
-    return _processar_lote(
-        frame,
-        pendentes,
-        progresso_callback=progresso_callback,
-    )
+    dono = f"{os.getenv('WEBSITE_INSTANCE_ID', 'local')}:{uuid.uuid4().hex[:8]}"
+    if not adquirir_lock("fila_journals", dono, ttl_seconds=1800):
+        print("[EDNNA] Fila journals já em processamento por outra sessão | ignorando", flush=True)
+        return {"pendentes_antes": len(listar_pendentes_dataframe(frame)), "selecionados": 0, "processados": 0, "sucesso": 0, "erros": 0, "journals": 0, "ja_atuados": 0, "aguardando": 0, "revisao": 0, "interrompido": False, "bloqueado_por_outra_sessao": True, "resultados": []}
+    try:
+        pendentes = listar_pendentes_dataframe(frame)
+        return _processar_lote(frame, pendentes, progresso_callback=progresso_callback)
+    finally:
+        liberar_lock("fila_journals", dono)

@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
@@ -295,10 +295,17 @@ def inicializar_banco() -> None:
 
             CREATE TABLE IF NOT EXISTS metadados (
                 chave TEXT PRIMARY KEY,
-
                 valor TEXT,
-
                 atualizado_em TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS coordenacao (
+                chave TEXT PRIMARY KEY,
+                dono TEXT,
+                estado TEXT NOT NULL,
+                expira_em TEXT,
+                atualizado_em TEXT NOT NULL,
+                detalhes TEXT
             );
             """
         )
@@ -1190,6 +1197,66 @@ def listar_classificacoes_demandas() -> list[dict]:
 
     return resultado
 
+
+
+def _parse_data_coordenacao(valor: str | None) -> datetime | None:
+    if not valor:
+        return None
+    try:
+        data = datetime.fromisoformat(valor)
+        if data.tzinfo is None:
+            data = data.replace(tzinfo=FUSO_BRASIL)
+        return data
+    except Exception:
+        return None
+
+
+def adquirir_lock(chave: str, dono: str, ttl_seconds: int = 300) -> bool:
+    agora = datetime.now(FUSO_BRASIL)
+    expira = agora + timedelta(seconds=max(10, int(ttl_seconds)))
+    with conectar() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        linha = conn.execute("SELECT dono, estado, expira_em FROM coordenacao WHERE chave=?", (chave,)).fetchone()
+        if linha is not None and str(linha["estado"] or "") == "EXECUTANDO":
+            fim = _parse_data_coordenacao(linha["expira_em"])
+            if fim is not None and fim > agora and str(linha["dono"] or "") != dono:
+                return False
+        conn.execute(
+            """INSERT INTO coordenacao (chave,dono,estado,expira_em,atualizado_em,detalhes)
+            VALUES (?,?,'EXECUTANDO',?,?,NULL)
+            ON CONFLICT(chave) DO UPDATE SET dono=excluded.dono, estado='EXECUTANDO',
+            expira_em=excluded.expira_em, atualizado_em=excluded.atualizado_em, detalhes=NULL""",
+            (chave,dono,expira.isoformat(timespec="seconds"),agora.isoformat(timespec="seconds")),
+        )
+    return True
+
+
+def liberar_lock(chave: str, dono: str) -> None:
+    with conectar() as conn:
+        conn.execute("UPDATE coordenacao SET estado='LIVRE', expira_em=NULL, atualizado_em=? WHERE chave=? AND dono=?",
+                     (agora_brasil_iso(), chave, dono))
+
+
+def cooldown_ativo(chave: str) -> bool:
+    with conectar() as conn:
+        linha = conn.execute("SELECT estado, expira_em FROM coordenacao WHERE chave=?", (chave,)).fetchone()
+    if linha is None or str(linha["estado"] or "") != "COOLDOWN":
+        return False
+    fim = _parse_data_coordenacao(linha["expira_em"])
+    return fim is not None and fim > datetime.now(FUSO_BRASIL)
+
+
+def definir_cooldown(chave: str, segundos: int, detalhes: str = "") -> None:
+    agora = datetime.now(FUSO_BRASIL)
+    expira = agora + timedelta(seconds=max(30, int(segundos)))
+    with conectar() as conn:
+        conn.execute(
+            """INSERT INTO coordenacao (chave,dono,estado,expira_em,atualizado_em,detalhes)
+            VALUES (?,'ednna','COOLDOWN',?,?,?)
+            ON CONFLICT(chave) DO UPDATE SET estado='COOLDOWN', expira_em=excluded.expira_em,
+            atualizado_em=excluded.atualizado_em, detalhes=excluded.detalhes""",
+            (chave,expira.isoformat(timespec="seconds"),agora.isoformat(timespec="seconds"),detalhes),
+        )
 
 # ============================================================
 # METADADOS
