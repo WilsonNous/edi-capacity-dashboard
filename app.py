@@ -1323,16 +1323,21 @@ def carregar_api_abertos():
         )
         or ""
     )
-
-    redmine_em_contingencia = (
+    
+    # Só consulta custom_fields.json quando a própria carga
+    # dos chamados veio efetivamente do Redmine.
+    #
+    # Se os chamados vieram do painel.db, seja por cache válido
+    # ou contingência, Clientes/Origem também usam o SQLite.
+    permitir_catalogo_remoto = (
         fonte_redmine
-        == "painel_sqlite_contingencia"
+        == "redmine"
     )
-
+    
     catalogos = (
         carregar_catalogos_redmine(
             permitir_remoto=(
-                not redmine_em_contingencia
+                permitir_catalogo_remoto
             )
         )
     )
@@ -4881,7 +4886,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.12.1 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
+        "Versão 3.12.2 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )
