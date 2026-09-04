@@ -3961,6 +3961,102 @@ with main_col:
                     color: #243b53;
                     margin: 4px 0 8px 0;
                 }
+                .ednna-action-head {
+                    display:flex;
+                    align-items:center;
+                    justify-content:space-between;
+                    gap:12px;
+                    flex-wrap:wrap;
+                    margin-bottom:8px;
+                }
+                .ednna-action-title {
+                    font-size:1.32rem;
+                    font-weight:780;
+                    color:#1d2939;
+                    line-height:1.15;
+                }
+                .ednna-action-meta {
+                    color:#667085;
+                    font-size:.84rem;
+                    margin-top:4px;
+                }
+                .ednna-status-ready,
+                .ednna-status-warn {
+                    border-radius:999px;
+                    padding:6px 10px;
+                    font-size:.82rem;
+                    font-weight:700;
+                    white-space:nowrap;
+                }
+                .ednna-status-ready {
+                    background:#e8f7ee;
+                    color:#187a3d;
+                    border:1px solid #ccebd7;
+                }
+                .ednna-status-warn {
+                    background:#fff7e6;
+                    color:#9a6700;
+                    border:1px solid #f1dfb7;
+                }
+                .ednna-data-grid {
+                    display:grid;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap:10px;
+                    margin:10px 0 14px 0;
+                }
+                .ednna-data-item {
+                    background:#fff;
+                    border:1px solid #e5e7eb;
+                    border-radius:10px;
+                    padding:10px 12px;
+                    min-height:72px;
+                }
+                .ednna-data-label {
+                    color:#667085;
+                    font-size:.76rem;
+                    font-weight:650;
+                    margin-bottom:4px;
+                }
+                .ednna-data-value {
+                    color:#1d2939;
+                    font-size:1rem;
+                    font-weight:720;
+                    line-height:1.25;
+                    overflow-wrap:anywhere;
+                }
+                .ednna-procedure-box {
+                    background:#f8fafc;
+                    border:1px solid #e5e7eb;
+                    border-radius:10px;
+                    padding:10px 12px;
+                    margin:6px 0 10px 0;
+                }
+                .ednna-procedure-title {
+                    font-size:.78rem;
+                    color:#667085;
+                    font-weight:650;
+                    margin-bottom:3px;
+                }
+                .ednna-procedure-name {
+                    color:#1d2939;
+                    font-weight:700;
+                    font-size:.95rem;
+                }
+                .ednna-procedure-note {
+                    color:#667085;
+                    font-size:.8rem;
+                    margin-top:3px;
+                }
+                @media (max-width: 1100px) {
+                    .ednna-data-grid {
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+                }
+                @media (max-width: 700px) {
+                    .ednna-data-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
                 </style>
                 """,
                 unsafe_allow_html=True,
@@ -4252,88 +4348,178 @@ with main_col:
                         avaliacao_acao = avaliar_acao(linha_acao)
 
                         with st.container(border=True):
-                            cab1, cab2 = st.columns([4, 1])
+                            chamado_card = str(linha_acao.get("#", ""))
+                            if chamado_card.endswith(".0"):
+                                chamado_card = chamado_card[:-2]
 
-                            with cab1:
-                                chamado_card = str(linha_acao.get("#", ""))
-                                if chamado_card.endswith(".0"):
-                                    chamado_card = chamado_card[:-2]
-
-                                cliente_card = str(linha_acao.get("Clientes", "") or "Sem cliente")
-                                origem_card = str(
-                                    linha_acao.get("EDNNA - Origem operacional", "")
-                                    or linha_acao.get("Origem", "")
-                                    or "Sem origem"
-                                )
-
-                                st.markdown(f"### #{chamado_card} • {cliente_card}")
-                                st.caption(
-                                    f"{origem_card} • {linha_acao.get('EDNNA - Subtipo', '')}"
-                                )
-
-                            with cab2:
-                                if avaliacao_acao.get("apto_rascunho"):
-                                    st.success("🟢 Pronto")
-                                else:
-                                    st.warning("🟡 Atenção")
-
-                            acao_c1, acao_c2, acao_c3, acao_c4 = st.columns(4)
-                            acao_c1.metric(
-                                "Convênio",
-                                linha_acao.get("EDNNA - Convênio", "") or "—",
-                            )
-                            acao_c2.metric(
-                                "Referência",
-                                linha_acao.get("EDNNA - Referência operacional", "") or "—",
-                            )
-                            acao_c3.metric(
-                                "Tipo",
-                                linha_acao.get("EDNNA - Tipos arquivo", "") or "—",
-                            )
-                            acao_c4.metric(
-                                "NSA",
-                                linha_acao.get("EDNNA - NSA referência", "") or "—",
+                            cliente_card = str(
+                                linha_acao.get("Clientes", "")
+                                or "Sem cliente"
                             )
 
-                            st.markdown("**Procedimento**")
-                            st.write(
+                            origem_card = str(
+                                linha_acao.get("EDNNA - Origem operacional", "")
+                                or linha_acao.get("Origem", "")
+                                or "Sem origem"
+                            )
+
+                            subtipo_raw = str(
+                                linha_acao.get("EDNNA - Subtipo", "")
+                                or ""
+                            )
+
+                            subtipo_visual = {
+                                "ARQUIVO_NAO_RECEBIDO": "Arquivo não recebido",
+                                "ARQUIVO_CORROMPIDO": "Arquivo corrompido",
+                                "FALTA_REGISTRO": "Falta de registro",
+                            }.get(
+                                subtipo_raw,
+                                subtipo_raw.replace("_", " ").title()
+                                if subtipo_raw
+                                else "Sem subtipo",
+                            )
+
+                            status_html = (
+                                '<span class="ednna-status-ready">🟢 Pronto</span>'
+                                if avaliacao_acao.get("apto_rascunho")
+                                else '<span class="ednna-status-warn">🟡 Atenção</span>'
+                            )
+
+                            st.markdown(
+                                f"""
+                                <div class="ednna-action-head">
+                                    <div>
+                                        <div class="ednna-action-title">#{chamado_card} • {cliente_card}</div>
+                                        <div class="ednna-action-meta">{origem_card} • {subtipo_visual}</div>
+                                    </div>
+                                    <div>{status_html}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            convenio_val = str(
+                                linha_acao.get("EDNNA - Convênio", "")
+                                or "—"
+                            )
+                            referencia_val = str(
+                                linha_acao.get("EDNNA - Referência operacional", "")
+                                or "—"
+                            )
+                            tipo_val = str(
+                                linha_acao.get("EDNNA - Tipos arquivo", "")
+                                or "—"
+                            )
+                            nsa_val = str(
+                                linha_acao.get("EDNNA - NSA referência", "")
+                                or "—"
+                            )
+
+                            st.markdown(
+                                f"""
+                                <div class="ednna-data-grid">
+                                    <div class="ednna-data-item">
+                                        <div class="ednna-data-label">Convênio</div>
+                                        <div class="ednna-data-value">{convenio_val}</div>
+                                    </div>
+                                    <div class="ednna-data-item">
+                                        <div class="ednna-data-label">Referência</div>
+                                        <div class="ednna-data-value">{referencia_val}</div>
+                                    </div>
+                                    <div class="ednna-data-item">
+                                        <div class="ednna-data-label">Tipo</div>
+                                        <div class="ednna-data-value">{tipo_val}</div>
+                                    </div>
+                                    <div class="ednna-data-item">
+                                        <div class="ednna-data-label">NSA</div>
+                                        <div class="ednna-data-value">{nsa_val}</div>
+                                    </div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+
+                            procedimento_nome = (
                                 avaliacao_acao.get("regra_nome")
                                 or "Sem procedimento homologado."
                             )
-                            st.caption(avaliacao_acao.get("motivo", ""))
-
-                            st.link_button(
-                                "Abrir chamado no Redmine",
-                                f"{REDMINE_WEB_URL}/issues/{chamado_card}",
+                            procedimento_nota = (
+                                avaliacao_acao.get("motivo", "")
+                                or ""
                             )
 
-                            if avaliacao_acao.get("apto_rascunho"):
-                                rascunho = gerar_rascunho(linha_acao)
+                            st.markdown(
+                                f"""
+                                <div class="ednna-procedure-box">
+                                    <div class="ednna-procedure-title">Procedimento</div>
+                                    <div class="ednna-procedure-name">{procedimento_nome}</div>
+                                    <div class="ednna-procedure-note">{procedimento_nota}</div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
 
-                                with st.expander("✉️ Visualizar rascunho", expanded=False):
-                                    st.markdown("**Para**")
-                                    st.code("; ".join(rascunho.get("destinatarios", [])))
+                            acao_left, acao_right = st.columns(
+                                [1.1, 3.9]
+                            )
 
-                                    if rascunho.get("cc"):
-                                        st.markdown("**Cc**")
-                                        st.code("; ".join(rascunho.get("cc", [])))
+                            with acao_left:
+                                st.link_button(
+                                    "Abrir no Redmine",
+                                    f"{REDMINE_WEB_URL}/issues/{chamado_card}",
+                                    width="stretch",
+                                )
 
-                                    st.markdown("**Assunto**")
-                                    st.code(rascunho.get("assunto", ""))
+                            with acao_right:
+                                if avaliacao_acao.get("apto_rascunho"):
+                                    rascunho = gerar_rascunho(linha_acao)
 
-                                    st.markdown("**Mensagem**")
-                                    st.text_area(
-                                        "Rascunho do e-mail",
-                                        value=rascunho.get("corpo", ""),
-                                        height=330,
-                                        key=f"rascunho_v316_{chamado_card}",
-                                        label_visibility="collapsed",
-                                    )
+                                    with st.expander(
+                                        "✉️ Visualizar rascunho",
+                                        expanded=False,
+                                    ):
+                                        st.markdown("**Para**")
+                                        st.caption(
+                                            "; ".join(
+                                                rascunho.get(
+                                                    "destinatarios",
+                                                    [],
+                                                )
+                                            )
+                                            or "Sem destinatários definidos."
+                                        )
 
-                                    st.info(
-                                        "Modo assistido: este rascunho não é enviado "
-                                        "e nenhuma alteração é feita no Redmine."
-                                    )
+                                        if rascunho.get("cc"):
+                                            st.markdown("**Cc**")
+                                            st.caption(
+                                                "; ".join(
+                                                    rascunho.get(
+                                                        "cc",
+                                                        [],
+                                                    )
+                                                )
+                                            )
+
+                                        st.markdown("**Assunto**")
+                                        st.code(
+                                            rascunho.get("assunto", ""),
+                                            language=None,
+                                        )
+
+                                        st.markdown("**Mensagem**")
+                                        st.text_area(
+                                            "Rascunho do e-mail",
+                                            value=rascunho.get("corpo", ""),
+                                            height=300,
+                                            key=f"rascunho_v3161_{chamado_card}",
+                                            label_visibility="collapsed",
+                                        )
+
+                                        st.caption(
+                                            "Modo assistido: o rascunho não é enviado "
+                                            "e nenhuma alteração é feita no Redmine."
+                                        )
+
 
                 # ================================================
                 # INTELIGÊNCIA
@@ -5529,7 +5715,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.15 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
+        "Versão 3.16.1 — EDNNA com Workspace operacional e ajuste fino de UX: precedência do Tipo oficial do Redmine, "
         "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
         "Nenhuma ação automática é executada no Redmine."
     )
