@@ -52,6 +52,7 @@ from ednna.motor_acoes import (
     enriquecer_dataframe_com_acoes,
     avaliar_acao,
     gerar_rascunho,
+    carregar_catalogo_operacional,
 )
 
 
@@ -3106,6 +3107,7 @@ with main_col:
         )
 
         catalogo_ednna = carregar_catalogo()
+        catalogo_operacional_ednna = carregar_catalogo_operacional()
 
         resumo_ednna = (
             resumo_analises_dataframe(
@@ -4497,16 +4499,50 @@ with main_col:
                 )
 
             st.divider()
-            st.markdown("**Catálogo de regras candidatas**")
-            regras_catalogo = catalogo_ednna.get("regras", [])
-            if regras_catalogo:
-                catalogo_df = pd.DataFrame(regras_catalogo)
-                colunas_catalogo = [c for c in ["id","nome","intencao","acao_sugerida","risco","homologada","executavel"] if c in catalogo_df.columns]
-                st.dataframe(catalogo_df[colunas_catalogo], width="stretch", hide_index=True)
-                st.warning(
-                    "Modo do catálogo: OBSERVAÇÃO. Prontidão e confiança servem para priorizar estudo. "
-                    "Nenhuma regra está autorizada a executar ações."
+            st.markdown("**Catálogo operacional da EDNNA**")
+            regras_operacionais = catalogo_operacional_ednna.get("regras", [])
+            if regras_operacionais:
+                catalogo_op_df = pd.DataFrame(regras_operacionais)
+                colunas_op = [c for c in [
+                    "id", "nome", "intencao", "subtipo", "acao",
+                    "canal", "homologada_para_rascunho", "executavel"
+                ] if c in catalogo_op_df.columns]
+                st.dataframe(
+                    catalogo_op_df[colunas_op],
+                    width="stretch",
+                    hide_index=True,
                 )
+                modo_operacional = str(
+                    catalogo_operacional_ednna.get("modo", "OBSERVACAO")
+                ).replace("_", " ")
+                st.info(
+                    f"Modo do catálogo operacional: {modo_operacional}. "
+                    "Regras homologadas podem gerar somente rascunhos assistidos; "
+                    "nenhuma ação é executada automaticamente."
+                )
+            else:
+                st.warning(
+                    "Nenhuma regra operacional carregada. A EDNNA continuará "
+                    "classificando chamados, mas não poderá propor rascunhos."
+                )
+
+            with st.expander("Regras candidatas em observação", expanded=False):
+                regras_catalogo = catalogo_ednna.get("regras", [])
+                if regras_catalogo:
+                    catalogo_df = pd.DataFrame(regras_catalogo)
+                    colunas_catalogo = [c for c in [
+                        "id", "nome", "intencao", "acao_sugerida",
+                        "risco", "homologada", "executavel"
+                    ] if c in catalogo_df.columns]
+                    st.dataframe(
+                        catalogo_df[colunas_catalogo],
+                        width="stretch",
+                        hide_index=True,
+                    )
+                    st.caption(
+                        "Estas regras servem para classificação e estudo de oportunidades. "
+                        "Elas não autorizam execução automática."
+                    )
 
         # ----------------------------------------------------
         # EQUIPE EDI
