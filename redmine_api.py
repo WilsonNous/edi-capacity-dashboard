@@ -9,6 +9,8 @@ from painel_cache import (
     cache_valido as painel_cache_valido,
     carregar_snapshot as painel_carregar_snapshot,
     salvar_snapshot as painel_salvar_snapshot,
+    salvar_metadado_json as painel_salvar_metadado_json,
+    obter_metadado_json as painel_obter_metadado_json,
 )
 
 import requests
@@ -192,10 +194,20 @@ def traduzir_custom_field(valor, field_id: int, *, retornar_lista: bool = False)
     return traduzidos if retornar_lista else (" / ".join(traduzidos) if traduzidos else None)
 
 
-def carregar_catalogos_redmine(force: bool = False) -> dict:
-    try:
-        campos = buscar_custom_fields(force=force)
+def carregar_catalogos_redmine(
+    force: bool = False,
+    permitir_remoto: bool = True,
+) -> dict:
+    """
+    Carrega os catálogos Clientes/Origem.
 
+    Em contingência, pode trabalhar somente com a última cópia
+    persistida no painel.db, evitando uma nova espera de timeout
+    logo após o Redmine já ter sido considerado indisponível.
+    """
+    chave_cache = "redmine_catalogos_custom_fields"
+
+    def montar_resultado(campos: list[dict], fonte: str) -> dict:
         def montar(field_id: int) -> dict[str, str]:
             for campo in campos:
                 if int(campo.get("id", -1)) == field_id:
@@ -206,29 +218,95 @@ def carregar_catalogos_redmine(force: bool = False) -> dict:
                         if valor in (None, ""):
                             continue
                         chave = str(valor).strip()
-                        mapa[chave] = str(label).strip() if label not in (None, "") else chave
+                        mapa[chave] = (
+                            str(label).strip()
+                            if label not in (None, "")
+                            else chave
+                        )
                     return mapa
             return {}
 
         clientes = montar(1)
         origens = montar(5)
+
         return {
             "ok": bool(clientes),
             "clientes": clientes,
             "origens": origens,
             "qtd_clientes": len(clientes),
             "qtd_origens": len(origens),
+            "fonte": fonte,
             "erro": None if clientes else "Campo Clientes (ID 1) sem valores.",
         }
-    except Exception as exc:
+
+    persistido = painel_obter_metadado_json(
+        chave_cache,
+        [],
+    )
+    if not isinstance(persistido, list):
+        persistido = []
+
+    if not permitir_remoto:
+        print(
+            "[REDMINE] Circuit breaker ativo | "
+            "custom_fields.json não consultado",
+            flush=True,
+        )
+        if persistido:
+            return montar_resultado(
+                persistido,
+                "painel_sqlite",
+            )
         return {
             "ok": False,
             "clientes": {},
             "origens": {},
             "qtd_clientes": 0,
             "qtd_origens": 0,
+            "fonte": "sem_catalogo_persistido",
+            "erro": "Redmine indisponível e ainda não há catálogo persistido.",
+        }
+
+    try:
+        campos = buscar_custom_fields(force=force)
+
+        if campos:
+            painel_salvar_metadado_json(
+                chave_cache,
+                campos,
+            )
+
+        return montar_resultado(
+            campos,
+            "redmine",
+        )
+
+    except Exception as exc:
+        if persistido:
+            print(
+                "[REDMINE] Falha ao atualizar catálogos | "
+                "usando catálogo persistido no SQLite",
+                flush=True,
+            )
+            resultado = montar_resultado(
+                persistido,
+                "painel_sqlite_contingencia",
+            )
+            resultado["erro_redmine"] = (
+                f"{type(exc).__name__}: {exc}"
+            )
+            return resultado
+
+        return {
+            "ok": False,
+            "clientes": {},
+            "origens": {},
+            "qtd_clientes": 0,
+            "qtd_origens": 0,
+            "fonte": "erro",
             "erro": f"{type(exc).__name__}: {exc}",
         }
+
 
 
 def traduzir_valor_catalogo(valor, mapa: dict[str, str]):

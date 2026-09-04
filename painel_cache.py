@@ -155,6 +155,24 @@ def salvar_metadado(chave: str, valor: str) -> None:
         )
 
 
+
+def salvar_metadado_json(chave: str, valor: Any) -> None:
+    salvar_metadado(
+        chave,
+        _json_seguro(valor),
+    )
+
+
+def obter_metadado_json(chave: str, padrao: Any = None) -> Any:
+    bruto = obter_metadado(chave)
+    if not bruto:
+        return padrao
+    try:
+        return json.loads(bruto)
+    except Exception:
+        return padrao
+
+
 def obter_metadado(chave: str) -> str:
     with conectar() as conn:
         linha = conn.execute(

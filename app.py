@@ -1316,8 +1316,25 @@ def carregar_api_abertos():
         time.perf_counter()
     )
 
+    fonte_redmine = str(
+        diagnostico_redmine.get(
+            "fonte_dados",
+            "",
+        )
+        or ""
+    )
+
+    redmine_em_contingencia = (
+        fonte_redmine
+        == "painel_sqlite_contingencia"
+    )
+
     catalogos = (
-        carregar_catalogos_redmine()
+        carregar_catalogos_redmine(
+            permitir_remoto=(
+                not redmine_em_contingencia
+            )
+        )
     )
 
     tempo_catalogo = round(
@@ -4864,7 +4881,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.12.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
+        "Versão 3.12.1 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )
