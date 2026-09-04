@@ -1,87 +1,30 @@
 {
   "versao": "1.0",
-  "principio": "A EDNNA entende. O catálogo autoriza. O executor executa.",
-  "modo": "OBSERVACAO",
+  "modo": "RASCUNHO_ASSISTIDO",
+  "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
   "regras": [
     {
-      "id": "REL-001",
-      "intencao": "RELACIONAMENTO_CREDENCIAMENTO",
-      "nome": "Relacionamento / credenciamento com adquirente",
-      "acao_sugerida": "Validar dados obrigatórios e preparar solicitação padronizada de relacionamento.",
-      "executavel": false,
-      "homologada": false,
-      "risco": "BAIXO",
-      "obrigatorios": [
-        "cliente",
-        "adquirente",
-        "cnpj",
-        "estabelecimento"
-      ]
-    },
-    {
-      "id": "EST-001",
-      "intencao": "INCLUSAO_ESTABELECIMENTO",
-      "nome": "Inclusão de estabelecimento",
-      "acao_sugerida": "Validar estabelecimento e adquirente e preparar solicitação de inclusão.",
-      "executavel": false,
-      "homologada": false,
-      "risco": "BAIXO",
-      "obrigatorios": [
-        "cliente",
-        "adquirente",
-        "estabelecimento"
-      ]
-    },
-    {
-      "id": "FALTA-001",
+      "id": "FALTA-PLUXEE-001",
+      "nome": "Pluxee — Solicitação de reenvio de arquivo",
       "intencao": "FALTA_ARQUIVO",
-      "nome": "Falta de arquivo",
-      "acao_sugerida": "Identificar adquirente, data de referência e arquivo esperado antes de acionar a fonte.",
+      "subtipo": "ARQUIVO_NAO_RECEBIDO",
+      "origens": [
+        "SODEXO",
+        "PLUXEE"
+      ],
+      "acao": "PREPARAR_EMAIL_REENVIO",
+      "canal": "EMAIL",
+      "homologada_para_rascunho": true,
       "executavel": false,
-      "homologada": false,
-      "risco": "BAIXO",
-      "obrigatorios": [
-        "cliente",
-        "origem",
-        "data_referencia"
-      ]
-    },
-    {
-      "id": "REP-001",
-      "intencao": "REPROCESSAMENTO",
-      "nome": "Reprocessamento",
-      "acao_sugerida": "Identificar arquivo/processo alvo e validar se existe procedimento homologado de reprocessamento.",
-      "executavel": false,
-      "homologada": false,
-      "risco": "MEDIO",
-      "obrigatorios": [
-        "cliente",
-        "arquivo_ou_periodo"
-      ]
-    },
-    {
-      "id": "CAD-001",
-      "intencao": "ALTERACAO_CADASTRAL",
-      "nome": "Alteração cadastral",
-      "acao_sugerida": "Identificar campo solicitado e validar dados antes de preparar alteração.",
-      "executavel": false,
-      "homologada": false,
-      "risco": "MEDIO",
-      "obrigatorios": [
-        "cliente",
-        "campo_alterar",
-        "novo_valor"
-      ]
-    },
-    {
-      "id": "ORI-001",
-      "intencao": "DUVIDA_ORIENTACAO",
-      "nome": "Dúvida / orientação",
-      "acao_sugerida": "Preparar resposta sugerida para revisão humana.",
-      "executavel": false,
-      "homologada": false,
-      "risco": "BAIXO",
-      "obrigatorios": []
+      "requer_dados_completos": true,
+      "bloqueia_conflito": true,
+      "destinatarios": [
+        "reembolso.estabelecimentos.br@sales.pluxee.com.br",
+        "relacionamento.estabelecimentos.br@care.pluxee.com.br"
+      ],
+      "cc_padrao": [],
+      "assunto_template": "[ PLUXEE - Falta de Arquivo - {cliente} - #{chamado_id} ]",
+      "observacao": "Regra homologada apenas para geração de rascunho. Não envia e-mail e não altera o Redmine."
     }
   ]
 }
