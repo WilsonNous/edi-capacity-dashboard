@@ -3497,7 +3497,7 @@ with main_col:
                 "Primeiro combate",
                 "Já atuados",
                 "Revisão",
-                "Demandas e automação",
+                "Workspace EDNNA",
                 "Equipe EDI",
             ]
         )
@@ -3899,10 +3899,84 @@ with main_col:
 
         with ed_demandas:
 
-            st.markdown("**Observatório de oportunidades de automação**")
-            st.caption(
-                "A EDNNA usa os chamados já classificados para apontar onde existe repetição, confiança e regra candidata. "
-                "Prontidão significa prioridade para estudo — não autorização de execução."
+            # ====================================================
+            # v3.16 — WORKSPACE EDNNA
+            # ====================================================
+            # Organização visual da inteligência operacional.
+            # Não altera classificação, SQLite, Redmine ou execução.
+            # ====================================================
+
+            st.markdown(
+                """
+                <style>
+                .ednna-hero {
+                    padding: 18px 20px;
+                    border-radius: 16px;
+                    background: linear-gradient(135deg, #eef4ff 0%, #f8fbff 100%);
+                    border: 1px solid #d9e6ff;
+                    margin-bottom: 14px;
+                }
+                .ednna-hero-title {
+                    font-size: 1.22rem;
+                    font-weight: 750;
+                    color: #163b72;
+                    margin-bottom: 4px;
+                }
+                .ednna-hero-sub {
+                    color: #52657d;
+                    font-size: .94rem;
+                }
+                .ednna-card {
+                    padding: 14px 16px;
+                    border-radius: 14px;
+                    border: 1px solid #e5e7eb;
+                    background: #ffffff;
+                    min-height: 112px;
+                    margin-bottom: 8px;
+                }
+                .ednna-card-blue { border-top: 4px solid #1877f2; }
+                .ednna-card-green { border-top: 4px solid #2e9d59; }
+                .ednna-card-yellow { border-top: 4px solid #d99a18; }
+                .ednna-card-purple { border-top: 4px solid #7a5af8; }
+                .ednna-card-red { border-top: 4px solid #d64545; }
+                .ednna-card-label {
+                    color: #667085;
+                    font-size: .82rem;
+                    font-weight: 650;
+                }
+                .ednna-card-value {
+                    color: #1d2939;
+                    font-size: 1.65rem;
+                    line-height: 1.15;
+                    font-weight: 780;
+                    margin: 5px 0;
+                }
+                .ednna-card-note {
+                    color: #667085;
+                    font-size: .78rem;
+                }
+                .ednna-section-title {
+                    font-size: 1.05rem;
+                    font-weight: 740;
+                    color: #243b53;
+                    margin: 4px 0 8px 0;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                """
+                <div class="ednna-hero">
+                    <div class="ednna-hero-title">🤖 Workspace operacional da EDNNA</div>
+                    <div class="ednna-hero-sub">
+                        Acompanhe qualidade dos dados, ações assistidas, recorrências e regras
+                        sem percorrer uma página única e extensa.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
             base_demandas = ednna_analisados[
@@ -3911,638 +3985,673 @@ with main_col:
 
             if base_demandas.empty:
                 st.info("Não há chamados analisados aguardando primeiro combate.")
+
             else:
                 resumo_op = resumo_oportunidades(base_demandas)
                 prontidao_df = calcular_prontidao_automacao(base_demandas)
 
-                o1, o2, o3, o4, o5, o6, o7 = st.columns(7)
-                o1.metric("Sem primeiro combate", resumo_op.get("total", 0))
-                o2.metric("Padrão reconhecido", resumo_op.get("reconhecidos", 0))
-                o3.metric("Não classificados", resumo_op.get("nao_classificados", 0))
-                o4.metric("Com regra candidata", resumo_op.get("com_regra", 0))
-                o5.metric("Conflitos", resumo_op.get("conflitos", 0))
-                o6.metric("Automatizáveis", resumo_op.get("automatizaveis", 0))
-                o7.metric("Alta prontidão", resumo_op.get("alta_prontidao", 0))
-
-                st.divider()
-                st.markdown("**Ranking de prontidão para automação**")
-
-                if not prontidao_df.empty:
-                    st.dataframe(prontidao_df, width="stretch", hide_index=True)
-                    graf_pront = prontidao_df[prontidao_df["Intenção"] != "NAO_CLASSIFICADO"].copy()
-                    if not graf_pront.empty:
-                        fig_pront = px.bar(
-                            graf_pront.sort_values("Prontidão"),
-                            x="Prontidão", y="Intenção", orientation="h", text="Chamados",
-                            color_discrete_sequence=FACEBOOK_COLORS,
-                        )
-                        fig_pront.update_traces(texttemplate="%{text} chamados", textposition="outside", cliponaxis=False)
-                        fig_pront.update_layout(height=max(360, 46*len(graf_pront)), xaxis_title="Índice de prontidão", yaxis_title="")
-                        ajustar_grafico(fig_pront)
-                        st.plotly_chart(fig_pront, width="stretch")
-
-                st.divider()
-                st.markdown("**Distribuição das demandas**")
-                intencoes = (
-                    base_demandas["EDNNA - Intenção"]
-                    .fillna("NAO_CLASSIFICADO")
-                    .value_counts()
-                    .rename_axis("Intenção")
-                    .reset_index(name="Chamados")
-                )
-                fig_intencoes = px.bar(
-                    intencoes.sort_values("Chamados"),
-                    x="Chamados", y="Intenção", orientation="h", text_auto=True,
-                    color_discrete_sequence=FACEBOOK_COLORS,
-                )
-                fig_intencoes.update_layout(height=max(360, 46*len(intencoes)), xaxis_title="Chamados", yaxis_title="")
-                ajustar_grafico(fig_intencoes)
-                st.plotly_chart(fig_intencoes, width="stretch")
-
-                st.divider()
-                st.markdown("**Explorar uma intenção**")
-                opcoes_intencao = intencoes["Intenção"].astype(str).tolist()
-                intencao_sel = st.selectbox("Intenção", opcoes_intencao, key="ednna_intencao_observatorio")
-                detalhe_intencao = base_demandas[
-                    base_demandas["EDNNA - Intenção"].fillna("NAO_CLASSIFICADO").astype(str) == str(intencao_sel)
-                ].copy()
-
-                # ============================================
-                # v3.14 — QUALIDADE DOS DADOS OPERACIONAIS
-                # ============================================
-
-                st.markdown("**Qualidade dos dados operacionais**")
-
-                total_intencao = len(
-                    detalhe_intencao
-                )
-
-                completos_op = int(
+                regras_homologadas_total = int(
                     (
-                        detalhe_intencao.get(
-                            "EDNNA - Dados operacionais completos",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
-                            ),
+                        base_demandas.get(
+                            "EDNNA - Regra operacional",
+                            pd.Series("", index=base_demandas.index),
                         )
+                        .fillna("")
                         .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                prontos_rascunho_total = int(
+                    (
+                        base_demandas.get(
+                            "EDNNA - Apto para rascunho",
+                            pd.Series("", index=base_demandas.index),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.upper()
                         == "SIM"
                     ).sum()
                 )
 
-                convenio_op = int(
+                completos_total = int(
                     (
-                        detalhe_intencao.get(
-                            "EDNNA - Convênio",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
-                            ),
+                        base_demandas.get(
+                            "EDNNA - Dados operacionais completos",
+                            pd.Series("", index=base_demandas.index),
                         )
                         .fillna("")
                         .astype(str)
-                        .str.strip()
-                        != ""
+                        .str.upper()
+                        == "SIM"
                     ).sum()
                 )
 
-                referencia_op = int(
-                    (
-                        detalhe_intencao.get(
-                            "EDNNA - Referência operacional",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
-                            ),
+                ws_resumo, ws_acoes, ws_inteligencia, ws_regras = st.tabs(
+                    [
+                        "🏠 Resumo",
+                        "🤖 Ações",
+                        "📊 Inteligência",
+                        "⚙️ Regras",
+                    ]
+                )
+
+                # ================================================
+                # RESUMO
+                # ================================================
+                with ws_resumo:
+
+                    r1, r2, r3, r4 = st.columns(4)
+
+                    with r1:
+                        st.markdown(
+                            f"""
+                            <div class="ednna-card ednna-card-blue">
+                                <div class="ednna-card-label">CANDIDATOS</div>
+                                <div class="ednna-card-value">{len(base_demandas)}</div>
+                                <div class="ednna-card-note">Demandas aguardando primeiro combate</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
                         )
-                        .fillna("")
-                        .astype(str)
-                        .str.strip()
-                        != ""
-                    ).sum()
-                )
 
-                tipo_op = int(
-                    (
-                        detalhe_intencao.get(
-                            "EDNNA - Tipos arquivo",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
-                            ),
+                    with r2:
+                        st.markdown(
+                            f"""
+                            <div class="ednna-card ednna-card-green">
+                                <div class="ednna-card-label">DADOS COMPLETOS</div>
+                                <div class="ednna-card-value">{completos_total}</div>
+                                <div class="ednna-card-note">Convênio + referência + tipo + NSA</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
                         )
-                        .fillna("")
-                        .astype(str)
-                        .str.strip()
-                        != ""
-                    ).sum()
-                )
 
-                nsa_op = int(
-                    (
-                        detalhe_intencao.get(
-                            "EDNNA - NSA referência",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
-                            ),
+                    with r3:
+                        st.markdown(
+                            f"""
+                            <div class="ednna-card ednna-card-purple">
+                                <div class="ednna-card-label">COM REGRA HOMOLOGADA</div>
+                                <div class="ednna-card-value">{regras_homologadas_total}</div>
+                                <div class="ednna-card-note">Possuem procedimento operacional conhecido</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
                         )
-                        .fillna("")
-                        .astype(str)
-                        .str.strip()
-                        != ""
-                    ).sum()
-                )
 
-                q1, q2, q3, q4, q5, q6 = st.columns(
-                    6
-                )
-
-                q1.metric(
-                    "Candidatos",
-                    total_intencao,
-                )
-
-                q2.metric(
-                    "Dados completos",
-                    completos_op,
-                )
-
-                q3.metric(
-                    "Com convênio",
-                    convenio_op,
-                )
-
-                q4.metric(
-                    "Com referência",
-                    referencia_op,
-                )
-
-                q5.metric(
-                    "Com tipo",
-                    tipo_op,
-                )
-
-                q6.metric(
-                    "Com NSA",
-                    nsa_op,
-                )
-
-                if (
-                    "EDNNA - Subtipo"
-                    in detalhe_intencao.columns
-                    and not detalhe_intencao.empty
-                ):
-                    subtipo_op = (
-                        detalhe_intencao[
-                            "EDNNA - Subtipo"
-                        ]
-                        .fillna(
-                            "NAO_IDENTIFICADO"
+                    with r4:
+                        st.markdown(
+                            f"""
+                            <div class="ednna-card ednna-card-yellow">
+                                <div class="ednna-card-label">PRONTOS PARA RASCUNHO</div>
+                                <div class="ednna-card-value">{prontos_rascunho_total}</div>
+                                <div class="ednna-card-note">Somente modo assistido</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
                         )
+
+                    st.markdown(
+                        '<div class="ednna-section-title">Panorama das demandas</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    intencoes_resumo = (
+                        base_demandas["EDNNA - Intenção"]
+                        .fillna("NAO_CLASSIFICADO")
                         .astype(str)
                         .value_counts()
-                        .rename_axis(
-                            "Subtipo operacional"
-                        )
-                        .reset_index(
-                            name="Chamados"
-                        )
+                        .rename_axis("Intenção")
+                        .reset_index(name="Chamados")
                     )
 
-                    st.dataframe(
-                        subtipo_op,
-                        width="stretch",
-                        hide_index=True,
+                    c_res1, c_res2 = st.columns([1.35, 1])
+
+                    with c_res1:
+                        fig_resumo = px.bar(
+                            intencoes_resumo.sort_values("Chamados"),
+                            x="Chamados",
+                            y="Intenção",
+                            orientation="h",
+                            text_auto=True,
+                            color_discrete_sequence=FACEBOOK_COLORS,
+                        )
+                        fig_resumo.update_layout(
+                            height=max(330, 42 * len(intencoes_resumo)),
+                            xaxis_title="Chamados",
+                            yaxis_title="",
+                        )
+                        ajustar_grafico(fig_resumo)
+                        st.plotly_chart(fig_resumo, width="stretch")
+
+                    with c_res2:
+                        st.markdown("**Leitura rápida**")
+                        st.write(
+                            f"**{resumo_op.get('reconhecidos', 0)}** chamado(s) com padrão reconhecido."
+                        )
+                        st.write(
+                            f"**{resumo_op.get('nao_classificados', 0)}** ainda sem classificação suficiente."
+                        )
+                        st.write(
+                            f"**{resumo_op.get('conflitos', 0)}** conflito(s) de classificação."
+                        )
+                        st.write(
+                            f"**{resumo_op.get('alta_prontidao', 0)}** grupo(s) com alta prontidão para estudo."
+                        )
+                        st.info(
+                            "Dados completos não significam automaticamente que o chamado "
+                            "possui regra homologada ou está pronto para rascunho."
+                        )
+
+                # ================================================
+                # AÇÕES
+                # ================================================
+                with ws_acoes:
+
+                    st.markdown(
+                        '<div class="ednna-section-title">Ações propostas pela EDNNA</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        "Aqui ficam apenas os chamados que já possuem procedimento operacional "
+                        "conhecido. A EDNNA continua em modo assistido: nada é enviado automaticamente."
                     )
 
-                st.caption(
-                    "Dados completos significa que a descrição contém "
-                    "Convênio + Data/Período + Tipo de arquivo + último NSA conhecido. "
-                    "Isso ainda não autoriza envio ou alteração no Redmine."
-                )
+                    candidatos_acao = (
+                        base_demandas[
+                            base_demandas.get(
+                                "EDNNA - Regra operacional",
+                                pd.Series("", index=base_demandas.index),
+                            )
+                            .fillna("")
+                            .astype(str)
+                            .str.strip()
+                            != ""
+                        ]
+                        .copy()
+                    )
 
-                # ============================================
-                # v3.15 — AÇÃO PROPOSTA PELA EDNNA
-                # ============================================
-
-                st.divider()
-
-                st.markdown(
-                    "**Ação proposta pela EDNNA**"
-                )
-
-                candidatos_acao = (
-                    detalhe_intencao[
-                        detalhe_intencao.get(
-                            "EDNNA - Regra operacional",
-                            pd.Series(
-                                "",
-                                index=detalhe_intencao.index,
+                    if candidatos_acao.empty:
+                        st.info(
+                            "Nenhum chamado possui procedimento operacional homologado para rascunho."
+                        )
+                    else:
+                        a1, a2, a3 = st.columns(3)
+                        a1.metric("Com procedimento", len(candidatos_acao))
+                        a2.metric(
+                            "🟢 Prontos",
+                            int(
+                                (
+                                    candidatos_acao.get(
+                                        "EDNNA - Apto para rascunho",
+                                        pd.Series("", index=candidatos_acao.index),
+                                    )
+                                    .fillna("")
+                                    .astype(str)
+                                    .str.upper()
+                                    == "SIM"
+                                ).sum()
                             ),
                         )
-                        .fillna("")
-                        .astype(str)
-                        .str.strip()
-                        != ""
-                    ]
-                    .copy()
-                )
-
-                if candidatos_acao.empty:
-                    st.info(
-                        "Nenhum chamado desta intenção possui "
-                        "procedimento operacional homologado para rascunho."
-                    )
-
-                else:
-                    opcoes_acao = []
-
-                    for idx_acao, row_acao in candidatos_acao.iterrows():
-                        chamado_label = str(
-                            row_acao.get(
-                                "#",
-                                "",
-                            )
-                        )
-
-                        if chamado_label.endswith(
-                            ".0"
-                        ):
-                            chamado_label = chamado_label[:-2]
-
-                        cliente_label = str(
-                            row_acao.get(
-                                "Clientes",
-                                "",
-                            )
-                            or "Sem cliente"
-                        )
-
-                        origem_label = str(
-                            row_acao.get(
-                                "EDNNA - Origem operacional",
-                                "",
-                            )
-                            or row_acao.get(
-                                "Origem",
-                                "",
-                            )
-                            or "Sem origem"
-                        )
-
-                        opcoes_acao.append(
-                            (
-                                idx_acao,
-                                f"#{chamado_label} • "
-                                f"{cliente_label} • "
-                                f"{origem_label}"
-                            )
-                        )
-
-                    indice_acao = st.selectbox(
-                        "Chamado para avaliar",
-                        options=[
-                            item[0]
-                            for item in opcoes_acao
-                        ],
-                        format_func=lambda valor: next(
-                            (
-                                rotulo
-                                for idx, rotulo
-                                in opcoes_acao
-                                if idx == valor
+                        a3.metric(
+                            "🟡 Atenção",
+                            int(
+                                (
+                                    candidatos_acao.get(
+                                        "EDNNA - Apto para rascunho",
+                                        pd.Series("", index=candidatos_acao.index),
+                                    )
+                                    .fillna("")
+                                    .astype(str)
+                                    .str.upper()
+                                    != "SIM"
+                                ).sum()
                             ),
-                            str(valor),
-                        ),
-                        key="ednna_acao_chamado",
-                    )
-
-                    linha_acao = candidatos_acao.loc[
-                        indice_acao
-                    ]
-
-                    avaliacao_acao = avaliar_acao(
-                        linha_acao
-                    )
-
-                    with st.container(
-                        border=True
-                    ):
-                        cab1, cab2 = st.columns(
-                            [
-                                4,
-                                1,
-                            ]
                         )
 
-                        with cab1:
-                            chamado_card = str(
-                                linha_acao.get(
-                                    "#",
-                                    "",
-                                )
-                            )
+                        opcoes_acao = []
 
-                            if chamado_card.endswith(
-                                ".0"
-                            ):
-                                chamado_card = chamado_card[:-2]
+                        for idx_acao, row_acao in candidatos_acao.iterrows():
+                            chamado_label = str(row_acao.get("#", ""))
+                            if chamado_label.endswith(".0"):
+                                chamado_label = chamado_label[:-2]
 
-                            cliente_card = str(
-                                linha_acao.get(
-                                    "Clientes",
-                                    "",
-                                )
-                                or "Sem cliente"
-                            )
-
-                            origem_card = str(
-                                linha_acao.get(
-                                    "EDNNA - Origem operacional",
-                                    "",
-                                )
-                                or linha_acao.get(
-                                    "Origem",
-                                    "",
-                                )
+                            cliente_label = str(row_acao.get("Clientes", "") or "Sem cliente")
+                            origem_label = str(
+                                row_acao.get("EDNNA - Origem operacional", "")
+                                or row_acao.get("Origem", "")
                                 or "Sem origem"
                             )
 
-                            st.markdown(
-                                f"**#{chamado_card} • {cliente_card}**"
+                            pronto_label = (
+                                "🟢"
+                                if str(row_acao.get("EDNNA - Apto para rascunho", "")).upper() == "SIM"
+                                else "🟡"
                             )
 
-                            st.caption(
-                                f"{origem_card} • "
-                                f"{linha_acao.get('EDNNA - Subtipo', '')}"
-                            )
-
-                        with cab2:
-                            if avaliacao_acao.get(
-                                "apto_rascunho"
-                            ):
-                                st.success(
-                                    "🟢 Pronto"
+                            opcoes_acao.append(
+                                (
+                                    idx_acao,
+                                    f"{pronto_label} #{chamado_label} • {cliente_label} • {origem_label}",
                                 )
-                            else:
-                                st.warning(
-                                    "🟡 Atenção"
+                            )
+
+                        indice_acao = st.selectbox(
+                            "Chamado para avaliar",
+                            options=[item[0] for item in opcoes_acao],
+                            format_func=lambda valor: next(
+                                (rotulo for idx, rotulo in opcoes_acao if idx == valor),
+                                str(valor),
+                            ),
+                            key="ednna_acao_chamado_v316",
+                        )
+
+                        linha_acao = candidatos_acao.loc[indice_acao]
+                        avaliacao_acao = avaliar_acao(linha_acao)
+
+                        with st.container(border=True):
+                            cab1, cab2 = st.columns([4, 1])
+
+                            with cab1:
+                                chamado_card = str(linha_acao.get("#", ""))
+                                if chamado_card.endswith(".0"):
+                                    chamado_card = chamado_card[:-2]
+
+                                cliente_card = str(linha_acao.get("Clientes", "") or "Sem cliente")
+                                origem_card = str(
+                                    linha_acao.get("EDNNA - Origem operacional", "")
+                                    or linha_acao.get("Origem", "")
+                                    or "Sem origem"
                                 )
 
-                        acao_c1, acao_c2, acao_c3, acao_c4 = st.columns(
-                            4
-                        )
+                                st.markdown(f"### #{chamado_card} • {cliente_card}")
+                                st.caption(
+                                    f"{origem_card} • {linha_acao.get('EDNNA - Subtipo', '')}"
+                                )
 
-                        acao_c1.metric(
-                            "Convênio",
-                            linha_acao.get(
-                                "EDNNA - Convênio",
-                                "",
+                            with cab2:
+                                if avaliacao_acao.get("apto_rascunho"):
+                                    st.success("🟢 Pronto")
+                                else:
+                                    st.warning("🟡 Atenção")
+
+                            acao_c1, acao_c2, acao_c3, acao_c4 = st.columns(4)
+                            acao_c1.metric(
+                                "Convênio",
+                                linha_acao.get("EDNNA - Convênio", "") or "—",
                             )
-                            or "—",
-                        )
-
-                        acao_c2.metric(
-                            "Referência",
-                            linha_acao.get(
-                                "EDNNA - Referência operacional",
-                                "",
+                            acao_c2.metric(
+                                "Referência",
+                                linha_acao.get("EDNNA - Referência operacional", "") or "—",
                             )
-                            or "—",
-                        )
-
-                        acao_c3.metric(
-                            "Tipo",
-                            linha_acao.get(
-                                "EDNNA - Tipos arquivo",
-                                "",
+                            acao_c3.metric(
+                                "Tipo",
+                                linha_acao.get("EDNNA - Tipos arquivo", "") or "—",
                             )
-                            or "—",
-                        )
-
-                        acao_c4.metric(
-                            "NSA",
-                            linha_acao.get(
-                                "EDNNA - NSA referência",
-                                "",
+                            acao_c4.metric(
+                                "NSA",
+                                linha_acao.get("EDNNA - NSA referência", "") or "—",
                             )
-                            or "—",
-                        )
 
-                        st.markdown(
-                            "**Procedimento**"
-                        )
-
-                        st.write(
-                            avaliacao_acao.get(
-                                "regra_nome"
+                            st.markdown("**Procedimento**")
+                            st.write(
+                                avaliacao_acao.get("regra_nome")
+                                or "Sem procedimento homologado."
                             )
-                            or "Sem procedimento homologado."
-                        )
+                            st.caption(avaliacao_acao.get("motivo", ""))
 
-                        st.caption(
-                            avaliacao_acao.get(
-                                "motivo",
-                                "",
-                            )
-                        )
-
-                        bot1, bot2 = st.columns(
-                            [
-                                1,
-                                4,
-                            ]
-                        )
-
-                        with bot1:
                             st.link_button(
-                                "Ver chamado",
+                                "Abrir chamado no Redmine",
                                 f"{REDMINE_WEB_URL}/issues/{chamado_card}",
-                                width="stretch",
                             )
 
-                        if avaliacao_acao.get(
-                            "apto_rascunho"
-                        ):
-                            rascunho = gerar_rascunho(
-                                linha_acao
-                            )
+                            if avaliacao_acao.get("apto_rascunho"):
+                                rascunho = gerar_rascunho(linha_acao)
 
-                            with st.expander(
-                                "Visualizar rascunho",
-                                expanded=False,
-                            ):
-                                st.markdown(
-                                    "**Para**"
-                                )
+                                with st.expander("✉️ Visualizar rascunho", expanded=False):
+                                    st.markdown("**Para**")
+                                    st.code("; ".join(rascunho.get("destinatarios", [])))
 
-                                st.code(
-                                    "; ".join(
-                                        rascunho.get(
-                                            "destinatarios",
-                                            []
-                                        )
-                                    )
-                                )
+                                    if rascunho.get("cc"):
+                                        st.markdown("**Cc**")
+                                        st.code("; ".join(rascunho.get("cc", [])))
 
-                                if rascunho.get(
-                                    "cc"
-                                ):
-                                    st.markdown(
-                                        "**Cc**"
+                                    st.markdown("**Assunto**")
+                                    st.code(rascunho.get("assunto", ""))
+
+                                    st.markdown("**Mensagem**")
+                                    st.text_area(
+                                        "Rascunho do e-mail",
+                                        value=rascunho.get("corpo", ""),
+                                        height=330,
+                                        key=f"rascunho_v316_{chamado_card}",
+                                        label_visibility="collapsed",
                                     )
 
-                                    st.code(
-                                        "; ".join(
-                                            rascunho.get(
-                                                "cc",
-                                                []
-                                            )
-                                        )
+                                    st.info(
+                                        "Modo assistido: este rascunho não é enviado "
+                                        "e nenhuma alteração é feita no Redmine."
                                     )
 
-                                st.markdown(
-                                    "**Assunto**"
-                                )
+                # ================================================
+                # INTELIGÊNCIA
+                # ================================================
+                with ws_inteligencia:
 
-                                st.code(
-                                    rascunho.get(
-                                        "assunto",
-                                        "",
-                                    )
-                                )
-
-                                st.markdown(
-                                    "**Mensagem**"
-                                )
-
-                                st.text_area(
-                                    "Rascunho do e-mail",
-                                    value=rascunho.get(
-                                        "corpo",
-                                        "",
-                                    ),
-                                    height=330,
-                                    key=f"rascunho_{chamado_card}",
-                                    label_visibility="collapsed",
-                                )
-
-                                st.info(
-                                    "Modo assistido: este rascunho não é enviado "
-                                    "e nenhuma alteração é feita no Redmine."
-                                )
-
-                i1, i2 = st.columns(2)
-                with i1:
-                    st.markdown("**Clientes com maior recorrência**")
-                    if "Clientes" in detalhe_intencao.columns and not detalhe_intencao.empty:
-                        rank_cli = ranking_clientes(detalhe_intencao).head(15)
-                        if not rank_cli.empty:
-                            fig_cli_ed = px.bar(
-                                rank_cli.sort_values("Chamados"), x="Chamados", y="Cliente", orientation="h", text_auto=True,
-                                color_discrete_sequence=FACEBOOK_COLORS,
-                            )
-                            fig_cli_ed.update_layout(height=380, xaxis_title="Chamados", yaxis_title="")
-                            ajustar_grafico(fig_cli_ed)
-                            st.plotly_chart(fig_cli_ed, width="stretch")
-                        else:
-                            st.info("Sem clientes identificados.")
-
-                with i2:
-                    st.markdown("**Origens com maior recorrência**")
-                    if "Origem" in detalhe_intencao.columns and not detalhe_intencao.empty:
-                        rank_origem = (
-                            detalhe_intencao["Origem"].fillna("Sem origem").astype(str)
-                            .value_counts().head(15).rename_axis("Origem").reset_index(name="Chamados")
-                        )
-                        fig_ori_ed = px.bar(
-                            rank_origem.sort_values("Chamados"), x="Chamados", y="Origem", orientation="h", text_auto=True,
-                            color_discrete_sequence=FACEBOOK_COLORS,
-                        )
-                        fig_ori_ed.update_layout(height=380, xaxis_title="Chamados", yaxis_title="")
-                        ajustar_grafico(fig_ori_ed)
-                        st.plotly_chart(fig_ori_ed, width="stretch")
-
-                st.markdown("**Chamados candidatos**")
-                cols_demanda = [c for c in [
-                    "#","Clientes","Origem","Atribuído a","Prioridade","Tipo","Assunto","Tempo em aberto (dias)",
-                    "EDNNA - Intenção","EDNNA - Subtipo","EDNNA - Origem operacional","EDNNA - Referência",
-                    "EDNNA - Convênio","EDNNA - Referência operacional","EDNNA - Critério data",
-                    "EDNNA - Tipos arquivo","EDNNA - NSA referência","EDNNA - Arquivos/NSA",
-                    "EDNNA - Completude operacional (%)","EDNNA - Dados operacionais completos",
-                    "EDNNA - Campos faltantes","EDNNA - Fonte operacional",
-                    "EDNNA - Regra operacional","EDNNA - Ação operacional","EDNNA - Apto para rascunho","EDNNA - Motivo ação",
-                    "EDNNA - Conflito de classificação","EDNNA - Sinal secundário","EDNNA - Automatizável","EDNNA - Motivo",
-                    "EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
-                ] if c in detalhe_intencao.columns]
-
-                ordenacao = []
-                ascend = []
-                if "EDNNA - Confiança" in detalhe_intencao.columns:
-                    ordenacao.append("EDNNA - Confiança"); ascend.append(False)
-                if "Tempo em aberto (dias)" in detalhe_intencao.columns:
-                    ordenacao.append("Tempo em aberto (dias)"); ascend.append(False)
-                detalhe_ordenado = detalhe_intencao.sort_values(ordenacao, ascending=ascend) if ordenacao else detalhe_intencao
-
-                tabela_dem, config_dem = preparar_tabela_com_link_redmine(detalhe_ordenado[cols_demanda])
-                st.dataframe(tabela_dem, width="stretch", hide_index=True, column_config=config_dem)
-
-                csv_obs = detalhe_ordenado[cols_demanda].to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
-                st.download_button(
-                    "Baixar candidatos desta intenção",
-                    data=csv_obs,
-                    file_name="ednna_candidatos_" + str(intencao_sel).lower().replace(" ", "_") + ".csv",
-                    mime="text/csv",
-                    key="download_ednna_intencao",
-                )
-
-            st.divider()
-            st.markdown("**Catálogo operacional da EDNNA**")
-            regras_operacionais = catalogo_operacional_ednna.get("regras", [])
-            if regras_operacionais:
-                catalogo_op_df = pd.DataFrame(regras_operacionais)
-                colunas_op = [c for c in [
-                    "id", "nome", "intencao", "subtipo", "acao",
-                    "canal", "homologada_para_rascunho", "executavel"
-                ] if c in catalogo_op_df.columns]
-                st.dataframe(
-                    catalogo_op_df[colunas_op],
-                    width="stretch",
-                    hide_index=True,
-                )
-                modo_operacional = str(
-                    catalogo_operacional_ednna.get("modo", "OBSERVACAO")
-                ).replace("_", " ")
-                st.info(
-                    f"Modo do catálogo operacional: {modo_operacional}. "
-                    "Regras homologadas podem gerar somente rascunhos assistidos; "
-                    "nenhuma ação é executada automaticamente."
-                )
-            else:
-                st.warning(
-                    "Nenhuma regra operacional carregada. A EDNNA continuará "
-                    "classificando chamados, mas não poderá propor rascunhos."
-                )
-
-            with st.expander("Regras candidatas em observação", expanded=False):
-                regras_catalogo = catalogo_ednna.get("regras", [])
-                if regras_catalogo:
-                    catalogo_df = pd.DataFrame(regras_catalogo)
-                    colunas_catalogo = [c for c in [
-                        "id", "nome", "intencao", "acao_sugerida",
-                        "risco", "homologada", "executavel"
-                    ] if c in catalogo_df.columns]
-                    st.dataframe(
-                        catalogo_df[colunas_catalogo],
-                        width="stretch",
-                        hide_index=True,
+                    st.markdown(
+                        '<div class="ednna-section-title">Inteligência e recorrência</div>',
+                        unsafe_allow_html=True,
                     )
                     st.caption(
-                        "Estas regras servem para classificação e estudo de oportunidades. "
-                        "Elas não autorizam execução automática."
+                        "Use esta área para descobrir padrões repetitivos antes de transformar "
+                        "uma ocorrência em regra operacional."
                     )
+
+                    intencoes = (
+                        base_demandas["EDNNA - Intenção"]
+                        .fillna("NAO_CLASSIFICADO")
+                        .value_counts()
+                        .rename_axis("Intenção")
+                        .reset_index(name="Chamados")
+                    )
+
+                    opcoes_intencao = intencoes["Intenção"].astype(str).tolist()
+                    intencao_sel = st.selectbox(
+                        "Explorar intenção",
+                        opcoes_intencao,
+                        key="ednna_intencao_observatorio_v316",
+                    )
+
+                    detalhe_intencao = base_demandas[
+                        base_demandas["EDNNA - Intenção"]
+                        .fillna("NAO_CLASSIFICADO")
+                        .astype(str)
+                        == str(intencao_sel)
+                    ].copy()
+
+                    total_intencao = len(detalhe_intencao)
+                    completos_op = int(
+                        (
+                            detalhe_intencao.get(
+                                "EDNNA - Dados operacionais completos",
+                                pd.Series("", index=detalhe_intencao.index),
+                            )
+                            .astype(str)
+                            .str.upper()
+                            == "SIM"
+                        ).sum()
+                    )
+                    convenio_op = int(
+                        (
+                            detalhe_intencao.get(
+                                "EDNNA - Convênio",
+                                pd.Series("", index=detalhe_intencao.index),
+                            )
+                            .fillna("").astype(str).str.strip() != ""
+                        ).sum()
+                    )
+                    referencia_op = int(
+                        (
+                            detalhe_intencao.get(
+                                "EDNNA - Referência operacional",
+                                pd.Series("", index=detalhe_intencao.index),
+                            )
+                            .fillna("").astype(str).str.strip() != ""
+                        ).sum()
+                    )
+                    tipo_op = int(
+                        (
+                            detalhe_intencao.get(
+                                "EDNNA - Tipos arquivo",
+                                pd.Series("", index=detalhe_intencao.index),
+                            )
+                            .fillna("").astype(str).str.strip() != ""
+                        ).sum()
+                    )
+                    nsa_op = int(
+                        (
+                            detalhe_intencao.get(
+                                "EDNNA - NSA referência",
+                                pd.Series("", index=detalhe_intencao.index),
+                            )
+                            .fillna("").astype(str).str.strip() != ""
+                        ).sum()
+                    )
+
+                    q1, q2, q3, q4, q5, q6 = st.columns(6)
+                    q1.metric("Candidatos", total_intencao)
+                    q2.metric("Dados completos", completos_op)
+                    q3.metric("Com convênio", convenio_op)
+                    q4.metric("Com referência", referencia_op)
+                    q5.metric("Com tipo", tipo_op)
+                    q6.metric("Com NSA", nsa_op)
+
+                    st.caption(
+                        "Dados completos = Convênio + referência/data + tipo de arquivo + último NSA conhecido. "
+                        "Esse indicador mede qualidade do dado, não autorização de automação."
+                    )
+
+                    i1, i2 = st.columns(2)
+
+                    with i1:
+                        st.markdown("**Clientes com maior recorrência**")
+                        if "Clientes" in detalhe_intencao.columns and not detalhe_intencao.empty:
+                            rank_cli = ranking_clientes(detalhe_intencao).head(15)
+                            if not rank_cli.empty:
+                                fig_cli_ed = px.bar(
+                                    rank_cli.sort_values("Chamados"),
+                                    x="Chamados",
+                                    y="Cliente",
+                                    orientation="h",
+                                    text_auto=True,
+                                    color_discrete_sequence=FACEBOOK_COLORS,
+                                )
+                                fig_cli_ed.update_layout(
+                                    height=380,
+                                    xaxis_title="Chamados",
+                                    yaxis_title="",
+                                )
+                                ajustar_grafico(fig_cli_ed)
+                                st.plotly_chart(fig_cli_ed, width="stretch")
+                            else:
+                                st.info("Sem clientes identificados.")
+
+                    with i2:
+                        st.markdown("**Origens com maior recorrência**")
+                        if "Origem" in detalhe_intencao.columns and not detalhe_intencao.empty:
+                            rank_origem = (
+                                detalhe_intencao["Origem"]
+                                .fillna("Sem origem")
+                                .astype(str)
+                                .value_counts()
+                                .head(15)
+                                .rename_axis("Origem")
+                                .reset_index(name="Chamados")
+                            )
+                            fig_ori_ed = px.bar(
+                                rank_origem.sort_values("Chamados"),
+                                x="Chamados",
+                                y="Origem",
+                                orientation="h",
+                                text_auto=True,
+                                color_discrete_sequence=FACEBOOK_COLORS,
+                            )
+                            fig_ori_ed.update_layout(
+                                height=380,
+                                xaxis_title="Chamados",
+                                yaxis_title="",
+                            )
+                            ajustar_grafico(fig_ori_ed)
+                            st.plotly_chart(fig_ori_ed, width="stretch")
+
+                    with st.expander("Ver chamados candidatos", expanded=False):
+                        cols_demanda = [
+                            c for c in [
+                                "#","Clientes","Origem","Atribuído a","Prioridade","Tipo","Assunto",
+                                "Tempo em aberto (dias)","EDNNA - Intenção","EDNNA - Subtipo",
+                                "EDNNA - Origem operacional","EDNNA - Convênio",
+                                "EDNNA - Referência operacional","EDNNA - Tipos arquivo",
+                                "EDNNA - NSA referência","EDNNA - Completude operacional (%)",
+                                "EDNNA - Dados operacionais completos","EDNNA - Campos faltantes",
+                                "EDNNA - Regra operacional","EDNNA - Ação operacional",
+                                "EDNNA - Apto para rascunho","EDNNA - Motivo ação",
+                                "EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
+                            ]
+                            if c in detalhe_intencao.columns
+                        ]
+
+                        ordenacao = []
+                        ascend = []
+
+                        if "EDNNA - Confiança" in detalhe_intencao.columns:
+                            ordenacao.append("EDNNA - Confiança")
+                            ascend.append(False)
+
+                        if "Tempo em aberto (dias)" in detalhe_intencao.columns:
+                            ordenacao.append("Tempo em aberto (dias)")
+                            ascend.append(False)
+
+                        detalhe_ordenado = (
+                            detalhe_intencao.sort_values(ordenacao, ascending=ascend)
+                            if ordenacao
+                            else detalhe_intencao
+                        )
+
+                        tabela_dem, config_dem = preparar_tabela_com_link_redmine(
+                            detalhe_ordenado[cols_demanda]
+                        )
+                        st.dataframe(
+                            tabela_dem,
+                            width="stretch",
+                            hide_index=True,
+                            column_config=config_dem,
+                        )
+
+                        csv_obs = (
+                            detalhe_ordenado[cols_demanda]
+                            .to_csv(index=False, sep=";", encoding="utf-8-sig")
+                            .encode("utf-8-sig")
+                        )
+                        st.download_button(
+                            "Baixar candidatos desta intenção",
+                            data=csv_obs,
+                            file_name=(
+                                "ednna_candidatos_"
+                                + str(intencao_sel).lower().replace(" ", "_")
+                                + ".csv"
+                            ),
+                            mime="text/csv",
+                            key="download_ednna_intencao_v316",
+                        )
+
+                # ================================================
+                # REGRAS
+                # ================================================
+                with ws_regras:
+
+                    st.markdown(
+                        '<div class="ednna-section-title">Catálogo operacional</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption(
+                        "Regras homologadas podem gerar somente rascunhos assistidos. "
+                        "Nenhuma ação é executada automaticamente."
+                    )
+
+                    regras_operacionais = catalogo_operacional_ednna.get("regras", [])
+
+                    if regras_operacionais:
+                        regras_op_df = pd.DataFrame(regras_operacionais)
+                        colunas_op = [
+                            c for c in [
+                                "id",
+                                "nome",
+                                "intencao",
+                                "origens",
+                                "modo",
+                                "homologada",
+                                "executavel",
+                            ]
+                            if c in regras_op_df.columns
+                        ]
+                        st.dataframe(
+                            regras_op_df[colunas_op],
+                            width="stretch",
+                            hide_index=True,
+                        )
+                        st.success(
+                            "🟢 Modo do catálogo operacional: RASCUNHO ASSISTIDO."
+                        )
+                    else:
+                        st.info("Nenhuma regra operacional homologada cadastrada.")
+
+                    st.divider()
+                    st.markdown("**Regras candidatas em observação**")
+
+                    regras_catalogo = catalogo_ednna.get("regras", [])
+
+                    if regras_catalogo:
+                        catalogo_df = pd.DataFrame(regras_catalogo)
+                        colunas_catalogo = [
+                            c for c in [
+                                "id",
+                                "nome",
+                                "intencao",
+                                "acao_sugerida",
+                                "risco",
+                                "homologada",
+                                "executavel",
+                            ]
+                            if c in catalogo_df.columns
+                        ]
+                        st.dataframe(
+                            catalogo_df[colunas_catalogo],
+                            width="stretch",
+                            hide_index=True,
+                        )
+                        st.warning(
+                            "🟡 Observação: prontidão e confiança servem para priorizar estudo. "
+                            "Essas regras ainda não estão autorizadas para execução."
+                        )
+
+                    st.divider()
+                    st.markdown("**Ranking de prontidão para estudo**")
+
+                    if not prontidao_df.empty:
+                        st.dataframe(
+                            prontidao_df,
+                            width="stretch",
+                            hide_index=True,
+                        )
+
+                        graf_pront = prontidao_df[
+                            prontidao_df["Intenção"] != "NAO_CLASSIFICADO"
+                        ].copy()
+
+                        if not graf_pront.empty:
+                            fig_pront = px.bar(
+                                graf_pront.sort_values("Prontidão"),
+                                x="Prontidão",
+                                y="Intenção",
+                                orientation="h",
+                                text="Chamados",
+                                color_discrete_sequence=FACEBOOK_COLORS,
+                            )
+                            fig_pront.update_traces(
+                                texttemplate="%{text} chamados",
+                                textposition="outside",
+                                cliponaxis=False,
+                            )
+                            fig_pront.update_layout(
+                                height=max(340, 44 * len(graf_pront)),
+                                xaxis_title="Índice de prontidão",
+                                yaxis_title="",
+                            )
+                            ajustar_grafico(fig_pront)
+                            st.plotly_chart(fig_pront, width="stretch")
+
 
         # ----------------------------------------------------
         # EQUIPE EDI
