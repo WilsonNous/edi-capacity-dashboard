@@ -163,7 +163,7 @@ def _procedimento_homologado(origem: str, regra: dict) -> bool:
 
 
 # ============================================================
-# v3.14 — EXTRATOR OPERACIONAL
+# v3.14.1 — EXTRATOR OPERACIONAL
 # ============================================================
 
 def _limpar_markdown_campo(valor: str) -> str:
@@ -185,37 +185,61 @@ def _campo_descricao(
     """
     Procura um campo estruturado em uma linha da descrição.
 
-    Exemplos aceitos:
+    Aceita as formas mais comuns do Markdown/Textile retornado
+    pelo Redmine, por exemplo:
+
       - **Convenio:** 1423423
-      - Convênio: 1423423
-      - **Data:** A partir de 14/07/2026
-      - NSA: Último 13525
+      * *Convenio:* 1375768
+      Convênio: 1423423
+      *Data:* A partir de 07/08/2026
+      NSA: Último 13525
     """
     if not descricao:
         return ""
 
-    alternancia = "|".join(
-        re.escape(nome)
+    nomes_normalizados = {
+        _sem_acentos(str(nome))
+        .casefold()
+        .strip()
         for nome in nomes
-    )
+    }
 
-    padrao = (
-        rf"(?im)^[ \t]*(?:[-*\u2022][ \t]*)?"
-        rf"(?:\*\*)?(?:{alternancia})(?:\*\*)?"
-        rf"[ \t]*:[ \t]*(.+?)\s*$"
-    )
+    for linha in str(descricao).splitlines():
+        linha = linha.strip()
 
-    match = re.search(
-        padrao,
-        descricao,
-    )
+        if not linha:
+            continue
 
-    if not match:
-        return ""
+        linha = re.sub(
+            r"^[\s\-\*\u2022]+",
+            "",
+            linha,
+        ).strip()
 
-    return _limpar_markdown_campo(
-        match.group(1)
-    )
+        linha = (
+            linha
+            .replace("**", "")
+            .replace("__", "")
+            .replace("*", "")
+        ).strip()
+
+        if ":" not in linha:
+            continue
+
+        chave, valor = linha.split(":", 1)
+
+        chave_normalizada = (
+            _sem_acentos(chave)
+            .casefold()
+            .strip()
+        )
+
+        if chave_normalizada not in nomes_normalizados:
+            continue
+
+        return _limpar_markdown_campo(valor)
+
+    return ""
 
 
 def _normalizar_data_curta(
