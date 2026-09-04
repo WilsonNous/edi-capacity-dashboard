@@ -44,6 +44,8 @@ from ednna.classificador_demandas import (
     classificar_dataframe,
     enriquecer_dataframe_com_classificacoes,
     carregar_catalogo,
+    calcular_prontidao_automacao,
+    resumo_oportunidades,
 )
 
 
@@ -3851,214 +3853,140 @@ with main_col:
 
         with ed_demandas:
 
-            st.markdown(
-                "**Mapa de oportunidades de automação**"
-            )
-
+            st.markdown("**Observatório de oportunidades de automação**")
             st.caption(
-                "A classificação desta versão é heurística e conservadora. "
-                "Ela identifica padrões e sugere regras candidatas; "
-                "nenhuma regra executa ações automaticamente."
+                "A EDNNA usa os chamados já classificados para apontar onde existe repetição, confiança e regra candidata. "
+                "Prontidão significa prioridade para estudo — não autorização de execução."
             )
 
-            base_demandas = (
-                ednna_analisados[
-                    ednna_analisados[
-                        "EDNNA - Situação"
-                    ]
-                    == "AGUARDANDO_PRIMEIRO_COMBATE"
-                ].copy()
-            )
+            base_demandas = ednna_analisados[
+                ednna_analisados["EDNNA - Situação"] == "AGUARDANDO_PRIMEIRO_COMBATE"
+            ].copy()
 
             if base_demandas.empty:
-                st.info(
-                    "Não há chamados analisados aguardando primeiro combate."
-                )
-
+                st.info("Não há chamados analisados aguardando primeiro combate.")
             else:
+                resumo_op = resumo_oportunidades(base_demandas)
+                prontidao_df = calcular_prontidao_automacao(base_demandas)
+
+                o1, o2, o3, o4, o5 = st.columns(5)
+                o1.metric("Sem primeiro combate", resumo_op.get("total", 0))
+                o2.metric("Padrão reconhecido", resumo_op.get("reconhecidos", 0))
+                o3.metric("Não classificados", resumo_op.get("nao_classificados", 0))
+                o4.metric("Com regra candidata", resumo_op.get("com_regra", 0))
+                o5.metric("Intenções com alta prontidão", resumo_op.get("alta_prontidao", 0))
+
+                st.divider()
+                st.markdown("**Ranking de prontidão para automação**")
+
+                if not prontidao_df.empty:
+                    st.dataframe(prontidao_df, width="stretch", hide_index=True)
+                    graf_pront = prontidao_df[prontidao_df["Intenção"] != "NAO_CLASSIFICADO"].copy()
+                    if not graf_pront.empty:
+                        fig_pront = px.bar(
+                            graf_pront.sort_values("Prontidão"),
+                            x="Prontidão", y="Intenção", orientation="h", text="Chamados",
+                            color_discrete_sequence=FACEBOOK_COLORS,
+                        )
+                        fig_pront.update_traces(texttemplate="%{text} chamados", textposition="outside", cliponaxis=False)
+                        fig_pront.update_layout(height=max(360, 46*len(graf_pront)), xaxis_title="Índice de prontidão", yaxis_title="")
+                        ajustar_grafico(fig_pront)
+                        st.plotly_chart(fig_pront, width="stretch")
+
+                st.divider()
+                st.markdown("**Distribuição das demandas**")
                 intencoes = (
-                    base_demandas[
-                        "EDNNA - Intenção"
-                    ]
-                    .fillna(
-                        "NAO_CLASSIFICADO"
-                    )
+                    base_demandas["EDNNA - Intenção"]
+                    .fillna("NAO_CLASSIFICADO")
                     .value_counts()
-                    .rename_axis(
-                        "Intenção"
-                    )
-                    .reset_index(
-                        name="Chamados"
-                    )
+                    .rename_axis("Intenção")
+                    .reset_index(name="Chamados")
                 )
-
-                k1, k2, k3, k4 = st.columns(
-                    4
-                )
-
-                k1.metric(
-                    "Sem primeiro combate",
-                    len(base_demandas),
-                )
-
-                reconhecidos = int(
-                    (
-                        base_demandas[
-                            "EDNNA - Intenção"
-                        ]
-                        != "NAO_CLASSIFICADO"
-                    ).sum()
-                )
-
-                k2.metric(
-                    "Padrão reconhecido",
-                    reconhecidos,
-                )
-
-                k3.metric(
-                    "Não classificados",
-                    len(base_demandas)
-                    - reconhecidos,
-                )
-
-                regras_candidatas = int(
-                    (
-                        base_demandas[
-                            "EDNNA - Regra"
-                        ]
-                        .fillna("")
-                        .astype(str)
-                        .str.strip()
-                        != ""
-                    ).sum()
-                )
-
-                k4.metric(
-                    "Com regra candidata",
-                    regras_candidatas,
-                )
-
                 fig_intencoes = px.bar(
-                    intencoes.sort_values(
-                        "Chamados"
-                    ),
-                    x="Chamados",
-                    y="Intenção",
-                    orientation="h",
-                    text_auto=True,
+                    intencoes.sort_values("Chamados"),
+                    x="Chamados", y="Intenção", orientation="h", text_auto=True,
                     color_discrete_sequence=FACEBOOK_COLORS,
                 )
+                fig_intencoes.update_layout(height=max(360, 46*len(intencoes)), xaxis_title="Chamados", yaxis_title="")
+                ajustar_grafico(fig_intencoes)
+                st.plotly_chart(fig_intencoes, width="stretch")
 
-                fig_intencoes.update_layout(
-                    height=max(
-                        350,
-                        45 * len(intencoes),
-                    ),
-                    xaxis_title="Chamados",
-                    yaxis_title="",
-                )
+                st.divider()
+                st.markdown("**Explorar uma intenção**")
+                opcoes_intencao = intencoes["Intenção"].astype(str).tolist()
+                intencao_sel = st.selectbox("Intenção", opcoes_intencao, key="ednna_intencao_observatorio")
+                detalhe_intencao = base_demandas[
+                    base_demandas["EDNNA - Intenção"].fillna("NAO_CLASSIFICADO").astype(str) == str(intencao_sel)
+                ].copy()
 
-                ajustar_grafico(
-                    fig_intencoes
-                )
+                i1, i2 = st.columns(2)
+                with i1:
+                    st.markdown("**Clientes com maior recorrência**")
+                    if "Clientes" in detalhe_intencao.columns and not detalhe_intencao.empty:
+                        rank_cli = ranking_clientes(detalhe_intencao).head(15)
+                        if not rank_cli.empty:
+                            fig_cli_ed = px.bar(
+                                rank_cli.sort_values("Chamados"), x="Chamados", y="Cliente", orientation="h", text_auto=True,
+                                color_discrete_sequence=FACEBOOK_COLORS,
+                            )
+                            fig_cli_ed.update_layout(height=380, xaxis_title="Chamados", yaxis_title="")
+                            ajustar_grafico(fig_cli_ed)
+                            st.plotly_chart(fig_cli_ed, width="stretch")
+                        else:
+                            st.info("Sem clientes identificados.")
 
-                st.plotly_chart(
-                    fig_intencoes,
-                    width="stretch",
-                )
-
-                st.markdown(
-                    "**Chamados classificados**"
-                )
-
-                cols_demanda = [
-                    c
-                    for c in [
-                        "#",
-                        "Clientes",
-                        "Atribuído a",
-                        "Prioridade",
-                        "Tipo",
-                        "Assunto",
-                        "Tempo em aberto (dias)",
-                        "EDNNA - Intenção",
-                        "EDNNA - Confiança",
-                        "EDNNA - Regra",
-                        "EDNNA - Ação sugerida",
-                    ]
-                    if c in base_demandas.columns
-                ]
-
-                tab_dem, cfg_dem = (
-                    preparar_tabela_com_link_redmine(
-                        base_demandas[
-                            cols_demanda
-                        ].sort_values(
-                            [
-                                "EDNNA - Intenção",
-                                "EDNNA - Confiança",
-                            ],
-                            ascending=[
-                                True,
-                                False,
-                            ],
+                with i2:
+                    st.markdown("**Origens com maior recorrência**")
+                    if "Origem" in detalhe_intencao.columns and not detalhe_intencao.empty:
+                        rank_origem = (
+                            detalhe_intencao["Origem"].fillna("Sem origem").astype(str)
+                            .value_counts().head(15).rename_axis("Origem").reset_index(name="Chamados")
                         )
-                    )
-                )
+                        fig_ori_ed = px.bar(
+                            rank_origem.sort_values("Chamados"), x="Chamados", y="Origem", orientation="h", text_auto=True,
+                            color_discrete_sequence=FACEBOOK_COLORS,
+                        )
+                        fig_ori_ed.update_layout(height=380, xaxis_title="Chamados", yaxis_title="")
+                        ajustar_grafico(fig_ori_ed)
+                        st.plotly_chart(fig_ori_ed, width="stretch")
 
-                st.dataframe(
-                    tab_dem,
-                    width="stretch",
-                    hide_index=True,
-                    column_config=cfg_dem,
+                st.markdown("**Chamados candidatos**")
+                cols_demanda = [c for c in [
+                    "#","Clientes","Origem","Atribuído a","Prioridade","Tipo","Assunto","Tempo em aberto (dias)",
+                    "EDNNA - Intenção","EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
+                ] if c in detalhe_intencao.columns]
+
+                ordenacao = []
+                ascend = []
+                if "EDNNA - Confiança" in detalhe_intencao.columns:
+                    ordenacao.append("EDNNA - Confiança"); ascend.append(False)
+                if "Tempo em aberto (dias)" in detalhe_intencao.columns:
+                    ordenacao.append("Tempo em aberto (dias)"); ascend.append(False)
+                detalhe_ordenado = detalhe_intencao.sort_values(ordenacao, ascending=ascend) if ordenacao else detalhe_intencao
+
+                tabela_dem, config_dem = preparar_tabela_com_link_redmine(detalhe_ordenado[cols_demanda])
+                st.dataframe(tabela_dem, width="stretch", hide_index=True, column_config=config_dem)
+
+                csv_obs = detalhe_ordenado[cols_demanda].to_csv(index=False, sep=";", encoding="utf-8-sig").encode("utf-8-sig")
+                st.download_button(
+                    "Baixar candidatos desta intenção",
+                    data=csv_obs,
+                    file_name="ednna_candidatos_" + str(intencao_sel).lower().replace(" ", "_") + ".csv",
+                    mime="text/csv",
+                    key="download_ednna_intencao",
                 )
 
             st.divider()
-
-            st.markdown(
-                "**Catálogo de regras candidatas**"
-            )
-
-            regras_catalogo = (
-                catalogo_ednna.get(
-                    "regras",
-                    []
-                )
-            )
-
+            st.markdown("**Catálogo de regras candidatas**")
+            regras_catalogo = catalogo_ednna.get("regras", [])
             if regras_catalogo:
-                catalogo_df = pd.DataFrame(
-                    regras_catalogo
-                )
-
-                colunas_catalogo = [
-                    c
-                    for c in [
-                        "id",
-                        "nome",
-                        "intencao",
-                        "acao_sugerida",
-                        "risco",
-                        "homologada",
-                        "executavel",
-                    ]
-                    if c in catalogo_df.columns
-                ]
-
-                st.dataframe(
-                    catalogo_df[
-                        colunas_catalogo
-                    ],
-                    width="stretch",
-                    hide_index=True,
-                )
-
+                catalogo_df = pd.DataFrame(regras_catalogo)
+                colunas_catalogo = [c for c in ["id","nome","intencao","acao_sugerida","risco","homologada","executavel"] if c in catalogo_df.columns]
+                st.dataframe(catalogo_df[colunas_catalogo], width="stretch", hide_index=True)
                 st.warning(
-                    "Modo do catálogo: OBSERVAÇÃO. "
-                    "Todas as regras estão com executável = falso "
-                    "até validação e homologação operacional."
+                    "Modo do catálogo: OBSERVAÇÃO. Prontidão e confiança servem para priorizar estudo. "
+                    "Nenhuma regra está autorizada a executar ações."
                 )
-
 
         # ----------------------------------------------------
         # EQUIPE EDI
@@ -4936,7 +4864,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.11.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
+        "Versão 3.12.0 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
         "contingência persistente contra indisponibilidade do Redmine "
         "e fila inicial de primeiro combate."
     )
