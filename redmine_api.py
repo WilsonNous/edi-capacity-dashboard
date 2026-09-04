@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import monotonic, sleep
 from typing import Iterable
@@ -11,6 +12,11 @@ from painel_cache import (
     salvar_snapshot as painel_salvar_snapshot,
     salvar_metadado_json as painel_salvar_metadado_json,
     obter_metadado_json as painel_obter_metadado_json,
+    adquirir_lock as painel_adquirir_lock,
+    liberar_lock as painel_liberar_lock,
+    circuit_breaker_ativo as painel_circuit_breaker_ativo,
+    abrir_circuit_breaker as painel_abrir_circuit_breaker,
+    fechar_circuit_breaker as painel_fechar_circuit_breaker,
 )
 
 import requests
@@ -82,6 +88,10 @@ def _get(
     - Erros HTTP (401, 403, 404, 500...) não são mascarados nem repetidos aqui.
     - O HTTPAdapter continua com max_retries=0 para evitar tentativas ocultas.
     """
+    if painel_circuit_breaker_ativo():
+        print(f"[REDMINE] Circuit breaker global ativo | {path} não consultado", flush=True)
+        raise ConnectionError("Circuit breaker global do Redmine ativo.")
+
     url = f"{REDMINE_URL}/{path.lstrip('/')}"
     esperas = [0, 2, 5]
 
@@ -116,6 +126,7 @@ def _get(
                 f"{duracao:.2f}s",
                 flush=True,
             )
+            painel_fechar_circuit_breaker()
             return response.json()
 
         except (
@@ -129,6 +140,10 @@ def _get(
                 flush=True,
             )
             if tentativa >= tentativas:
+                painel_abrir_circuit_breaker(
+                    cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
+                    detalhes=f"{type(exc).__name__}: {exc}",
+                )
                 raise
 
         except requests.exceptions.HTTPError as exc:
@@ -613,6 +628,26 @@ def buscar_chamados_projetos(
             flush=True,
         )
 
+    dono_lock = f"{os.getenv('WEBSITE_INSTANCE_ID', 'local')}:{uuid.uuid4().hex[:8]}"
+    chave_lock = f"refresh:{chave}"
+    if not painel_adquirir_lock(chave_lock, dono_lock, ttl_seconds=180):
+        if snapshot:
+            chamados = snapshot.get("payload") or []
+            idade = float(snapshot.get("idade_s") or 0)
+            print(
+                "[PAINEL] Atualização já em andamento por outra sessão | "
+                f"usando snapshot SQLite | chamados={len(chamados)} | idade={idade:.0f}s",
+                flush=True,
+            )
+            _LAST_DIAGNOSTICO.update({
+                "chamados_encontrados": len(chamados),
+                "fonte_dados": "painel_sqlite_aguardando_refresh",
+                "cache_idade_s": round(idade, 1),
+                "cache_ttl_s": PAINEL_CACHE_TTL_SECONDS,
+            })
+            return chamados
+        raise RuntimeError("Carga inicial do painel já está em andamento por outra sessão.")
+
     try:
         chamados = _buscar_chamados_projetos_remoto(
             ids,
@@ -665,6 +700,8 @@ def buscar_chamados_projetos(
             return chamados
 
         raise
+    finally:
+        painel_liberar_lock(chave_lock, dono_lock)
 
 def issue_para_linha(
     chamado: dict,
