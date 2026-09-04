@@ -1723,7 +1723,64 @@ if fonte == "API do Redmine":
         origem="api",
     )
 
-
+    # ============================================================
+    # DIAGNÓSTICO TEMPORÁRIO — DESCRIÇÃO REDMINE
+    # ============================================================
+    
+    for chamado_teste in [47093, 47878]:
+        try:
+            teste = df[
+                pd.to_numeric(
+                    df["#"],
+                    errors="coerce",
+                ) == chamado_teste
+            ]
+    
+            if teste.empty:
+                print(
+                    f"[TESTE EDNNA] Chamado #{chamado_teste} "
+                    "não encontrado no DataFrame.",
+                    flush=True,
+                )
+                continue
+    
+            linha_teste = teste.iloc[0]
+    
+            print(
+                f"\n[TESTE EDNNA] ===== CHAMADO #{chamado_teste} =====",
+                flush=True,
+            )
+    
+            print(
+                "[TESTE EDNNA] Tipo:",
+                repr(linha_teste.get("Tipo")),
+                flush=True,
+            )
+    
+            print(
+                "[TESTE EDNNA] Assunto:",
+                repr(linha_teste.get("Assunto")),
+                flush=True,
+            )
+    
+            print(
+                "[TESTE EDNNA] Descrição:",
+                repr(linha_teste.get("Descrição")),
+                flush=True,
+            )
+    
+            print(
+                "[TESTE EDNNA] Tamanho descrição:",
+                len(str(linha_teste.get("Descrição") or "")),
+                flush=True,
+            )
+    
+        except Exception as exc:
+            print(
+                f"[TESTE EDNNA] Erro no chamado #{chamado_teste}: {exc}",
+                flush=True,
+            )
+            
     # ========================================================
     # AVISOS DE ORIGEM
     # ========================================================
