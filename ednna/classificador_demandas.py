@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +163,7 @@ def _procedimento_homologado(origem: str, regra: dict) -> bool:
 
 
 # ============================================================
-# v3.14.1 — EXTRATOR OPERACIONAL
+# v3.15.4 — EXTRATOR OPERACIONAL FLEXÍVEL
 # ============================================================
 
 def _limpar_markdown_campo(valor: str) -> str:
@@ -283,18 +283,116 @@ def _normalizar_data_curta(
     return valor
 
 
+
+def _somar_um_dia_data_br(
+    valor: str,
+) -> str:
+    """
+    Soma um dia a uma data DD/MM/YYYY.
+    Se não conseguir interpretar, devolve o valor original.
+    """
+    valor = _normalizar_data_curta(
+        valor
+    )
+
+    try:
+        dt = datetime.strptime(
+            valor,
+            "%d/%m/%Y",
+        )
+
+        return (
+            dt
+            + timedelta(
+                days=1
+            )
+        ).strftime(
+            "%d/%m/%Y"
+        )
+
+    except Exception:
+        return valor
+
+
+def _extrair_tipos_do_texto(
+    texto: str,
+) -> list[str]:
+    """
+    Procura tipos de arquivo no texto livre da descrição.
+
+    Exemplo:
+      'arquivos diários de VENDA e PAGAMENTO'
+      -> ['Venda', 'Pagamento']
+    """
+    texto = _texto(
+        texto
+    )
+
+    if not texto:
+        return []
+
+    mapa = [
+        ("Venda", r"\bvenda(?:s)?\b"),
+        ("Pagamento", r"\bpagamento(?:s)?\b"),
+        ("Pendência", r"\bpend[eê]ncia(?:s)?\b"),
+        ("Ajuste", r"\bajuste(?:s)?\b"),
+        ("Cancelamento", r"\bcancelamento(?:s)?\b"),
+    ]
+
+    encontrados = []
+
+    for rotulo, padrao in mapa:
+        if re.search(
+            padrao,
+            texto,
+            flags=re.IGNORECASE,
+        ):
+            encontrados.append(
+                rotulo
+            )
+
+    return encontrados
+
+
 def _interpretar_referencia_operacional(
     data_texto: str,
     fallback_texto: str,
+    campo_data: str = "",
 ) -> dict:
     """
     Interpreta a referência informada pelo Suporte.
 
-    Prioridade:
-      1. campo 'Data:' estruturado da descrição;
-      2. fallback textual já utilizado pela EDNNA.
+    Semânticas aceitas:
+      - Data: A partir de 14/07/2026
+      - Data: 14/07/2026
+      - Última data de arquivo recebida: 09/08/2026
+
+    Quando o campo representa a última data recebida, a EDNNA
+    considera como referência de solicitação o dia seguinte.
     """
-    bruto = _texto(data_texto)
+    bruto = _texto(
+        data_texto
+    )
+
+    campo_norm = (
+        _sem_acentos(
+            _texto(
+                campo_data
+            )
+        )
+        .casefold()
+        .strip()
+    )
+
+    eh_ultima_data_recebida = any(
+        termo in campo_norm
+        for termo in [
+            "ultima data de arquivo recebida",
+            "ultima data recebida",
+            "data do ultimo arquivo recebido",
+            "ultimo arquivo recebido em",
+        ]
+    )
 
     if bruto:
         texto = _normalizar_texto(
@@ -320,6 +418,7 @@ def _interpretar_referencia_operacional(
                 "data_inicio": inicio,
                 "data_fim": "",
                 "fonte": "DESCRICAO_ESTRUTURADA",
+                "ultima_data_recebida": "",
             }
 
         # Intervalo explícito.
@@ -346,9 +445,10 @@ def _interpretar_referencia_operacional(
                 "data_inicio": inicio,
                 "data_fim": fim,
                 "fonte": "DESCRICAO_ESTRUTURADA",
+                "ultima_data_recebida": "",
             }
 
-        # Data específica.
+        # Data específica / última data recebida.
         match = re.search(
             r"\b(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b",
             texto,
@@ -359,21 +459,36 @@ def _interpretar_referencia_operacional(
                 match.group(1)
             )
 
+            if eh_ultima_data_recebida:
+                inicio = _somar_um_dia_data_br(
+                    data_ref
+                )
+
+                return {
+                    "criterio": "APOS_ULTIMA_DATA_RECEBIDA",
+                    "referencia": f"A partir de {inicio}",
+                    "data_inicio": inicio,
+                    "data_fim": "",
+                    "fonte": "DESCRICAO_ESTRUTURADA",
+                    "ultima_data_recebida": data_ref,
+                }
+
             return {
                 "criterio": "DATA_ESPECIFICA",
                 "referencia": data_ref,
                 "data_inicio": data_ref,
                 "data_fim": "",
                 "fonte": "DESCRICAO_ESTRUTURADA",
+                "ultima_data_recebida": "",
             }
 
-        # Preserva expressões ainda não normalizadas.
         return {
             "criterio": "TEXTO",
             "referencia": bruto,
             "data_inicio": "",
             "data_fim": "",
             "fonte": "DESCRICAO_ESTRUTURADA",
+            "ultima_data_recebida": "",
         }
 
     fallback = _texto(
@@ -396,6 +511,7 @@ def _interpretar_referencia_operacional(
             if fallback
             else ""
         ),
+        "ultima_data_recebida": "",
     }
 
 
@@ -536,8 +652,10 @@ def extrair_dados_operacionais(
     """
     Extrai o pacote operacional informado pelo Suporte na descrição.
 
-    O extrator NÃO autoriza automação. Ele apenas transforma
-    a descrição em dados normalizados que podem ser validados.
+    v3.15.4:
+      - aceita sinônimos de Convênio, Data e NSA;
+      - entende 'última data recebida' como referência para o dia seguinte;
+      - identifica Venda/Pagamento no texto livre quando não houver campo Tipo.
     """
     descricao = _texto(
         linha.get(
@@ -560,22 +678,58 @@ def extrair_dados_operacionais(
         [
             "Convenio",
             "Convênio",
+            "EC/Convenio",
+            "EC/Convênio",
+            "EC",
+            "Estabelecimento",
+            "Estabelecimento/Convenio",
+            "Estabelecimento/Convênio",
         ],
     )
 
-    data_texto = _campo_descricao(
-        descricao,
-        [
-            "Data",
-            "Período",
-            "Periodo",
-        ],
-    )
+    # Precisamos saber qual rótulo de data foi encontrado para
+    # preservar a semântica de "última data recebida".
+    aliases_data = [
+        "Data",
+        "Período",
+        "Periodo",
+        "Última data de arquivo recebida",
+        "Ultima data de arquivo recebida",
+        "Última data recebida",
+        "Ultima data recebida",
+        "Data do último arquivo recebido",
+        "Data do ultimo arquivo recebido",
+        "Último arquivo recebido em",
+        "Ultimo arquivo recebido em",
+    ]
+
+    data_texto = ""
+    campo_data_encontrado = ""
+
+    for alias in aliases_data:
+        valor = _campo_descricao(
+            descricao,
+            [
+                alias
+            ],
+        )
+
+        if valor:
+            data_texto = valor
+            campo_data_encontrado = alias
+            break
 
     nsa_texto = _campo_descricao(
         descricao,
         [
             "NSA",
+            "Último NSA",
+            "Ultimo NSA",
+            "Último NSA recebido",
+            "Ultimo NSA recebido",
+            "NSA recebido",
+            "Último NSA conhecido",
+            "Ultimo NSA conhecido",
         ],
     )
 
@@ -585,6 +739,7 @@ def extrair_dados_operacionais(
             "Tipo",
             "Tipos",
             "Tipo de arquivo",
+            "Tipos de arquivo",
         ],
     )
 
@@ -592,8 +747,21 @@ def extrair_dados_operacionais(
         _interpretar_referencia_operacional(
             data_texto,
             texto_fallback,
+            campo_data_encontrado,
         )
     )
+
+    tipos_texto_livre = []
+
+    if not tipo_texto:
+        tipos_texto_livre = _extrair_tipos_do_texto(
+            descricao
+        )
+
+        if tipos_texto_livre:
+            tipo_texto = ", ".join(
+                tipos_texto_livre
+            )
 
     arquivos = _extrair_arquivos_nsa(
         nsa_texto,
@@ -622,8 +790,6 @@ def extrair_dados_operacionais(
         )
     ]
 
-    # Se existe Tipo, mas o NSA não foi interpretado,
-    # ainda preservamos o tipo como dado parcial.
     if (
         tipo_texto
         and not tipos
@@ -633,8 +799,9 @@ def extrair_dados_operacionais(
                 item
             )
             for item in re.split(
-                r"[,;/|]+",
+                r"\s*(?:,|/|;|\||\be\b)\s*",
                 tipo_texto,
+                flags=re.IGNORECASE,
             )
             if _limpar_markdown_campo(
                 item
@@ -741,6 +908,12 @@ def extrair_dados_operacionais(
         "data_fim":
             referencia.get(
                 "data_fim",
+                "",
+            ),
+
+        "ultima_data_recebida":
+            referencia.get(
+                "ultima_data_recebida",
                 "",
             ),
 
