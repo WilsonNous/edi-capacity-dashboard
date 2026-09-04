@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -160,6 +161,601 @@ def _procedimento_homologado(origem: str, regra: dict) -> bool:
     return False
 
 
+
+# ============================================================
+# v3.14 — EXTRATOR OPERACIONAL
+# ============================================================
+
+def _limpar_markdown_campo(valor: str) -> str:
+    """
+    Limpa a marcação mais comum das descrições do Redmine
+    sem alterar o conteúdo operacional.
+    """
+    valor = _texto(valor)
+    valor = re.sub(r"^[\s\-\*\u2022]+", "", valor)
+    valor = valor.replace("**", "").replace("__", "")
+    valor = re.sub(r"\s+", " ", valor)
+    return valor.strip(" \t:-")
+
+
+def _campo_descricao(
+    descricao: str,
+    nomes: list[str],
+) -> str:
+    """
+    Procura um campo estruturado em uma linha da descrição.
+
+    Exemplos aceitos:
+      - **Convenio:** 1423423
+      - Convênio: 1423423
+      - **Data:** A partir de 14/07/2026
+      - NSA: Último 13525
+    """
+    if not descricao:
+        return ""
+
+    alternancia = "|".join(
+        re.escape(nome)
+        for nome in nomes
+    )
+
+    padrao = (
+        rf"(?im)^[ \t]*(?:[-*\u2022][ \t]*)?"
+        rf"(?:\*\*)?(?:{alternancia})(?:\*\*)?"
+        rf"[ \t]*:[ \t]*(.+?)\s*$"
+    )
+
+    match = re.search(
+        padrao,
+        descricao,
+    )
+
+    if not match:
+        return ""
+
+    return _limpar_markdown_campo(
+        match.group(1)
+    )
+
+
+def _normalizar_data_curta(
+    valor: str,
+) -> str:
+    """
+    Completa DD/MM com o ano corrente apenas para exibição operacional.
+    Não transforma expressões relativas como 'hoje' ou 'ontem'.
+    """
+    valor = _texto(valor)
+
+    match = re.fullmatch(
+        r"(\d{1,2})[/-](\d{1,2})",
+        valor,
+    )
+
+    if match:
+        return (
+            f"{int(match.group(1)):02d}/"
+            f"{int(match.group(2)):02d}/"
+            f"{date.today().year}"
+        )
+
+    match = re.fullmatch(
+        r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})",
+        valor,
+    )
+
+    if match:
+        ano = match.group(3)
+
+        if len(ano) == 2:
+            ano = f"20{ano}"
+
+        return (
+            f"{int(match.group(1)):02d}/"
+            f"{int(match.group(2)):02d}/"
+            f"{ano}"
+        )
+
+    return valor
+
+
+def _interpretar_referencia_operacional(
+    data_texto: str,
+    fallback_texto: str,
+) -> dict:
+    """
+    Interpreta a referência informada pelo Suporte.
+
+    Prioridade:
+      1. campo 'Data:' estruturado da descrição;
+      2. fallback textual já utilizado pela EDNNA.
+    """
+    bruto = _texto(data_texto)
+
+    if bruto:
+        texto = _normalizar_texto(
+            bruto
+        )
+
+        # A partir de / desde
+        match = re.search(
+            r"(?:a\s+partir\s+de|desde)\s+"
+            r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)",
+            texto,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            inicio = _normalizar_data_curta(
+                match.group(1)
+            )
+
+            return {
+                "criterio": "A_PARTIR_DE",
+                "referencia": f"A partir de {inicio}",
+                "data_inicio": inicio,
+                "data_fim": "",
+                "fonte": "DESCRICAO_ESTRUTURADA",
+            }
+
+        # Intervalo explícito.
+        match = re.search(
+            r"(?:de\s+)?"
+            r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
+            r"\s*(?:a|at[eé]|-|–)\s*"
+            r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)",
+            texto,
+            flags=re.IGNORECASE,
+        )
+
+        if match:
+            inicio = _normalizar_data_curta(
+                match.group(1)
+            )
+            fim = _normalizar_data_curta(
+                match.group(2)
+            )
+
+            return {
+                "criterio": "PERIODO",
+                "referencia": f"{inicio} até {fim}",
+                "data_inicio": inicio,
+                "data_fim": fim,
+                "fonte": "DESCRICAO_ESTRUTURADA",
+            }
+
+        # Data específica.
+        match = re.search(
+            r"\b(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b",
+            texto,
+        )
+
+        if match:
+            data_ref = _normalizar_data_curta(
+                match.group(1)
+            )
+
+            return {
+                "criterio": "DATA_ESPECIFICA",
+                "referencia": data_ref,
+                "data_inicio": data_ref,
+                "data_fim": "",
+                "fonte": "DESCRICAO_ESTRUTURADA",
+            }
+
+        # Preserva expressões ainda não normalizadas.
+        return {
+            "criterio": "TEXTO",
+            "referencia": bruto,
+            "data_inicio": "",
+            "data_fim": "",
+            "fonte": "DESCRICAO_ESTRUTURADA",
+        }
+
+    fallback = _texto(
+        _extrair_referencia(
+            fallback_texto
+        )
+    )
+
+    return {
+        "criterio": (
+            "INFERIDA_TEXTO"
+            if fallback
+            else ""
+        ),
+        "referencia": fallback,
+        "data_inicio": fallback,
+        "data_fim": "",
+        "fonte": (
+            "TEXTO_LIVRE"
+            if fallback
+            else ""
+        ),
+    }
+
+
+def _normalizar_tipo_arquivo(
+    valor: str,
+) -> str:
+    valor = _limpar_markdown_campo(
+        valor
+    )
+
+    if not valor:
+        return ""
+
+    mapa = {
+        "venda": "Venda",
+        "pagamento": "Pagamento",
+        "pendencia": "Pendência",
+        "pendência": "Pendência",
+        "ajuste": "Ajuste",
+        "cancelamento": "Cancelamento",
+    }
+
+    chave = _sem_acentos(
+        valor
+    ).casefold()
+
+    if chave in {
+        _sem_acentos(k).casefold()
+        for k in mapa
+    }:
+        for k, rotulo in mapa.items():
+            if (
+                _sem_acentos(k).casefold()
+                == chave
+            ):
+                return rotulo
+
+    return valor.strip().title()
+
+
+def _extrair_arquivos_nsa(
+    nsa_texto: str,
+    tipo_texto: str,
+) -> list[dict]:
+    """
+    Normaliza as variantes já observadas no Redmine.
+
+    Caso A:
+      NSA: 464 (Venda), 194 (Pagamento)
+
+    Caso B:
+      NSA: Último 13525
+      Tipo: Venda
+    """
+    nsa_texto = _limpar_markdown_campo(
+        nsa_texto
+    )
+    tipo_texto = _limpar_markdown_campo(
+        tipo_texto
+    )
+
+    resultado: list[dict] = []
+
+    if not nsa_texto:
+        return resultado
+
+    # 464 (Venda), 194 (Pagamento)
+    pares = re.findall(
+        r"\b(\d+)\s*\(\s*([^)]+?)\s*\)",
+        nsa_texto,
+        flags=re.IGNORECASE,
+    )
+
+    if pares:
+        for nsa, tipo in pares:
+            resultado.append(
+                {
+                    "tipo":
+                        _normalizar_tipo_arquivo(
+                            tipo
+                        ),
+                    "ultimo_nsa_conhecido":
+                        str(nsa),
+                    "semantica_nsa":
+                        "ULTIMO_NSA_CONHECIDO",
+                }
+            )
+
+        return resultado
+
+    # Último 13525 / Ultimo NSA 13525 / NSA 13525
+    match = re.search(
+        r"(?:[uú]ltimo(?:\s+nsa)?\s*)?"
+        r"(\d+)",
+        nsa_texto,
+        flags=re.IGNORECASE,
+    )
+
+    if match:
+        nsa = match.group(1)
+
+        tipos = [
+            _normalizar_tipo_arquivo(
+                item
+            )
+            for item in re.split(
+                r"[,;/|]+",
+                tipo_texto,
+            )
+            if _limpar_markdown_campo(
+                item
+            )
+        ]
+
+        if not tipos:
+            tipos = [
+                ""
+            ]
+
+        for tipo in tipos:
+            resultado.append(
+                {
+                    "tipo":
+                        tipo,
+                    "ultimo_nsa_conhecido":
+                        str(nsa),
+                    "semantica_nsa":
+                        "ULTIMO_NSA_CONHECIDO",
+                }
+            )
+
+    return resultado
+
+
+def extrair_dados_operacionais(
+    linha: pd.Series | dict,
+) -> dict:
+    """
+    Extrai o pacote operacional informado pelo Suporte na descrição.
+
+    O extrator NÃO autoriza automação. Ele apenas transforma
+    a descrição em dados normalizados que podem ser validados.
+    """
+    descricao = _texto(
+        linha.get(
+            "Descrição"
+        )
+    )
+
+    assunto = _texto(
+        linha.get(
+            "Assunto"
+        )
+    )
+
+    texto_fallback = (
+        f"{assunto} | {descricao}"
+    )
+
+    convenio = _campo_descricao(
+        descricao,
+        [
+            "Convenio",
+            "Convênio",
+        ],
+    )
+
+    data_texto = _campo_descricao(
+        descricao,
+        [
+            "Data",
+            "Período",
+            "Periodo",
+        ],
+    )
+
+    nsa_texto = _campo_descricao(
+        descricao,
+        [
+            "NSA",
+        ],
+    )
+
+    tipo_texto = _campo_descricao(
+        descricao,
+        [
+            "Tipo",
+            "Tipos",
+            "Tipo de arquivo",
+        ],
+    )
+
+    referencia = (
+        _interpretar_referencia_operacional(
+            data_texto,
+            texto_fallback,
+        )
+    )
+
+    arquivos = _extrair_arquivos_nsa(
+        nsa_texto,
+        tipo_texto,
+    )
+
+    tipos = [
+        item.get(
+            "tipo",
+            "",
+        )
+        for item in arquivos
+        if item.get(
+            "tipo"
+        )
+    ]
+
+    nsas = [
+        item.get(
+            "ultimo_nsa_conhecido",
+            "",
+        )
+        for item in arquivos
+        if item.get(
+            "ultimo_nsa_conhecido"
+        )
+    ]
+
+    # Se existe Tipo, mas o NSA não foi interpretado,
+    # ainda preservamos o tipo como dado parcial.
+    if (
+        tipo_texto
+        and not tipos
+    ):
+        tipos = [
+            _normalizar_tipo_arquivo(
+                item
+            )
+            for item in re.split(
+                r"[,;/|]+",
+                tipo_texto,
+            )
+            if _limpar_markdown_campo(
+                item
+            )
+        ]
+
+    possui_convenio = bool(
+        convenio
+    )
+
+    possui_referencia = bool(
+        referencia.get(
+            "referencia"
+        )
+    )
+
+    possui_tipo = bool(
+        tipos
+    )
+
+    possui_nsa = bool(
+        nsas
+    )
+
+    completude = (
+        int(possui_convenio)
+        + int(possui_referencia)
+        + int(possui_tipo)
+        + int(possui_nsa)
+    ) * 25
+
+    faltantes = []
+
+    if not possui_convenio:
+        faltantes.append(
+            "Convênio"
+        )
+
+    if not possui_referencia:
+        faltantes.append(
+            "Data/Período"
+        )
+
+    if not possui_tipo:
+        faltantes.append(
+            "Tipo de arquivo"
+        )
+
+    if not possui_nsa:
+        faltantes.append(
+            "Último NSA conhecido"
+        )
+
+    arquivos_resumo = " | ".join(
+        (
+            f"{item.get('tipo') or 'Tipo não informado'}: "
+            f"{item.get('ultimo_nsa_conhecido')}"
+        )
+        for item in arquivos
+        if item.get(
+            "ultimo_nsa_conhecido"
+        )
+    )
+
+    fonte = referencia.get(
+        "fonte",
+        "",
+    )
+
+    if any(
+        [
+            convenio,
+            data_texto,
+            nsa_texto,
+            tipo_texto,
+        ]
+    ):
+        fonte = (
+            "DESCRICAO_ESTRUTURADA"
+        )
+
+    return {
+        "convenio":
+            convenio,
+
+        "referencia_operacional":
+            referencia.get(
+                "referencia",
+                "",
+            ),
+
+        "criterio_data":
+            referencia.get(
+                "criterio",
+                "",
+            ),
+
+        "data_inicio":
+            referencia.get(
+                "data_inicio",
+                "",
+            ),
+
+        "data_fim":
+            referencia.get(
+                "data_fim",
+                "",
+            ),
+
+        "tipos_arquivo":
+            ", ".join(
+                dict.fromkeys(
+                    tipos
+                )
+            ),
+
+        "nsas_referencia":
+            ", ".join(
+                dict.fromkeys(
+                    nsas
+                )
+            ),
+
+        "arquivos_resumo":
+            arquivos_resumo,
+
+        "arquivos":
+            arquivos,
+
+        "completude":
+            completude,
+
+        "dados_completos":
+            completude == 100,
+
+        "campos_faltantes":
+            ", ".join(
+                faltantes
+            ),
+
+        "fonte":
+            fonte,
+    }
+
+
 def classificar_linha(linha: pd.Series | dict) -> dict:
     get = linha.get
     campos = {"assunto": _texto(get("Assunto")), "descricao": _texto(get("Descrição")), "tipo": _texto(get("Tipo")), "origem": _texto(get("Origem")), "cliente": _texto(get("Clientes"))}
@@ -188,11 +784,38 @@ def classificar_linha(linha: pd.Series | dict) -> dict:
     regra = _mapa_regras().get(intencao, {})
     subtipo = _extrair_subtipo(texto, intencao)
     origem = _origem_operacional(linha, texto)
-    referencia = _extrair_referencia(texto)
+    dados_operacionais = extrair_dados_operacionais(
+        linha
+    )
+
+    referencia = (
+        dados_operacionais.get(
+            "referencia_operacional"
+        )
+        or _extrair_referencia(
+            texto
+        )
+    )
 
     bloqueio_natureza = subtipo in {"ARQUIVO_CORROMPIDO", "FALTA_REGISTRO"}
     homologado = _procedimento_homologado(origem, regra)
-    dados_suficientes = bool(origem and (referencia or intencao not in {"FALTA_ARQUIVO", "REPROCESSAMENTO"}))
+    dados_suficientes = bool(
+        origem
+        and (
+            dados_operacionais.get(
+                "dados_completos",
+                False,
+            )
+            if intencao == "FALTA_ARQUIVO"
+            else (
+                referencia
+                or intencao
+                not in {
+                    "REPROCESSAMENTO",
+                }
+            )
+        )
+    )
     automatizavel = bool(intencao != "NAO_CLASSIFICADO" and not conflito and not bloqueio_natureza and homologado and dados_suficientes)
 
     if intencao == "NAO_CLASSIFICADO": motivo = "Intenção operacional não reconhecida com segurança."
@@ -209,6 +832,7 @@ def classificar_linha(linha: pd.Series | dict) -> dict:
         "evidencias": evidencias.get(intencao_texto or intencao, []), "subtipo": subtipo,
         "origem_operacional": origem, "referencia": referencia, "conflito": conflito,
         "sinal_secundario": sinal_secundario, "automatizavel": automatizavel, "motivo": motivo,
+        "dados_operacionais": dados_operacionais,
     }
 
 
@@ -239,33 +863,439 @@ def classificar_dataframe(frame: pd.DataFrame) -> dict:
     return resultado
 
 
-def enriquecer_dataframe_com_classificacoes(frame: pd.DataFrame) -> pd.DataFrame:
-    if frame is None or not isinstance(frame,pd.DataFrame): return pd.DataFrame()
+def enriquecer_dataframe_com_classificacoes(
+    frame: pd.DataFrame,
+) -> pd.DataFrame:
+    if (
+        frame is None
+        or not isinstance(
+            frame,
+            pd.DataFrame,
+        )
+    ):
+        return pd.DataFrame()
+
     resultado = frame.copy()
-    if resultado.empty: return resultado
-    mapa = {int(item["chamado_id"]): item for item in listar_classificacoes_demandas() if item.get("chamado_id") is not None}
-    dados = {k:[] for k in ["intencao","confianca","regra","acao","subtipo","origem","referencia","conflito","sinal","automatizavel","motivo"]}
+
+    if resultado.empty:
+        return resultado
+
+    mapa = {
+        int(item["chamado_id"]):
+            item
+
+        for item in listar_classificacoes_demandas()
+
+        if item.get(
+            "chamado_id"
+        ) is not None
+    }
+
+    dados = {
+        chave: []
+
+        for chave in [
+            "intencao",
+            "confianca",
+            "regra",
+            "acao",
+            "subtipo",
+            "origem",
+            "referencia",
+            "conflito",
+            "sinal",
+            "automatizavel",
+            "motivo",
+            "convenio",
+            "referencia_operacional",
+            "criterio_data",
+            "tipos_arquivo",
+            "nsas_referencia",
+            "arquivos_resumo",
+            "completude",
+            "dados_completos",
+            "campos_faltantes",
+            "fonte_operacional",
+        ]
+    }
+
     for _, row in resultado.iterrows():
-        try: chamado_id=int(float(row.get("#")))
-        except Exception: chamado_id=-1
-        item_db=mapa.get(chamado_id) or {}
-        # Campos v3.13 são derivados do snapshot atual, sem migration no SQLite.
-        derivado=classificar_linha(row)
-        dados["intencao"].append(derivado["intencao"] if derivado else item_db.get("intencao","NAO_CLASSIFICADO"))
-        dados["confianca"].append(float(derivado.get("confianca", item_db.get("confianca",0)) or 0))
-        dados["regra"].append(derivado.get("regra_candidata", item_db.get("regra_candidata","")))
-        dados["acao"].append(derivado.get("acao_sugerida", item_db.get("acao_sugerida","")))
-        dados["subtipo"].append(derivado["subtipo"]); dados["origem"].append(derivado["origem_operacional"])
-        dados["referencia"].append(derivado["referencia"]); dados["conflito"].append("SIM" if derivado["conflito"] else "NÃO")
-        dados["sinal"].append(derivado["sinal_secundario"]); dados["automatizavel"].append("SIM" if derivado["automatizavel"] else "NÃO")
-        dados["motivo"].append(derivado["motivo"])
-    resultado["EDNNA - Intenção"]=dados["intencao"]; resultado["EDNNA - Confiança"]=dados["confianca"]
-    resultado["EDNNA - Regra"]=dados["regra"]; resultado["EDNNA - Ação sugerida"]=dados["acao"]
-    resultado["EDNNA - Subtipo"]=dados["subtipo"]; resultado["EDNNA - Origem operacional"]=dados["origem"]
-    resultado["EDNNA - Referência"]=dados["referencia"]; resultado["EDNNA - Conflito de classificação"]=dados["conflito"]
-    resultado["EDNNA - Sinal secundário"]=dados["sinal"]; resultado["EDNNA - Automatizável"]=dados["automatizavel"]
-    resultado["EDNNA - Motivo"]=dados["motivo"]
+
+        try:
+            chamado_id = int(
+                float(
+                    row.get(
+                        "#"
+                    )
+                )
+            )
+
+        except Exception:
+            chamado_id = -1
+
+        item_db = (
+            mapa.get(
+                chamado_id
+            )
+            or {}
+        )
+
+        # v3.14 continua derivando a inteligência operacional
+        # do snapshot atual, sem migration adicional no SQLite.
+        derivado = classificar_linha(
+            row
+        )
+
+        op = (
+            derivado.get(
+                "dados_operacionais",
+                {},
+            )
+            or {}
+        )
+
+        dados[
+            "intencao"
+        ].append(
+            derivado.get(
+                "intencao",
+                item_db.get(
+                    "intencao",
+                    "NAO_CLASSIFICADO",
+                ),
+            )
+        )
+
+        dados[
+            "confianca"
+        ].append(
+            float(
+                derivado.get(
+                    "confianca",
+                    item_db.get(
+                        "confianca",
+                        0,
+                    ),
+                )
+                or 0
+            )
+        )
+
+        dados[
+            "regra"
+        ].append(
+            derivado.get(
+                "regra_candidata",
+                item_db.get(
+                    "regra_candidata",
+                    "",
+                ),
+            )
+        )
+
+        dados[
+            "acao"
+        ].append(
+            derivado.get(
+                "acao_sugerida",
+                item_db.get(
+                    "acao_sugerida",
+                    "",
+                ),
+            )
+        )
+
+        dados[
+            "subtipo"
+        ].append(
+            derivado.get(
+                "subtipo",
+                "",
+            )
+        )
+
+        dados[
+            "origem"
+        ].append(
+            derivado.get(
+                "origem_operacional",
+                "",
+            )
+        )
+
+        dados[
+            "referencia"
+        ].append(
+            derivado.get(
+                "referencia",
+                "",
+            )
+        )
+
+        dados[
+            "conflito"
+        ].append(
+            "SIM"
+            if derivado.get(
+                "conflito"
+            )
+            else "NÃO"
+        )
+
+        dados[
+            "sinal"
+        ].append(
+            derivado.get(
+                "sinal_secundario",
+                "",
+            )
+        )
+
+        dados[
+            "automatizavel"
+        ].append(
+            "SIM"
+            if derivado.get(
+                "automatizavel"
+            )
+            else "NÃO"
+        )
+
+        dados[
+            "motivo"
+        ].append(
+            derivado.get(
+                "motivo",
+                "",
+            )
+        )
+
+        dados[
+            "convenio"
+        ].append(
+            op.get(
+                "convenio",
+                "",
+            )
+        )
+
+        dados[
+            "referencia_operacional"
+        ].append(
+            op.get(
+                "referencia_operacional",
+                "",
+            )
+        )
+
+        dados[
+            "criterio_data"
+        ].append(
+            op.get(
+                "criterio_data",
+                "",
+            )
+        )
+
+        dados[
+            "tipos_arquivo"
+        ].append(
+            op.get(
+                "tipos_arquivo",
+                "",
+            )
+        )
+
+        dados[
+            "nsas_referencia"
+        ].append(
+            op.get(
+                "nsas_referencia",
+                "",
+            )
+        )
+
+        dados[
+            "arquivos_resumo"
+        ].append(
+            op.get(
+                "arquivos_resumo",
+                "",
+            )
+        )
+
+        dados[
+            "completude"
+        ].append(
+            int(
+                op.get(
+                    "completude",
+                    0,
+                )
+                or 0
+            )
+        )
+
+        dados[
+            "dados_completos"
+        ].append(
+            "SIM"
+            if op.get(
+                "dados_completos"
+            )
+            else "NÃO"
+        )
+
+        dados[
+            "campos_faltantes"
+        ].append(
+            op.get(
+                "campos_faltantes",
+                "",
+            )
+        )
+
+        dados[
+            "fonte_operacional"
+        ].append(
+            op.get(
+                "fonte",
+                "",
+            )
+        )
+
+    resultado[
+        "EDNNA - Intenção"
+    ] = dados[
+        "intencao"
+    ]
+
+    resultado[
+        "EDNNA - Confiança"
+    ] = dados[
+        "confianca"
+    ]
+
+    resultado[
+        "EDNNA - Regra"
+    ] = dados[
+        "regra"
+    ]
+
+    resultado[
+        "EDNNA - Ação sugerida"
+    ] = dados[
+        "acao"
+    ]
+
+    resultado[
+        "EDNNA - Subtipo"
+    ] = dados[
+        "subtipo"
+    ]
+
+    resultado[
+        "EDNNA - Origem operacional"
+    ] = dados[
+        "origem"
+    ]
+
+    resultado[
+        "EDNNA - Referência"
+    ] = dados[
+        "referencia"
+    ]
+
+    resultado[
+        "EDNNA - Conflito de classificação"
+    ] = dados[
+        "conflito"
+    ]
+
+    resultado[
+        "EDNNA - Sinal secundário"
+    ] = dados[
+        "sinal"
+    ]
+
+    resultado[
+        "EDNNA - Automatizável"
+    ] = dados[
+        "automatizavel"
+    ]
+
+    resultado[
+        "EDNNA - Motivo"
+    ] = dados[
+        "motivo"
+    ]
+
+    # --------------------------------------------------------
+    # v3.14 — pacote operacional extraído da descrição
+    # --------------------------------------------------------
+
+    resultado[
+        "EDNNA - Convênio"
+    ] = dados[
+        "convenio"
+    ]
+
+    resultado[
+        "EDNNA - Referência operacional"
+    ] = dados[
+        "referencia_operacional"
+    ]
+
+    resultado[
+        "EDNNA - Critério data"
+    ] = dados[
+        "criterio_data"
+    ]
+
+    resultado[
+        "EDNNA - Tipos arquivo"
+    ] = dados[
+        "tipos_arquivo"
+    ]
+
+    resultado[
+        "EDNNA - NSA referência"
+    ] = dados[
+        "nsas_referencia"
+    ]
+
+    resultado[
+        "EDNNA - Arquivos/NSA"
+    ] = dados[
+        "arquivos_resumo"
+    ]
+
+    resultado[
+        "EDNNA - Completude operacional (%)"
+    ] = dados[
+        "completude"
+    ]
+
+    resultado[
+        "EDNNA - Dados operacionais completos"
+    ] = dados[
+        "dados_completos"
+    ]
+
+    resultado[
+        "EDNNA - Campos faltantes"
+    ] = dados[
+        "campos_faltantes"
+    ]
+
+    resultado[
+        "EDNNA - Fonte operacional"
+    ] = dados[
+        "fonte_operacional"
+    ]
+
     return resultado
+
 
 
 def calcular_prontidao_automacao(frame: pd.DataFrame) -> pd.DataFrame:
