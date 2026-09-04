@@ -3891,12 +3891,14 @@ with main_col:
                 resumo_op = resumo_oportunidades(base_demandas)
                 prontidao_df = calcular_prontidao_automacao(base_demandas)
 
-                o1, o2, o3, o4, o5 = st.columns(5)
+                o1, o2, o3, o4, o5, o6, o7 = st.columns(7)
                 o1.metric("Sem primeiro combate", resumo_op.get("total", 0))
                 o2.metric("Padrão reconhecido", resumo_op.get("reconhecidos", 0))
                 o3.metric("Não classificados", resumo_op.get("nao_classificados", 0))
                 o4.metric("Com regra candidata", resumo_op.get("com_regra", 0))
-                o5.metric("Intenções com alta prontidão", resumo_op.get("alta_prontidao", 0))
+                o5.metric("Conflitos", resumo_op.get("conflitos", 0))
+                o6.metric("Automatizáveis", resumo_op.get("automatizaveis", 0))
+                o7.metric("Alta prontidão", resumo_op.get("alta_prontidao", 0))
 
                 st.divider()
                 st.markdown("**Ranking de prontidão para automação**")
@@ -3975,7 +3977,9 @@ with main_col:
                 st.markdown("**Chamados candidatos**")
                 cols_demanda = [c for c in [
                     "#","Clientes","Origem","Atribuído a","Prioridade","Tipo","Assunto","Tempo em aberto (dias)",
-                    "EDNNA - Intenção","EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
+                    "EDNNA - Intenção","EDNNA - Subtipo","EDNNA - Origem operacional","EDNNA - Referência",
+                    "EDNNA - Conflito de classificação","EDNNA - Sinal secundário","EDNNA - Automatizável","EDNNA - Motivo",
+                    "EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
                 ] if c in detalhe_intencao.columns]
 
                 ordenacao = []
@@ -4886,7 +4890,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.12.2 — EDNNA com memória operacional SQLite, journals controlados e cache persistente do painel, "
-        "contingência persistente contra indisponibilidade do Redmine "
-        "e fila inicial de primeiro combate."
+        "Versão 3.13 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
+        "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
+        "Nenhuma ação automática é executada no Redmine."
     )
