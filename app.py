@@ -3943,6 +3943,162 @@ with main_col:
                     base_demandas["EDNNA - Intenção"].fillna("NAO_CLASSIFICADO").astype(str) == str(intencao_sel)
                 ].copy()
 
+                # ============================================
+                # v3.14 — QUALIDADE DOS DADOS OPERACIONAIS
+                # ============================================
+
+                st.markdown("**Qualidade dos dados operacionais**")
+
+                total_intencao = len(
+                    detalhe_intencao
+                )
+
+                completos_op = int(
+                    (
+                        detalhe_intencao.get(
+                            "EDNNA - Dados operacionais completos",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .astype(str)
+                        == "SIM"
+                    ).sum()
+                )
+
+                convenio_op = int(
+                    (
+                        detalhe_intencao.get(
+                            "EDNNA - Convênio",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                referencia_op = int(
+                    (
+                        detalhe_intencao.get(
+                            "EDNNA - Referência operacional",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                tipo_op = int(
+                    (
+                        detalhe_intencao.get(
+                            "EDNNA - Tipos arquivo",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                nsa_op = int(
+                    (
+                        detalhe_intencao.get(
+                            "EDNNA - NSA referência",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ).sum()
+                )
+
+                q1, q2, q3, q4, q5, q6 = st.columns(
+                    6
+                )
+
+                q1.metric(
+                    "Candidatos",
+                    total_intencao,
+                )
+
+                q2.metric(
+                    "Dados completos",
+                    completos_op,
+                )
+
+                q3.metric(
+                    "Com convênio",
+                    convenio_op,
+                )
+
+                q4.metric(
+                    "Com referência",
+                    referencia_op,
+                )
+
+                q5.metric(
+                    "Com tipo",
+                    tipo_op,
+                )
+
+                q6.metric(
+                    "Com NSA",
+                    nsa_op,
+                )
+
+                if (
+                    "EDNNA - Subtipo"
+                    in detalhe_intencao.columns
+                    and not detalhe_intencao.empty
+                ):
+                    subtipo_op = (
+                        detalhe_intencao[
+                            "EDNNA - Subtipo"
+                        ]
+                        .fillna(
+                            "NAO_IDENTIFICADO"
+                        )
+                        .astype(str)
+                        .value_counts()
+                        .rename_axis(
+                            "Subtipo operacional"
+                        )
+                        .reset_index(
+                            name="Chamados"
+                        )
+                    )
+
+                    st.dataframe(
+                        subtipo_op,
+                        width="stretch",
+                        hide_index=True,
+                    )
+
+                st.caption(
+                    "Dados completos significa que a descrição contém "
+                    "Convênio + Data/Período + Tipo de arquivo + último NSA conhecido. "
+                    "Isso ainda não autoriza envio ou alteração no Redmine."
+                )
+
                 i1, i2 = st.columns(2)
                 with i1:
                     st.markdown("**Clientes com maior recorrência**")
@@ -3978,6 +4134,10 @@ with main_col:
                 cols_demanda = [c for c in [
                     "#","Clientes","Origem","Atribuído a","Prioridade","Tipo","Assunto","Tempo em aberto (dias)",
                     "EDNNA - Intenção","EDNNA - Subtipo","EDNNA - Origem operacional","EDNNA - Referência",
+                    "EDNNA - Convênio","EDNNA - Referência operacional","EDNNA - Critério data",
+                    "EDNNA - Tipos arquivo","EDNNA - NSA referência","EDNNA - Arquivos/NSA",
+                    "EDNNA - Completude operacional (%)","EDNNA - Dados operacionais completos",
+                    "EDNNA - Campos faltantes","EDNNA - Fonte operacional",
                     "EDNNA - Conflito de classificação","EDNNA - Sinal secundário","EDNNA - Automatizável","EDNNA - Motivo",
                     "EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
                 ] if c in detalhe_intencao.columns]
@@ -4890,7 +5050,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.13 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
+        "Versão 3.14 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
         "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
         "Nenhuma ação automática é executada no Redmine."
     )
