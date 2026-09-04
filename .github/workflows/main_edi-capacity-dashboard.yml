@@ -117,6 +117,21 @@ jobs:
 
           echo "Compilação concluída."
 
+      - name: Validate runtime imports
+        run: |
+          python - <<'PY'
+          from ednna.classificador_demandas import (
+              classificar_dataframe,
+              enriquecer_dataframe_com_classificacoes,
+              carregar_catalogo,
+              calcular_prontidao_automacao,
+              resumo_oportunidades,
+          )
+          import painel_cache
+          import redmine_api
+          print("IMPORTS_RUNTIME_OK")
+          PY
+
 
       # ======================================================
       # TESTAR IMPORT DA EDNNA
