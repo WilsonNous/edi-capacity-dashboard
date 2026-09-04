@@ -48,6 +48,12 @@ from ednna.classificador_demandas import (
     resumo_oportunidades,
 )
 
+from ednna.motor_acoes import (
+    enriquecer_dataframe_com_acoes,
+    avaliar_acao,
+    gerar_rascunho,
+)
+
 
 # ============================================================
 # DIAGNÓSTICO REDMINE
@@ -632,6 +638,7 @@ def assinatura_dataframe_ednna(
             "Atribuído a",
             "Prioridade",
             "Assunto",
+            "Descrição",
         ]
         if coluna in frame.columns
     ]
@@ -1723,64 +1730,6 @@ if fonte == "API do Redmine":
         origem="api",
     )
 
-    # ============================================================
-    # DIAGNÓSTICO TEMPORÁRIO — DESCRIÇÃO REDMINE
-    # ============================================================
-    
-    for chamado_teste in [47093, 47878]:
-        try:
-            teste = df[
-                pd.to_numeric(
-                    df["#"],
-                    errors="coerce",
-                ) == chamado_teste
-            ]
-    
-            if teste.empty:
-                print(
-                    f"[TESTE EDNNA] Chamado #{chamado_teste} "
-                    "não encontrado no DataFrame.",
-                    flush=True,
-                )
-                continue
-    
-            linha_teste = teste.iloc[0]
-    
-            print(
-                f"\n[TESTE EDNNA] ===== CHAMADO #{chamado_teste} =====",
-                flush=True,
-            )
-    
-            print(
-                "[TESTE EDNNA] Tipo:",
-                repr(linha_teste.get("Tipo")),
-                flush=True,
-            )
-    
-            print(
-                "[TESTE EDNNA] Assunto:",
-                repr(linha_teste.get("Assunto")),
-                flush=True,
-            )
-    
-            print(
-                "[TESTE EDNNA] Descrição:",
-                repr(linha_teste.get("Descrição")),
-                flush=True,
-            )
-    
-            print(
-                "[TESTE EDNNA] Tamanho descrição:",
-                len(str(linha_teste.get("Descrição") or "")),
-                flush=True,
-            )
-    
-        except Exception as exc:
-            print(
-                f"[TESTE EDNNA] Erro no chamado #{chamado_teste}: {exc}",
-                flush=True,
-            )
-            
     # ========================================================
     # AVISOS DE ORIGEM
     # ========================================================
@@ -3140,6 +3089,22 @@ with main_col:
             )
         )
 
+        # ====================================================
+        # v3.15 — MOTOR DE AÇÕES
+        # ====================================================
+
+        ednna_analisados = (
+            enriquecer_dataframe_com_acoes(
+                ednna_analisados
+            )
+        )
+
+        ednna_analisados_global = (
+            enriquecer_dataframe_com_acoes(
+                ednna_analisados_global
+            )
+        )
+
         catalogo_ednna = carregar_catalogo()
 
         resumo_ednna = (
@@ -4156,6 +4121,317 @@ with main_col:
                     "Isso ainda não autoriza envio ou alteração no Redmine."
                 )
 
+                # ============================================
+                # v3.15 — AÇÃO PROPOSTA PELA EDNNA
+                # ============================================
+
+                st.divider()
+
+                st.markdown(
+                    "**Ação proposta pela EDNNA**"
+                )
+
+                candidatos_acao = (
+                    detalhe_intencao[
+                        detalhe_intencao.get(
+                            "EDNNA - Regra operacional",
+                            pd.Series(
+                                "",
+                                index=detalhe_intencao.index,
+                            ),
+                        )
+                        .fillna("")
+                        .astype(str)
+                        .str.strip()
+                        != ""
+                    ]
+                    .copy()
+                )
+
+                if candidatos_acao.empty:
+                    st.info(
+                        "Nenhum chamado desta intenção possui "
+                        "procedimento operacional homologado para rascunho."
+                    )
+
+                else:
+                    opcoes_acao = []
+
+                    for idx_acao, row_acao in candidatos_acao.iterrows():
+                        chamado_label = str(
+                            row_acao.get(
+                                "#",
+                                "",
+                            )
+                        )
+
+                        if chamado_label.endswith(
+                            ".0"
+                        ):
+                            chamado_label = chamado_label[:-2]
+
+                        cliente_label = str(
+                            row_acao.get(
+                                "Clientes",
+                                "",
+                            )
+                            or "Sem cliente"
+                        )
+
+                        origem_label = str(
+                            row_acao.get(
+                                "EDNNA - Origem operacional",
+                                "",
+                            )
+                            or row_acao.get(
+                                "Origem",
+                                "",
+                            )
+                            or "Sem origem"
+                        )
+
+                        opcoes_acao.append(
+                            (
+                                idx_acao,
+                                f"#{chamado_label} • "
+                                f"{cliente_label} • "
+                                f"{origem_label}"
+                            )
+                        )
+
+                    indice_acao = st.selectbox(
+                        "Chamado para avaliar",
+                        options=[
+                            item[0]
+                            for item in opcoes_acao
+                        ],
+                        format_func=lambda valor: next(
+                            (
+                                rotulo
+                                for idx, rotulo
+                                in opcoes_acao
+                                if idx == valor
+                            ),
+                            str(valor),
+                        ),
+                        key="ednna_acao_chamado",
+                    )
+
+                    linha_acao = candidatos_acao.loc[
+                        indice_acao
+                    ]
+
+                    avaliacao_acao = avaliar_acao(
+                        linha_acao
+                    )
+
+                    with st.container(
+                        border=True
+                    ):
+                        cab1, cab2 = st.columns(
+                            [
+                                4,
+                                1,
+                            ]
+                        )
+
+                        with cab1:
+                            chamado_card = str(
+                                linha_acao.get(
+                                    "#",
+                                    "",
+                                )
+                            )
+
+                            if chamado_card.endswith(
+                                ".0"
+                            ):
+                                chamado_card = chamado_card[:-2]
+
+                            cliente_card = str(
+                                linha_acao.get(
+                                    "Clientes",
+                                    "",
+                                )
+                                or "Sem cliente"
+                            )
+
+                            origem_card = str(
+                                linha_acao.get(
+                                    "EDNNA - Origem operacional",
+                                    "",
+                                )
+                                or linha_acao.get(
+                                    "Origem",
+                                    "",
+                                )
+                                or "Sem origem"
+                            )
+
+                            st.markdown(
+                                f"**#{chamado_card} • {cliente_card}**"
+                            )
+
+                            st.caption(
+                                f"{origem_card} • "
+                                f"{linha_acao.get('EDNNA - Subtipo', '')}"
+                            )
+
+                        with cab2:
+                            if avaliacao_acao.get(
+                                "apto_rascunho"
+                            ):
+                                st.success(
+                                    "🟢 Pronto"
+                                )
+                            else:
+                                st.warning(
+                                    "🟡 Atenção"
+                                )
+
+                        acao_c1, acao_c2, acao_c3, acao_c4 = st.columns(
+                            4
+                        )
+
+                        acao_c1.metric(
+                            "Convênio",
+                            linha_acao.get(
+                                "EDNNA - Convênio",
+                                "",
+                            )
+                            or "—",
+                        )
+
+                        acao_c2.metric(
+                            "Referência",
+                            linha_acao.get(
+                                "EDNNA - Referência operacional",
+                                "",
+                            )
+                            or "—",
+                        )
+
+                        acao_c3.metric(
+                            "Tipo",
+                            linha_acao.get(
+                                "EDNNA - Tipos arquivo",
+                                "",
+                            )
+                            or "—",
+                        )
+
+                        acao_c4.metric(
+                            "NSA",
+                            linha_acao.get(
+                                "EDNNA - NSA referência",
+                                "",
+                            )
+                            or "—",
+                        )
+
+                        st.markdown(
+                            "**Procedimento**"
+                        )
+
+                        st.write(
+                            avaliacao_acao.get(
+                                "regra_nome"
+                            )
+                            or "Sem procedimento homologado."
+                        )
+
+                        st.caption(
+                            avaliacao_acao.get(
+                                "motivo",
+                                "",
+                            )
+                        )
+
+                        bot1, bot2 = st.columns(
+                            [
+                                1,
+                                4,
+                            ]
+                        )
+
+                        with bot1:
+                            st.link_button(
+                                "Ver chamado",
+                                f"{REDMINE_WEB_URL}/issues/{chamado_card}",
+                                width="stretch",
+                            )
+
+                        if avaliacao_acao.get(
+                            "apto_rascunho"
+                        ):
+                            rascunho = gerar_rascunho(
+                                linha_acao
+                            )
+
+                            with st.expander(
+                                "Visualizar rascunho",
+                                expanded=False,
+                            ):
+                                st.markdown(
+                                    "**Para**"
+                                )
+
+                                st.code(
+                                    "; ".join(
+                                        rascunho.get(
+                                            "destinatarios",
+                                            []
+                                        )
+                                    )
+                                )
+
+                                if rascunho.get(
+                                    "cc"
+                                ):
+                                    st.markdown(
+                                        "**Cc**"
+                                    )
+
+                                    st.code(
+                                        "; ".join(
+                                            rascunho.get(
+                                                "cc",
+                                                []
+                                            )
+                                        )
+                                    )
+
+                                st.markdown(
+                                    "**Assunto**"
+                                )
+
+                                st.code(
+                                    rascunho.get(
+                                        "assunto",
+                                        "",
+                                    )
+                                )
+
+                                st.markdown(
+                                    "**Mensagem**"
+                                )
+
+                                st.text_area(
+                                    "Rascunho do e-mail",
+                                    value=rascunho.get(
+                                        "corpo",
+                                        "",
+                                    ),
+                                    height=330,
+                                    key=f"rascunho_{chamado_card}",
+                                    label_visibility="collapsed",
+                                )
+
+                                st.info(
+                                    "Modo assistido: este rascunho não é enviado "
+                                    "e nenhuma alteração é feita no Redmine."
+                                )
+
                 i1, i2 = st.columns(2)
                 with i1:
                     st.markdown("**Clientes com maior recorrência**")
@@ -4195,6 +4471,7 @@ with main_col:
                     "EDNNA - Tipos arquivo","EDNNA - NSA referência","EDNNA - Arquivos/NSA",
                     "EDNNA - Completude operacional (%)","EDNNA - Dados operacionais completos",
                     "EDNNA - Campos faltantes","EDNNA - Fonte operacional",
+                    "EDNNA - Regra operacional","EDNNA - Ação operacional","EDNNA - Apto para rascunho","EDNNA - Motivo ação",
                     "EDNNA - Conflito de classificação","EDNNA - Sinal secundário","EDNNA - Automatizável","EDNNA - Motivo",
                     "EDNNA - Confiança","EDNNA - Regra","EDNNA - Ação sugerida",
                 ] if c in detalhe_intencao.columns]
@@ -5107,7 +5384,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.14 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
+        "Versão 3.15 — EDNNA com inteligência operacional: precedência do Tipo oficial do Redmine, "
         "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
         "Nenhuma ação automática é executada no Redmine."
     )
