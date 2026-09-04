@@ -1,0 +1,27 @@
+{
+  "versao": "1.0",
+  "modo": "RASCUNHO_ASSISTIDO",
+  "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
+  "regras": [
+    {
+      "id": "FALTA-PLUXEE-001",
+      "nome": "Pluxee — Solicitação de reenvio de arquivo",
+      "intencao": "FALTA_ARQUIVO",
+      "subtipo": "ARQUIVO_NAO_RECEBIDO",
+      "origens": ["SODEXO", "PLUXEE"],
+      "acao": "PREPARAR_EMAIL_REENVIO",
+      "canal": "EMAIL",
+      "homologada_para_rascunho": true,
+      "executavel": false,
+      "requer_dados_completos": true,
+      "bloqueia_conflito": true,
+      "destinatarios": [
+        "reembolso.estabelecimentos.br@sales.pluxee.com.br",
+        "relacionamento.estabelecimentos.br@care.pluxee.com.br"
+      ],
+      "cc_padrao": [],
+      "assunto_template": "[ PLUXEE - Falta de Arquivo - {cliente} - #{chamado_id} ]",
+      "observacao": "Regra homologada apenas para geração de rascunho. Não envia e-mail e não altera o Redmine."
+    }
+  ]
+}
