@@ -89,7 +89,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.19.1.
+    Workspace visual da EDNNA — v3.19.2.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -768,28 +768,41 @@ def render_ednna_workspace(
                                             "✅ E-mail registrado no chamado do Redmine."
                                         )
 
-                                    elif (
-                                        enviado_em
-                                        and redmine_erro
-                                    ):
-                                        st.warning(
-                                            "⚠️ E-mail enviado, mas a atualização "
-                                            "do Redmine está pendente."
-                                        )
+                                    elif enviado_em:
+                                        if redmine_erro:
+                                            st.warning(
+                                                "⚠️ E-mail enviado, mas a atualização "
+                                                "do Redmine está pendente."
+                                            )
 
-                                        with st.expander(
-                                            "Detalhe da pendência Redmine",
-                                            expanded=False,
-                                        ):
-                                            st.code(
-                                                redmine_erro,
-                                                language=None,
+                                            with st.expander(
+                                                "Detalhe da pendência Redmine",
+                                                expanded=False,
+                                            ):
+                                                st.code(
+                                                    redmine_erro,
+                                                    language=None,
+                                                )
+
+                                            rotulo_redmine = (
+                                                "🔄 Repetir atualização no Redmine"
+                                            )
+
+                                        else:
+                                            st.info(
+                                                "📌 Este envio ocorreu antes da integração "
+                                                "automática com o Redmine. O e-mail não será "
+                                                "reenviado."
+                                            )
+
+                                            rotulo_redmine = (
+                                                "📝 Registrar este envio no Redmine"
                                             )
 
                                         if st.button(
-                                            "🔄 Repetir atualização no Redmine",
+                                            rotulo_redmine,
                                             key=(
-                                                f"retry_redmine_"
+                                                f"registrar_redmine_"
                                                 f"{chamado_card}_"
                                                 f"{regra_id_acao}"
                                             ),
@@ -833,7 +846,7 @@ def render_ednna_workspace(
                                                 )
 
                                                 st.success(
-                                                    "Chamado atualizado no Redmine."
+                                                    "Envio registrado no chamado do Redmine."
                                                 )
                                                 st.rerun()
 
@@ -1021,7 +1034,7 @@ def render_ednna_workspace(
                                         "PRAZO_VENCIDO",
                                     }:
                                         if st.button(
-                                            "✅ Registrar resposta recebida",
+                                            "📥 Informar manualmente que recebemos resposta",
                                             key=(
                                                 f"acao_resposta_"
                                                 f"{chamado_card}_"
