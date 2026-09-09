@@ -68,7 +68,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.17.1.
+    Workspace visual da EDNNA — v3.17.2.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -292,29 +292,101 @@ def render_ednna_workspace(
             with c_res2:
                 st.markdown("**Leitura rápida**")
 
+                pct_reconhecidos = (
+                    reconhecidos_atual
+                    / total_atual
+                    * 100
+                    if total_atual
+                    else 0.0
+                )
+
+                pct_sem_classificacao = (
+                    sem_classificacao_atual
+                    / total_atual
+                    * 100
+                    if total_atual
+                    else 0.0
+                )
+
+                reconhecidas = (
+                    intencoes_resumo[
+                        intencoes_resumo["Intenção técnica"]
+                        != "NAO_CLASSIFICADO"
+                    ]
+                    .sort_values(
+                        "Chamados",
+                        ascending=False,
+                    )
+                    .reset_index(
+                        drop=True
+                    )
+                )
+
+                principal_nome = ""
+                principal_qtd = 0
+                segunda_nome = ""
+                segunda_qtd = 0
+
+                if not reconhecidas.empty:
+                    principal_nome = str(
+                        reconhecidas.iloc[0]["Intenção"]
+                    )
+                    principal_qtd = int(
+                        reconhecidas.iloc[0]["Chamados"]
+                    )
+
+                if len(reconhecidas) > 1:
+                    segunda_nome = str(
+                        reconhecidas.iloc[1]["Intenção"]
+                    )
+                    segunda_qtd = int(
+                        reconhecidas.iloc[1]["Chamados"]
+                    )
+
                 st.write(
-                    f"**{reconhecidos_atual}** chamado(s) com padrão reconhecido."
+                    f"**{pct_reconhecidos:.1f}%** dos chamados já possuem padrão reconhecido "
+                    f"(**{reconhecidos_atual} de {total_atual}**)."
                 )
 
                 st.write(
-                    f"**{sem_classificacao_atual}** ainda sem classificação suficiente."
+                    f"**{pct_sem_classificacao:.1f}%** ainda precisam evoluir na classificação "
+                    f"(**{sem_classificacao_atual} chamado(s)**)."
                 )
 
-                st.write(
-                    f"**{conflitos_atual}** conflito(s) de classificação."
-                )
+                if principal_nome:
+                    st.write(
+                        f"**{principal_nome}** é a principal demanda reconhecida, "
+                        f"com **{principal_qtd} chamado(s)**."
+                    )
 
-                st.write(
-                    f"**{alta_prontidao_atual}** grupo(s) com alta prontidão para estudo."
-                )
+                if segunda_nome:
+                    st.write(
+                        f"**{segunda_nome}** aparece em seguida, "
+                        f"com **{segunda_qtd} chamado(s)**."
+                    )
+
+                if conflitos_atual > 0:
+                    st.warning(
+                        f"⚠️ Existem **{conflitos_atual} conflito(s) de classificação** "
+                        "que merecem revisão operacional."
+                    )
+                else:
+                    st.success(
+                        "✅ Nenhum conflito de classificação identificado no conjunto atual."
+                    )
+
+                if alta_prontidao_atual > 0:
+                    st.info(
+                        f"🧠 **{alta_prontidao_atual} grupo(s)** apresentam alta prontidão "
+                        "para estudo de automação."
+                    )
+                else:
+                    st.caption(
+                        "Nenhum grupo apresenta alta prontidão para estudo de automação neste momento."
+                    )
 
                 st.caption(
-                    "Os números acompanham automaticamente o conjunto atual analisado pela EDNNA."
-                )
-
-                st.info(
-                    "Dados completos não significam automaticamente que o chamado "
-                    "possui regra homologada ou está pronto para rascunho."
+                    "Leitura executiva calculada automaticamente sobre o conjunto atual analisado pela EDNNA."
                 )
 
         # ================================================
