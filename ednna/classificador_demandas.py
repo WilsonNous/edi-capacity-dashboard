@@ -132,15 +132,61 @@ def _extrair_subtipo(texto: str, intencao: str) -> str:
 
 
 def _extrair_referencia(texto: str) -> str:
+    texto = _texto(texto)
+
+    if not texto:
+        return ""
+
+    m = re.search(
+        r"\b(?:desde|a\s+partir\s+de)\s+"
+        r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)",
+        texto,
+        flags=re.IGNORECASE,
+    )
+
+    if m:
+        return "A partir de " + _normalizar_data_curta(m.group(1))
+
+    m = re.search(
+        r"\bentre\s+"
+        r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)"
+        r"\s+(?:e|a|at[eé])\s+"
+        r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)",
+        texto,
+        flags=re.IGNORECASE,
+    )
+
+    if m:
+        return (
+            _normalizar_data_curta(m.group(1))
+            + " até "
+            + _normalizar_data_curta(m.group(2))
+        )
+
     padroes = [
-        r"\bdesde\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
-        r"\b(?:dia|data|refer[eê]ncia|referencia)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+        r"\b(?:dia|data|refer[eê]ncia|referencia)\s*[:\-]?\s*"
+        r"(\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)",
         r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b",
+        r"\b(\d{1,2}[/-]\d{1,2})\b",
         r"\b(\d{4}[/-]\d{1,2}[/-]\d{1,2})\b",
     ]
-    for p in padroes:
-        m = re.search(p, texto, flags=re.IGNORECASE)
-        if m: return m.group(1)
+
+    for padrao in padroes:
+        m = re.search(padrao, texto, flags=re.IGNORECASE)
+
+        if not m:
+            continue
+
+        valor = m.group(1)
+
+        if re.fullmatch(
+            r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?",
+            valor,
+        ):
+            return _normalizar_data_curta(valor)
+
+        return valor
+
     return ""
 
 
@@ -163,7 +209,7 @@ def _procedimento_homologado(origem: str, regra: dict) -> bool:
 
 
 # ============================================================
-# v3.15.4 — EXTRATOR OPERACIONAL FLEXÍVEL
+# v3.18 — EXTRATOR OPERACIONAL FLEXÍVEL
 # ============================================================
 
 def _limpar_markdown_campo(valor: str) -> str:

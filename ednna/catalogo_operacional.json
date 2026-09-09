@@ -1,5 +1,5 @@
 {
-  "versao": "1.0",
+  "versao": "1.1",
   "modo": "RASCUNHO_ASSISTIDO",
   "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
   "regras": [
@@ -8,7 +8,10 @@
       "nome": "Pluxee — Solicitação de reenvio de arquivo",
       "intencao": "FALTA_ARQUIVO",
       "subtipo": "ARQUIVO_NAO_RECEBIDO",
-      "origens": ["SODEXO", "PLUXEE"],
+      "origens": [
+        "SODEXO",
+        "PLUXEE"
+      ],
       "acao": "PREPARAR_EMAIL_REENVIO",
       "canal": "EMAIL",
       "homologada_para_rascunho": true,
@@ -22,6 +25,59 @@
       "cc_padrao": [],
       "assunto_template": "[ PLUXEE - Falta de Arquivo - {cliente} - #{chamado_id} ]",
       "observacao": "Regra homologada apenas para geração de rascunho. Não envia e-mail e não altera o Redmine."
+    },
+    {
+      "id": "FALTA-BANCO-SIMREDE-001",
+      "nome": "SIM REDE — Solicitação de arquivo bancário ao cliente",
+      "intencao": "FALTA_ARQUIVO",
+      "subtipo": "ARQUIVO_NAO_RECEBIDO",
+      "clientes": [
+        "SIM REDE",
+        "SIMREDE"
+      ],
+      "origens": [
+        "BRADESCO",
+        "CAIXA",
+        "BANCO BTG PACTUAL",
+        "BTG PACTUAL",
+        "BANCO VOTORANTIM",
+        "VOTORANTIM",
+        "SANTANDER",
+        "ITAU",
+        "ITAÚ",
+        "BANCO DO BRASIL",
+        "SICREDI",
+        "SICOOB"
+      ],
+      "excecoes_texto": [
+        "SANTANDER PIX",
+        "PIX SANTANDER"
+      ],
+      "acao": "PREPARAR_EMAIL_SOLICITACAO_CLIENTE",
+      "canal": "EMAIL",
+      "responsavel_fornecimento": "CLIENTE",
+      "homologada_para_rascunho": true,
+      "executavel": false,
+      "requer_dados_completos": false,
+      "campos_obrigatorios": [
+        "cliente",
+        "origem",
+        "referencia"
+      ],
+      "campos_desejaveis": [
+        "tipo_arquivo",
+        "convenio",
+        "nsa"
+      ],
+      "bloqueia_conflito": true,
+      "destinatarios": [
+        "francimar.tondello@grupoargenta.com.br"
+      ],
+      "cc_padrao": [],
+      "saudacao": "Olá, Time SIMREDE, tudo bem?",
+      "assunto_template": "[ SIM REDE - Arquivo bancário faltante - {origem} - #{chamado_id} ]",
+      "prazo_resposta_dias_uteis": 1,
+      "observacao": "Rascunho e acompanhamento assistidos. Santander PIX está excluído. Envio e resposta são confirmados manualmente no painel."
     }
   ]
 }

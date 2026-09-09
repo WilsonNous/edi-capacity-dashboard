@@ -11,6 +11,13 @@ from ednna.motor_acoes import (
     gerar_rascunho,
 )
 
+from ednna.acompanhamento_acoes import (
+    obter_acompanhamento,
+    registrar_envio,
+    registrar_resposta,
+    rotulo_estado,
+)
+
 
 def _carregar_css() -> None:
     css_path = (
@@ -68,7 +75,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.17.2.
+    Workspace visual da EDNNA — v3.18.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -666,6 +673,121 @@ def render_ednna_workspace(
                                 st.caption(
                                     "Modo assistido: o rascunho não é enviado "
                                     "e nenhuma alteração é feita no Redmine."
+                                )
+
+
+                            try:
+                                chamado_int = int(float(chamado_card))
+                                regra_id_acao = str(
+                                    avaliacao_acao.get("regra_id", "")
+                                    or ""
+                                )
+
+                                if regra_id_acao:
+                                    acompanhamento = obter_acompanhamento(
+                                        chamado_int,
+                                        regra_id_acao,
+                                    )
+
+                                    st.markdown("**Acompanhamento**")
+
+                                    estado_acomp = acompanhamento.get(
+                                        "estado",
+                                        "RASCUNHO",
+                                    )
+
+                                    st.write(
+                                        rotulo_estado(
+                                            estado_acomp
+                                        )
+                                    )
+
+                                    enviado_em = (
+                                        acompanhamento.get("enviado_em", "")
+                                        or ""
+                                    )
+                                    prazo_em = (
+                                        acompanhamento.get("prazo_resposta_em", "")
+                                        or ""
+                                    )
+                                    resposta_em = (
+                                        acompanhamento.get("resposta_recebida_em", "")
+                                        or ""
+                                    )
+
+                                    if enviado_em:
+                                        st.caption(
+                                            "Envio registrado em: "
+                                            + enviado_em
+                                        )
+
+                                    if prazo_em:
+                                        st.caption(
+                                            "Prazo de resposta: "
+                                            + prazo_em
+                                        )
+
+                                    if resposta_em:
+                                        st.caption(
+                                            "Resposta registrada em: "
+                                            + resposta_em
+                                        )
+
+                                    if estado_acomp == "RASCUNHO":
+                                        if st.button(
+                                            "📨 Registrar como enviado",
+                                            key=(
+                                                f"acao_enviada_"
+                                                f"{chamado_card}_"
+                                                f"{regra_id_acao}"
+                                            ),
+                                        ):
+                                            registrar_envio(
+                                                chamado_int,
+                                                regra_id_acao,
+                                                prazo_dias_uteis=(
+                                                    rascunho.get(
+                                                        "prazo_resposta_dias_uteis",
+                                                        1,
+                                                    )
+                                                ),
+                                            )
+                                            st.rerun()
+
+                                    elif estado_acomp in {
+                                        "AGUARDANDO_RESPOSTA",
+                                        "PRAZO_VENCIDO",
+                                    }:
+                                        if st.button(
+                                            "✅ Registrar resposta recebida",
+                                            key=(
+                                                f"acao_resposta_"
+                                                f"{chamado_card}_"
+                                                f"{regra_id_acao}"
+                                            ),
+                                        ):
+                                            registrar_resposta(
+                                                chamado_int,
+                                                regra_id_acao,
+                                            )
+                                            st.rerun()
+
+                                        if estado_acomp == "PRAZO_VENCIDO":
+                                            st.error(
+                                                "Prazo vencido. "
+                                                "Ação sugerida: cobrar retorno."
+                                            )
+
+                                    st.caption(
+                                        "Nesta versão, envio e resposta são "
+                                        "confirmados manualmente. A EDNNA "
+                                        "mantém o acompanhamento no SQLite compartilhado."
+                                    )
+
+                            except Exception as exc:
+                                st.warning(
+                                    "Não foi possível carregar o acompanhamento "
+                                    f"da ação: {exc}"
                                 )
 
 
