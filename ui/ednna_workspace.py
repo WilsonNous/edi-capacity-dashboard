@@ -97,7 +97,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.20.2.
+    Workspace visual da EDNNA — v3.21.1.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -474,16 +474,52 @@ def render_ednna_workspace(
                 '<div class="ednna-section-title">Ações propostas pela EDNNA</div>',
                 unsafe_allow_html=True,
             )
-            st.caption(
-                "Aqui ficam apenas os chamados que já possuem procedimento operacional "
-                "conhecido. A EDNNA continua em modo assistido: nada é enviado automaticamente."
-            )
+            regras_auto = [
+                regra
+                for regra in (
+                    catalogo_operacional_ednna.get(
+                        "regras",
+                        [],
+                    )
+                    if isinstance(
+                        catalogo_operacional_ednna,
+                        dict,
+                    )
+                    else []
+                )
+                if bool(
+                    regra.get(
+                        "executavel",
+                        False,
+                    )
+                )
+                and bool(
+                    regra.get(
+                        "auto_executar",
+                        False,
+                    )
+                )
+            ]
 
-            candidatos_acao = (
-                base_demandas[
-                    base_demandas.get(
+            if regras_auto:
+                st.caption(
+                    "A EDNNA opera em modo híbrido: procedimentos homologados podem ser "
+                    "executados automaticamente; demais chamados continuam em análise "
+                    "ou modo assistido."
+                )
+            else:
+                st.caption(
+                    "Nenhuma regra está habilitada para execução automática neste momento."
+                )
+
+            todos_procedimento = (
+                ednna_analisados[
+                    ednna_analisados.get(
                         "EDNNA - Regra operacional",
-                        pd.Series("", index=base_demandas.index),
+                        pd.Series(
+                            "",
+                            index=ednna_analisados.index,
+                        ),
                     )
                     .fillna("")
                     .astype(str)
@@ -493,42 +529,183 @@ def render_ednna_workspace(
                 .copy()
             )
 
-            if candidatos_acao.empty:
+            candidatos_acao = (
+                base_demandas[
+                    base_demandas.get(
+                        "EDNNA - Regra operacional",
+                        pd.Series(
+                            "",
+                            index=base_demandas.index,
+                        ),
+                    )
+                    .fillna("")
+                    .astype(str)
+                    .str.strip()
+                    != ""
+                ]
+                .copy()
+            )
+
+            em_acompanhamento = 0
+            prontos_para_executar = 0
+            atencao_pendente = 0
+
+            estados_acompanhamento = {
+                "ENVIANDO",
+                "AGUARDANDO_RESPOSTA",
+                "PRAZO_VENCIDO",
+                "RESPOSTA_RECEBIDA",
+            }
+
+            for _, row_proc in todos_procedimento.iterrows():
+
+                try:
+                    chamado_proc = int(
+                        float(
+                            row_proc.get(
+                                "#",
+                                0,
+                            )
+                        )
+                    )
+
+                    regra_proc = str(
+                        row_proc.get(
+                            "EDNNA - Regra operacional",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    if not regra_proc:
+                        continue
+
+                    acomp_proc = obter_acompanhamento(
+                        chamado_proc,
+                        regra_proc,
+                    )
+
+                    estado_proc = str(
+                        acomp_proc.get(
+                            "estado",
+                            "RASCUNHO",
+                        )
+                        or "RASCUNHO"
+                    ).strip()
+
+                    if estado_proc in estados_acompanhamento:
+                        em_acompanhamento += 1
+
+                except Exception:
+                    pass
+
+            for _, row_pendente in candidatos_acao.iterrows():
+
+                try:
+                    chamado_pendente = int(
+                        float(
+                            row_pendente.get(
+                                "#",
+                                0,
+                            )
+                        )
+                    )
+
+                    regra_pendente = str(
+                        row_pendente.get(
+                            "EDNNA - Regra operacional",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    acomp_pendente = obter_acompanhamento(
+                        chamado_pendente,
+                        regra_pendente,
+                    )
+
+                    estado_pendente = str(
+                        acomp_pendente.get(
+                            "estado",
+                            "RASCUNHO",
+                        )
+                        or "RASCUNHO"
+                    ).strip()
+
+                except Exception:
+                    estado_pendente = "RASCUNHO"
+
+                apto_pendente = (
+                    str(
+                        row_pendente.get(
+                            "EDNNA - Apto para rascunho",
+                            "",
+                        )
+                        or ""
+                    )
+                    .strip()
+                    .upper()
+                    == "SIM"
+                )
+
+                if estado_pendente in estados_acompanhamento:
+                    continue
+
+                if apto_pendente:
+                    prontos_para_executar += 1
+                else:
+                    atencao_pendente += 1
+
+            if todos_procedimento.empty:
                 st.info(
-                    "Nenhum chamado possui procedimento operacional homologado para rascunho."
+                    "Nenhum chamado possui procedimento operacional conhecido."
                 )
             else:
-                a1, a2, a3 = st.columns(3)
-                a1.metric("Com procedimento", len(candidatos_acao))
-                a2.metric(
-                    "🟢 Prontos",
-                    int(
-                        (
-                            candidatos_acao.get(
-                                "EDNNA - Apto para rascunho",
-                                pd.Series("", index=candidatos_acao.index),
-                            )
-                            .fillna("")
-                            .astype(str)
-                            .str.upper()
-                            == "SIM"
-                        ).sum()
+                a1, a2, a3, a4 = st.columns(
+                    4
+                )
+
+                a1.metric(
+                    "Com procedimento",
+                    len(
+                        todos_procedimento
+                    ),
+                    help=(
+                        "Total de chamados do conjunto atual que possuem "
+                        "alguma regra operacional reconhecida."
                     ),
                 )
-                a3.metric(
-                    "🟡 Atenção",
-                    int(
-                        (
-                            candidatos_acao.get(
-                                "EDNNA - Apto para rascunho",
-                                pd.Series("", index=candidatos_acao.index),
-                            )
-                            .fillna("")
-                            .astype(str)
-                            .str.upper()
-                            != "SIM"
-                        ).sum()
+
+                a2.metric(
+                    "🟢 Prontos para executar",
+                    prontos_para_executar,
+                    help=(
+                        "Chamados ainda pendentes que possuem dados suficientes "
+                        "e não foram enviados."
                     ),
+                )
+
+                a3.metric(
+                    "🟡 Em acompanhamento",
+                    em_acompanhamento,
+                    help=(
+                        "Chamados já enviados ou em monitoramento de resposta."
+                    ),
+                )
+
+                a4.metric(
+                    "⚠️ Atenção",
+                    atencao_pendente,
+                    help=(
+                        "Chamados com procedimento conhecido, mas ainda sem "
+                        "condições suficientes para execução."
+                    ),
+                )
+
+                st.caption(
+                    "Importante: quando um chamado é automatizado ele deixa de ser "
+                    "contado como 'pronto para executar' e passa para 'em acompanhamento'. "
+                    "Por isso o número de pendentes pode cair sem que uma automação tenha sido perdida."
                 )
 
                 opcoes_acao = []

@@ -2194,7 +2194,7 @@ if missing:
 
 
 # ============================================================
-# FILTROS — HORIZONTAL
+# FILTROS — HORIZONTAL EM COLUNAS
 # ============================================================
 
 with filter_col:
@@ -2204,11 +2204,18 @@ with filter_col:
     ):
 
         st.markdown(
-            "#### Chamados"
+            "#### Filtros operacionais"
         )
 
-        fc1, fc2, fc3 = st.columns(
-            3,
+        (
+            fc1,
+            fc2,
+            fc3,
+            fc4,
+            fc5,
+            fc6,
+        ) = st.columns(
+            6,
             gap="small",
         )
 
@@ -2220,6 +2227,7 @@ with filter_col:
                 st,
             )
 
+        with fc2:
             types = multiselect_filter(
                 df,
                 "Tipo",
@@ -2227,7 +2235,7 @@ with filter_col:
                 st,
             )
 
-        with fc2:
+        with fc3:
             clients = st.multiselect(
                 "Cliente",
                 todos_clientes(
@@ -2236,6 +2244,7 @@ with filter_col:
                 placeholder="Todos",
             )
 
+        with fc4:
             projects = multiselect_filter(
                 df,
                 "Projeto",
@@ -2243,7 +2252,7 @@ with filter_col:
                 st,
             )
 
-        with fc3:
+        with fc5:
             statuses = multiselect_filter(
                 df,
                 "Estado",
@@ -2251,6 +2260,7 @@ with filter_col:
                 st,
             )
 
+        with fc6:
             priorities = multiselect_filter(
                 df,
                 "Prioridade",
@@ -2259,7 +2269,6 @@ with filter_col:
             )
 
 
-# ============================================================
 # DATAFRAME VISUAL FILTRADO
 # ============================================================
 
@@ -3083,10 +3092,22 @@ with main_col:
                 "já realizada e situações que precisam de revisão."
             )
 
-            st.info(
-                "Modo atual: leitura e classificação. "
-                "Nenhuma alteração automática é realizada no Redmine."
+            modo_col1, modo_col2 = st.columns(
+                [1.45, 1],
+                gap="medium",
             )
+
+            with modo_col1:
+                st.info(
+                    "A EDNNA continua classificando e priorizando chamados, "
+                    "mas agora também executa procedimentos homologados."
+                )
+
+            with modo_col2:
+                st.success(
+                    "🤖 Automação ativa: regras homologadas podem enviar e-mail, "
+                    "registrar histórico no Redmine, alterar status e acompanhar prazo."
+                )
 
 
         # ====================================================
@@ -4829,7 +4850,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.21 — Painel EDI com shell vertical, filtros horizontais e Workspace modularizado: precedência do Tipo oficial do Redmine, "
-        "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
-        "Nenhuma ação automática é executada no Redmine."
+        "Versão 3.21.1 — Painel EDI com navegação vertical, filtros horizontais em colunas "
+        "e EDNNA em modo híbrido. Regras homologadas podem executar ações automáticas; "
+        "demais cenários permanecem em análise, observação ou modo assistido."
     )
