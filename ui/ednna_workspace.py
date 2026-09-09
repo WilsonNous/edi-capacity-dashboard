@@ -27,6 +27,11 @@ from ednna.email_sender import (
 )
 
 
+from ednna.executor_automatico import (
+    executar_acoes_automaticas,
+)
+
+
 from ednna.redmine_writer import (
     adicionar_nota_chamado,
     alterar_status_chamado,
@@ -91,7 +96,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.19.3.
+    Workspace visual da EDNNA — v3.20.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -122,6 +127,53 @@ def render_ednna_workspace(
     base_demandas = ednna_analisados[
         ednna_analisados["EDNNA - Situação"] == "AGUARDANDO_PRIMEIRO_COMBATE"
     ].copy()
+
+    resumo_auto = executar_acoes_automaticas(
+        base_demandas
+    )
+
+    if resumo_auto.get("habilitado"):
+        enviados_auto = int(
+            resumo_auto.get(
+                "enviados",
+                0,
+            )
+            or 0
+        )
+
+        redmine_pendente_auto = int(
+            resumo_auto.get(
+                "redmine_pendente",
+                0,
+            )
+            or 0
+        )
+
+        erros_envio_auto = int(
+            resumo_auto.get(
+                "erros_envio",
+                0,
+            )
+            or 0
+        )
+
+        if enviados_auto:
+            st.success(
+                f"🤖 EDNNA executou automaticamente {enviados_auto} "
+                "ação(ões) homologada(s) nesta atualização."
+            )
+
+        if redmine_pendente_auto:
+            st.warning(
+                f"⚠️ {redmine_pendente_auto} e-mail(s) foram enviados, "
+                "mas ainda possuem atualização pendente no Redmine."
+            )
+
+        if erros_envio_auto:
+            st.error(
+                f"🔴 {erros_envio_auto} ação(ões) automática(s) falharam "
+                "na etapa de envio."
+            )
 
     if base_demandas.empty:
         st.info("Não há chamados analisados aguardando primeiro combate.")
