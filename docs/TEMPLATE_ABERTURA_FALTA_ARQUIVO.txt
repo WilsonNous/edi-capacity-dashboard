@@ -1,0 +1,35 @@
+PADRÃO DE ABERTURA — EDI - FALTA DE ARQUIVO
+
+Cliente:
+Origem / Banco / Adquirente:
+Tipo de arquivo:
+Data inicial da falta:
+Último NSA recebido:
+Convênio / EC:
+
+Ação necessária:
+[ ] Reenvio retroativo
+[ ] Ativação / restabelecimento do envio diário
+[ ] Reenvio retroativo + ativação do envio diário
+[ ] Outro: ______________________________
+
+Descrição complementar:
+
+EXEMPLO — SIM REDE / ITAÚ
+
+Cliente: SIM REDE
+Origem / Banco / Adquirente: ITAU
+Tipo de arquivo: Arquivo bancário
+Data inicial da falta: 01/07/2026
+Último NSA recebido: Não se aplica
+Convênio / EC: Não se aplica
+
+Ação necessária:
+[X] Reenvio retroativo + ativação do envio diário
+
+Descrição complementar:
+Solicitar o retroativo desde 01/07/2026 até a data em que o envio diário for restabelecido.
+
+ORIENTAÇÃO À EQUIPE
+Preencher Cliente, Origem, Referência e Ação necessária de forma objetiva.
+Isso permite que a EDNNA identifique com segurança o procedimento homologado.

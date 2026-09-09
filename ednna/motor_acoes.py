@@ -110,7 +110,7 @@ def _tem_excecao(regra: dict, linha: pd.Series | dict) -> tuple[bool, str]:
     return False, ""
 
 
-def localizar_regra_operacional(linha: pd.Series | dict) -> dict | None:
+def _localizar_regra_operacional_base(linha: pd.Series | dict) -> dict | None:
     intencao = _texto(linha.get("EDNNA - Intenção"))
     subtipo = _texto(linha.get("EDNNA - Subtipo"))
     origem = _texto(
@@ -414,3 +414,99 @@ def enriquecer_dataframe_com_acoes(frame: pd.DataFrame) -> pd.DataFrame:
     resultado["EDNNA - Apto para rascunho"] = aptos
 
     return resultado
+
+
+# ============================================================
+# v3.21.2 — especialização SIM REDE / ITAU
+# ============================================================
+
+def _texto_busca_acao_itau(linha) -> str:
+    partes = []
+    for campo in (
+        "Assunto",
+        "Descrição",
+        "Descricao",
+        "EDNNA - Ação sugerida",
+        "EDNNA - Referência operacional",
+    ):
+        try:
+            valor = linha.get(campo, "")
+        except Exception:
+            valor = ""
+        if valor is not None:
+            partes.append(str(valor))
+    return " ".join(partes).casefold()
+
+
+def _eh_itau_ativacao_retroativo(linha) -> bool:
+    cliente = str(
+        linha.get("Clientes", linha.get("Cliente", "")) or ""
+    ).strip().casefold()
+
+    origem = str(
+        linha.get(
+            "EDNNA - Origem operacional",
+            linha.get("Origem", ""),
+        )
+        or ""
+    ).strip().casefold()
+
+    texto = _texto_busca_acao_itau(linha)
+
+    eh_simrede = (
+        "sim rede" in cliente
+        or "simrede" in cliente
+        or "sim rede" in texto
+        or "simrede" in texto
+    )
+
+    eh_itau = (
+        origem in {"itau", "itaú"}
+        or " itau " in f" {texto} "
+        or " itaú " in f" {texto} "
+    )
+
+    pede_diario = any(
+        termo in texto
+        for termo in (
+            "ativação do envio diário",
+            "ativacao do envio diario",
+            "envio diário",
+            "envio diario",
+            "restabelecido",
+            "restabelecimento",
+        )
+    )
+
+    pede_retroativo = any(
+        termo in texto
+        for termo in (
+            "retroativo",
+            "desde ",
+            "a partir de",
+        )
+    )
+
+    return eh_simrede and eh_itau and pede_diario and pede_retroativo
+
+
+def _regra_especifica_itau(linha):
+    if not _eh_itau_ativacao_retroativo(linha):
+        return None
+
+    catalogo = carregar_catalogo_operacional()
+
+    for regra in catalogo.get("regras", []):
+        if regra.get("id") == "FALTA-BANCO-SIMREDE-ITAU-ATIVACAO-001":
+            return regra
+
+    return None
+
+
+def localizar_regra_operacional(linha):
+    especifica = _regra_especifica_itau(linha)
+
+    if especifica is not None:
+        return especifica
+
+    return _localizar_regra_operacional_base(linha)
