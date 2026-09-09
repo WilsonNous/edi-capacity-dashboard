@@ -262,6 +262,8 @@ def alterar_status_chamado(
     *,
     chamado_id: int,
     status_nome: str,
+    data_inicio: str = "",
+    data_fim: str = "",
 ) -> dict:
     """
     Altera apenas o status do chamado.
@@ -276,13 +278,25 @@ def alterar_status_chamado(
         f"{int(chamado_id)}.json"
     )
 
+    issue_payload = {
+        "status_id": status_id,
+    }
+
+    if data_inicio:
+        issue_payload["start_date"] = _data_redmine(
+            data_inicio
+        )
+
+    if data_fim:
+        issue_payload["due_date"] = _data_redmine(
+            data_fim
+        )
+
     resposta = requests.put(
         url,
         headers=_headers(),
         json={
-            "issue": {
-                "status_id": status_id,
-            }
+            "issue": issue_payload
         },
         timeout=(
             20,
@@ -324,6 +338,8 @@ def registrar_email_e_status_chamado(
     chamado_id: int,
     nota: str,
     status_nome: str = "Aguardando Retorno Cliente",
+    data_inicio: str = "",
+    data_fim: str = "",
 ) -> dict:
     """
     Registra o e-mail no histórico e altera o status em um único PUT.
@@ -344,14 +360,26 @@ def registrar_email_e_status_chamado(
         f"{int(chamado_id)}.json"
     )
 
+    issue_payload = {
+        "notes": nota,
+        "status_id": status_id,
+    }
+
+    if data_inicio:
+        issue_payload["start_date"] = _data_redmine(
+            data_inicio
+        )
+
+    if data_fim:
+        issue_payload["due_date"] = _data_redmine(
+            data_fim
+        )
+
     resposta = requests.put(
         url,
         headers=_headers(),
         json={
-            "issue": {
-                "notes": nota,
-                "status_id": status_id,
-            }
+            "issue": issue_payload
         },
         timeout=(
             20,
@@ -386,6 +414,51 @@ def registrar_email_e_status_chamado(
         "status_id": status_id,
         "status_nome": status_nome,
     }
+
+
+
+def _data_redmine(
+    valor_iso: str,
+) -> str:
+    """
+    Converte timestamp ISO para YYYY-MM-DD no fuso da operação.
+    Aceita também valor já no formato YYYY-MM-DD.
+    """
+    valor_iso = str(
+        valor_iso
+        or ""
+    ).strip()
+
+    if not valor_iso:
+        return ""
+
+    if (
+        len(valor_iso) == 10
+        and valor_iso[4] == "-"
+        and valor_iso[7] == "-"
+    ):
+        return valor_iso
+
+    try:
+        dt = datetime.fromisoformat(
+            valor_iso
+        )
+
+        if dt.tzinfo is None:
+            dt = dt.replace(
+                tzinfo=TZ_BRASIL
+            )
+
+        return dt.astimezone(
+            TZ_BRASIL
+        ).strftime(
+            "%Y-%m-%d"
+        )
+
+    except Exception:
+        raise RedmineWriteError(
+            f"Data inválida para o Redmine: {valor_iso}"
+        )
 
 
 def montar_nota_email_enviado(

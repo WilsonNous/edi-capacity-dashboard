@@ -288,6 +288,14 @@ def executar_acoes_automaticas(
                     )
                     or "Aguardando Retorno Cliente"
                 ),
+                data_inicio=acompanhamento.get(
+                    "enviado_em",
+                    "",
+                ),
+                data_fim=acompanhamento.get(
+                    "prazo_resposta_em",
+                    "",
+                ),
             )
 
             marcar_redmine_atualizado(

@@ -97,7 +97,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.20.1.
+    Workspace visual da EDNNA — v3.20.2.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -878,6 +878,8 @@ def render_ednna_workspace(
                                                         status_nome=(
                                                             "Aguardando Retorno Cliente"
                                                         ),
+                                                        data_inicio=enviado_em,
+                                                        data_fim=prazo_em,
                                                     )
 
                                                     marcar_status_redmine(
@@ -971,6 +973,8 @@ def render_ednna_workspace(
                                                     status_nome=(
                                                         "Aguardando Retorno Cliente"
                                                     ),
+                                                    data_inicio=enviado_em,
+                                                    data_fim=prazo_em,
                                                 )
 
                                                 marcar_redmine_atualizado(
@@ -1130,6 +1134,18 @@ def render_ednna_workspace(
                                                             nota=nota_redmine,
                                                             status_nome=(
                                                                 "Aguardando Retorno Cliente"
+                                                            ),
+                                                            data_inicio=(
+                                                                acompanhamento_envio.get(
+                                                                    "enviado_em",
+                                                                    "",
+                                                                )
+                                                            ),
+                                                            data_fim=(
+                                                                acompanhamento_envio.get(
+                                                                    "prazo_resposta_em",
+                                                                    "",
+                                                                )
                                                             ),
                                                         )
 
