@@ -59,6 +59,12 @@ from ui.ednna_workspace import (
     render_ednna_workspace,
 )
 
+from ui.shell import (
+    carregar_shell_css,
+    render_sidebar,
+    tabs_com_default,
+)
+
 
 # ============================================================
 # DIAGNÓSTICO REDMINE
@@ -104,7 +110,7 @@ st.set_page_config(
     page_title="EDI — Painel de Capacidade e Atendimento",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -1195,6 +1201,15 @@ def mostrar_chamados_selecionados(
 
 
 # ============================================================
+# SHELL / NAVEGAÇÃO
+# ============================================================
+
+carregar_shell_css()
+
+shell_tab_default = render_sidebar()
+
+
+# ============================================================
 # TOPO
 # ============================================================
 
@@ -1223,13 +1238,21 @@ st.markdown(
 )
 
 
-filter_col, main_col = st.columns(
-    [
-        1.08,
-        4.25,
-    ],
-    gap="large",
-)
+filter_col = st.container()
+main_col = st.container()
+
+with filter_col:
+    st.markdown(
+        """
+        <div class="horizontal-filter-shell">
+            <div class="horizontal-filter-title">
+                <strong>Filtros operacionais</strong>
+                <span>As seleções são independentes por navegador</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -1268,6 +1291,7 @@ with filter_col:
                 "Arquivo CSV",
             ],
             index=0,
+            horizontal=True,
             label_visibility="collapsed",
         )
 
@@ -2170,7 +2194,7 @@ if missing:
 
 
 # ============================================================
-# FILTROS
+# FILTROS — HORIZONTAL
 # ============================================================
 
 with filter_col:
@@ -2183,48 +2207,56 @@ with filter_col:
             "#### Chamados"
         )
 
-        assignees = multiselect_filter(
-            df,
-            "Atribuído a",
-            "Atribuído a",
-            st,
+        fc1, fc2, fc3 = st.columns(
+            3,
+            gap="small",
         )
 
-        statuses = multiselect_filter(
-            df,
-            "Estado",
-            "Estado",
-            st,
-        )
+        with fc1:
+            assignees = multiselect_filter(
+                df,
+                "Atribuído a",
+                "Responsável",
+                st,
+            )
 
-        priorities = multiselect_filter(
-            df,
-            "Prioridade",
-            "Prioridade",
-            st,
-        )
+            types = multiselect_filter(
+                df,
+                "Tipo",
+                "Tipo",
+                st,
+            )
 
-        types = multiselect_filter(
-            df,
-            "Tipo",
-            "Tipo",
-            st,
-        )
+        with fc2:
+            clients = st.multiselect(
+                "Cliente",
+                todos_clientes(
+                    df
+                ),
+                placeholder="Todos",
+            )
 
-        projects = multiselect_filter(
-            df,
-            "Projeto",
-            "Projeto",
-            st,
-        )
+            projects = multiselect_filter(
+                df,
+                "Projeto",
+                "Projeto",
+                st,
+            )
 
-        clients = st.multiselect(
-            "Cliente",
-            todos_clientes(
-                df
-            ),
-            placeholder="Selecione",
-        )
+        with fc3:
+            statuses = multiselect_filter(
+                df,
+                "Estado",
+                "Estado",
+                st,
+            )
+
+            priorities = multiselect_filter(
+                df,
+                "Prioridade",
+                "Prioridade",
+                st,
+            )
 
 
 # ============================================================
@@ -2281,45 +2313,55 @@ with filter_col:
         border=True
     ):
 
-        st.markdown(
-            "#### Tempo em aberto"
+        fa1, fa2 = st.columns(
+            [3, 1],
+            gap="small",
         )
 
-        aging_min = (
-            int(
-                f[
-                    "Tempo em aberto (dias)"
-                ].min()
+        with fa1:
+            aging_min = (
+                int(
+                    f[
+                        "Tempo em aberto (dias)"
+                    ].min()
+                )
+                if len(f)
+                else 0
             )
-            if len(f)
-            else 0
-        )
 
-        aging_max = (
-            int(
-                f[
-                    "Tempo em aberto (dias)"
-                ].max()
+            aging_max = (
+                int(
+                    f[
+                        "Tempo em aberto (dias)"
+                    ].max()
+                )
+                if len(f)
+                else 0
             )
-            if len(f)
-            else 0
-        )
 
-        aging_range = st.slider(
-            "Faixa de dias em aberto",
-            0,
-            max(
-                aging_max,
-                1,
-            ),
-            (
+            aging_range = st.slider(
+                "Tempo em aberto (dias)",
                 0,
                 max(
                     aging_max,
                     1,
                 ),
-            ),
-        )
+                (
+                    0,
+                    max(
+                        aging_max,
+                        1,
+                    ),
+                ),
+            )
+
+        with fa2:
+            st.metric(
+                "Chamados no filtro",
+                len(
+                    f
+                ),
+            )
 
 
 f = f[
@@ -2329,13 +2371,6 @@ f = f[
         *aging_range
     )
 ]
-
-
-with filter_col:
-
-    st.caption(
-        f"{len(f)} chamado(s) no filtro atual"
-    )
 
 
 # ============================================================
@@ -2494,7 +2529,7 @@ with main_col:
         tab_aging,
         tab_demand,
         tab_detail,
-    ) = st.tabs(
+    ) = tabs_com_default(
         [
             "Visão geral",
             "🤖 EDNNA",
@@ -2502,7 +2537,8 @@ with main_col:
             "Tempo em aberto",
             "Tipos de demanda",
             "Lista de chamados",
-        ]
+        ],
+        shell_tab_default,
     )
 
 
@@ -4793,7 +4829,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.17 — EDNNA com Workspace modularizado e CSS externo: precedência do Tipo oficial do Redmine, "
+        "Versão 3.21 — Painel EDI com shell vertical, filtros horizontais e Workspace modularizado: precedência do Tipo oficial do Redmine, "
         "subtipo, origem operacional, referência, conflito de classificação e avaliação conservadora de automatização. "
         "Nenhuma ação automática é executada no Redmine."
     )

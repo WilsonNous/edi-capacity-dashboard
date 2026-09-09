@@ -1,0 +1,149 @@
+
+/* =========================================================
+   EDNNA / Painel EDI — Shell v3.21
+   ========================================================= */
+
+section[data-testid="stSidebar"] {
+    background: #ffffff;
+    border-right: 1px solid #e6eaf0;
+}
+
+section[data-testid="stSidebar"] > div {
+    padding-top: 1rem;
+}
+
+.shell-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 4px 18px 4px;
+    border-bottom: 1px solid #eef1f5;
+    margin-bottom: 16px;
+}
+
+.shell-brand-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: #1877f2;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 1rem;
+}
+
+.shell-brand-title {
+    font-weight: 800;
+    color: #172b4d;
+    line-height: 1.1;
+}
+
+.shell-brand-sub {
+    font-size: .78rem;
+    color: #73839a;
+    margin-top: 3px;
+}
+
+.shell-menu-group {
+    color: #98a2b3;
+    font-size: .67rem;
+    font-weight: 800;
+    letter-spacing: .10em;
+    margin: 16px 0 6px 2px;
+}
+
+.shell-status {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 10px 4px;
+    color: #344054;
+}
+
+.shell-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #28a745;
+    box-shadow: 0 0 0 4px #e9f8ee;
+}
+
+.shell-status small {
+    color: #98a2b3;
+}
+
+div[data-testid="stRadio"] label {
+    font-size: .9rem;
+}
+
+/* Cabeçalho principal */
+.fb-topbar {
+    margin-bottom: 8px !important;
+}
+
+/* Faixa horizontal dos filtros */
+.horizontal-filter-shell {
+    background: #ffffff;
+    border: 1px solid #e6eaf0;
+    border-radius: 14px;
+    padding: 12px 14px 8px 14px;
+    margin: 8px 0 14px 0;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, .03);
+}
+
+.horizontal-filter-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.horizontal-filter-title strong {
+    color: #344054;
+}
+
+.horizontal-filter-title span {
+    color: #98a2b3;
+    font-size: .78rem;
+}
+
+/* Deixa os widgets de filtro mais compactos */
+div[data-testid="stMultiSelect"],
+div[data-testid="stSelectbox"],
+div[data-testid="stSlider"] {
+    margin-bottom: .15rem;
+}
+
+/* Mais espaço útil no conteúdo */
+.block-container {
+    padding-top: 1.15rem;
+    max-width: 1500px;
+}
+
+/* Tabs mais próximas do Translation Hub */
+button[data-baseweb="tab"] {
+    border-radius: 9px 9px 0 0;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #1877f2 !important;
+    font-weight: 700;
+}
+
+/* Cards operacionais */
+div[data-testid="stMetric"] {
+    border-radius: 12px;
+}
+
+/* Responsivo */
+@media (max-width: 900px) {
+    .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+}
