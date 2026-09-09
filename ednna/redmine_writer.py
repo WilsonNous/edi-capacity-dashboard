@@ -7,6 +7,12 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from ednna.redmine_status_catalog import (
+    obter_status_id_cache,
+    salvar_status,
+    sincronizar_catalogo_status,
+)
+
 
 TZ_BRASIL = ZoneInfo("America/Sao_Paulo")
 
@@ -111,12 +117,10 @@ def obter_status_id_por_nome(
     status_nome: str,
 ) -> int:
     """
-    Resolve o ID numérico do status no Redmine pelo nome exibido.
-
-    Prioridade:
-      1. variável REDMINE_STATUS_AGUARDANDO_CLIENTE_ID, quando
-         o status solicitado for Aguardando Retorno Cliente;
-      2. catálogo /issue_statuses.json do próprio Redmine.
+    Resolve o ID do status nesta ordem:
+      1. variável Azure conhecida;
+      2. cache SQLite compartilhado;
+      3. /issue_statuses.json do Redmine, persistindo o catálogo.
     """
     status_nome = str(
         status_nome
@@ -137,12 +141,51 @@ def obter_status_id_por_nome(
             chave
         ]
 
-    if chave == _normalizar_status_nome(
-        "Aguardando Retorno Cliente"
-    ):
+    env_por_nome = {
+        _normalizar_status_nome(
+            "Aguardando Retorno Cliente"
+        ):
+            "REDMINE_STATUS_AGUARDANDO_CLIENTE_ID",
+
+        _normalizar_status_nome(
+            "Aberto"
+        ):
+            "REDMINE_STATUS_ABERTO_ID",
+
+        _normalizar_status_nome(
+            "Concluído"
+        ):
+            "REDMINE_STATUS_CONCLUIDO_ID",
+
+        _normalizar_status_nome(
+            "Concluido"
+        ):
+            "REDMINE_STATUS_CONCLUIDO_ID",
+
+        _normalizar_status_nome(
+            "Aguardando Retorno Adquirente"
+        ):
+            "REDMINE_STATUS_AGUARDANDO_ADQUIRENTE_ID",
+
+        _normalizar_status_nome(
+            "Aguardando Terceiros"
+        ):
+            "REDMINE_STATUS_AGUARDANDO_TERCEIROS_ID",
+
+        _normalizar_status_nome(
+            "Em Atendimento"
+        ):
+            "REDMINE_STATUS_EM_ATENDIMENTO_ID",
+    }
+
+    env_nome = env_por_nome.get(
+        chave
+    )
+
+    if env_nome:
         configurado = str(
             os.getenv(
-                "REDMINE_STATUS_AGUARDANDO_CLIENTE_ID",
+                env_nome,
                 "",
             )
             or ""
@@ -153,99 +196,66 @@ def obter_status_id_por_nome(
                 status_id = int(
                     configurado
                 )
-
-                _STATUS_CACHE[
-                    chave
-                ] = status_id
-
-                return status_id
-
             except ValueError:
                 raise RedmineWriteError(
-                    "REDMINE_STATUS_AGUARDANDO_CLIENTE_ID "
-                    "não contém um número válido."
+                    f"{env_nome} não contém um número válido."
                 )
-
-    url = (
-        f"{REDMINE_URL}/issue_statuses.json"
-    )
-
-    try:
-        resposta = requests.get(
-            url,
-            headers=_headers(),
-            timeout=(
-                20,
-                40,
-            ),
-        )
-
-    except (
-        requests.exceptions.ConnectTimeout,
-        requests.exceptions.ReadTimeout,
-        requests.exceptions.ConnectionError,
-    ) as exc:
-        raise RedmineWriteError(
-            "Falha ao consultar os status do Redmine: "
-            f"{type(exc).__name__}: {exc}"
-        )
-
-    if resposta.status_code != 200:
-        raise RedmineWriteError(
-            "Falha ao consultar os status do Redmine: "
-            f"HTTP {resposta.status_code} - "
-            f"{resposta.text[:800]}"
-        )
-
-    dados = resposta.json()
-
-    for item in dados.get(
-        "issue_statuses",
-        [],
-    ):
-        nome = str(
-            item.get(
-                "name",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if (
-            _normalizar_status_nome(
-                nome
-            )
-            == chave
-        ):
-            try:
-                status_id = int(
-                    item.get(
-                        "id"
-                    )
-                )
-
-            except (
-                TypeError,
-                ValueError,
-            ):
-                continue
 
             _STATUS_CACHE[
                 chave
             ] = status_id
 
-            print(
-                "[EDNNA] Redmine status | "
-                f"nome={nome} | id={status_id}",
-                flush=True,
+            salvar_status(
+                status_id,
+                status_nome,
             )
 
             return status_id
 
-    raise RedmineWriteError(
-        "Status não encontrado no Redmine: "
-        f"{status_nome}"
+    cache_id = obter_status_id_cache(
+        status_nome
     )
+
+    if cache_id is not None:
+        _STATUS_CACHE[
+            chave
+        ] = cache_id
+
+        return cache_id
+
+    try:
+        sincronizar_catalogo_status(
+            redmine_url=REDMINE_URL,
+            headers=_headers(),
+        )
+
+    except Exception as exc:
+        raise RedmineWriteError(
+            "Falha ao consultar/sincronizar os status do Redmine: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    cache_id = obter_status_id_cache(
+        status_nome
+    )
+
+    if cache_id is None:
+        raise RedmineWriteError(
+            "Status não encontrado no Redmine: "
+            f"{status_nome}"
+        )
+
+    _STATUS_CACHE[
+        chave
+    ] = cache_id
+
+    print(
+        "[EDNNA] Redmine status | "
+        f"nome={status_nome} | id={cache_id}",
+        flush=True,
+    )
+
+    return cache_id
 
 
 def alterar_status_chamado(
