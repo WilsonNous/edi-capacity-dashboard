@@ -29,7 +29,9 @@ from ednna.email_sender import (
 
 from ednna.redmine_writer import (
     adicionar_nota_chamado,
+    alterar_status_chamado,
     montar_nota_email_enviado,
+    registrar_email_e_status_chamado,
 )
 
 
@@ -89,7 +91,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.19.2.
+    Workspace visual da EDNNA — v3.19.3.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -768,6 +770,56 @@ def render_ednna_workspace(
                                             "✅ E-mail registrado no chamado do Redmine."
                                         )
 
+                                        estado_redmine_atual = str(
+                                            linha_acao.get(
+                                                "Estado",
+                                                "",
+                                            )
+                                            or ""
+                                        ).strip()
+
+                                        if (
+                                            estado_acomp
+                                            in {
+                                                "AGUARDANDO_RESPOSTA",
+                                                "PRAZO_VENCIDO",
+                                            }
+                                            and estado_redmine_atual.casefold()
+                                            == "aberto"
+                                        ):
+                                            st.warning(
+                                                "⚠️ O chamado ainda está como Aberto "
+                                                "no conjunto atual do painel."
+                                            )
+
+                                            if st.button(
+                                                "🔄 Alterar para Aguardando Retorno Cliente",
+                                                key=(
+                                                    f"status_cliente_"
+                                                    f"{chamado_card}_"
+                                                    f"{regra_id_acao}"
+                                                ),
+                                            ):
+                                                try:
+                                                    alterar_status_chamado(
+                                                        chamado_id=chamado_int,
+                                                        status_nome=(
+                                                            "Aguardando Retorno Cliente"
+                                                        ),
+                                                    )
+
+                                                    st.success(
+                                                        "Status do chamado atualizado "
+                                                        "para Aguardando Retorno Cliente."
+                                                    )
+                                                    st.rerun()
+
+                                                except Exception as exc_status:
+                                                    st.error(
+                                                        "Não foi possível alterar o "
+                                                        f"status no Redmine: {exc_status}"
+                                                    )
+
                                     elif enviado_em:
                                         if redmine_erro:
                                             st.warning(
@@ -835,9 +887,12 @@ def render_ednna_workspace(
                                                     )
                                                 )
 
-                                                adicionar_nota_chamado(
+                                                registrar_email_e_status_chamado(
                                                     chamado_id=chamado_int,
                                                     nota=nota_retry,
+                                                    status_nome=(
+                                                        "Aguardando Retorno Cliente"
+                                                    ),
                                                 )
 
                                                 marcar_redmine_atualizado(
@@ -986,9 +1041,12 @@ def render_ednna_workspace(
                                                             )
                                                         )
 
-                                                        adicionar_nota_chamado(
+                                                        registrar_email_e_status_chamado(
                                                             chamado_id=chamado_int,
                                                             nota=nota_redmine,
+                                                            status_nome=(
+                                                                "Aguardando Retorno Cliente"
+                                                            ),
                                                         )
 
                                                         marcar_redmine_atualizado(

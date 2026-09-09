@@ -89,6 +89,295 @@ def _formatar_data_hora(
         )
 
 
+
+_STATUS_CACHE: dict[str, int] = {}
+
+
+def _normalizar_status_nome(
+    valor: str,
+) -> str:
+    return " ".join(
+        str(
+            valor
+            or ""
+        )
+        .strip()
+        .casefold()
+        .split()
+    )
+
+
+def obter_status_id_por_nome(
+    status_nome: str,
+) -> int:
+    """
+    Resolve o ID numérico do status no Redmine pelo nome exibido.
+
+    Prioridade:
+      1. variável REDMINE_STATUS_AGUARDANDO_CLIENTE_ID, quando
+         o status solicitado for Aguardando Retorno Cliente;
+      2. catálogo /issue_statuses.json do próprio Redmine.
+    """
+    status_nome = str(
+        status_nome
+        or ""
+    ).strip()
+
+    if not status_nome:
+        raise RedmineWriteError(
+            "Nome do status não informado."
+        )
+
+    chave = _normalizar_status_nome(
+        status_nome
+    )
+
+    if chave in _STATUS_CACHE:
+        return _STATUS_CACHE[
+            chave
+        ]
+
+    if chave == _normalizar_status_nome(
+        "Aguardando Retorno Cliente"
+    ):
+        configurado = str(
+            os.getenv(
+                "REDMINE_STATUS_AGUARDANDO_CLIENTE_ID",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if configurado:
+            try:
+                status_id = int(
+                    configurado
+                )
+
+                _STATUS_CACHE[
+                    chave
+                ] = status_id
+
+                return status_id
+
+            except ValueError:
+                raise RedmineWriteError(
+                    "REDMINE_STATUS_AGUARDANDO_CLIENTE_ID "
+                    "não contém um número válido."
+                )
+
+    url = (
+        f"{REDMINE_URL}/issue_statuses.json"
+    )
+
+    try:
+        resposta = requests.get(
+            url,
+            headers=_headers(),
+            timeout=(
+                20,
+                40,
+            ),
+        )
+
+    except (
+        requests.exceptions.ConnectTimeout,
+        requests.exceptions.ReadTimeout,
+        requests.exceptions.ConnectionError,
+    ) as exc:
+        raise RedmineWriteError(
+            "Falha ao consultar os status do Redmine: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    if resposta.status_code != 200:
+        raise RedmineWriteError(
+            "Falha ao consultar os status do Redmine: "
+            f"HTTP {resposta.status_code} - "
+            f"{resposta.text[:800]}"
+        )
+
+    dados = resposta.json()
+
+    for item in dados.get(
+        "issue_statuses",
+        [],
+    ):
+        nome = str(
+            item.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if (
+            _normalizar_status_nome(
+                nome
+            )
+            == chave
+        ):
+            try:
+                status_id = int(
+                    item.get(
+                        "id"
+                    )
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+                continue
+
+            _STATUS_CACHE[
+                chave
+            ] = status_id
+
+            print(
+                "[EDNNA] Redmine status | "
+                f"nome={nome} | id={status_id}",
+                flush=True,
+            )
+
+            return status_id
+
+    raise RedmineWriteError(
+        "Status não encontrado no Redmine: "
+        f"{status_nome}"
+    )
+
+
+def alterar_status_chamado(
+    *,
+    chamado_id: int,
+    status_nome: str,
+) -> dict:
+    """
+    Altera apenas o status do chamado.
+    Não inclui nota e não dispara nenhum e-mail.
+    """
+    status_id = obter_status_id_por_nome(
+        status_nome
+    )
+
+    url = (
+        f"{REDMINE_URL}/issues/"
+        f"{int(chamado_id)}.json"
+    )
+
+    resposta = requests.put(
+        url,
+        headers=_headers(),
+        json={
+            "issue": {
+                "status_id": status_id,
+            }
+        },
+        timeout=(
+            20,
+            60,
+        ),
+    )
+
+    if resposta.status_code not in {
+        200,
+        204,
+    }:
+        raise RedmineWriteError(
+            "Falha ao alterar status do chamado no Redmine: "
+            f"HTTP {resposta.status_code} - "
+            f"{resposta.text[:800]}"
+        )
+
+    print(
+        "[EDNNA] Redmine status | "
+        f"OK chamado={chamado_id} | "
+        f"status={status_nome} | "
+        f"id={status_id}",
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "status_code": resposta.status_code,
+        "chamado_id": int(
+            chamado_id
+        ),
+        "status_id": status_id,
+        "status_nome": status_nome,
+    }
+
+
+def registrar_email_e_status_chamado(
+    *,
+    chamado_id: int,
+    nota: str,
+    status_nome: str = "Aguardando Retorno Cliente",
+) -> dict:
+    """
+    Registra o e-mail no histórico e altera o status em um único PUT.
+
+    Se o PUT falhar, nenhuma nova tentativa de e-mail é executada.
+    """
+    if not nota.strip():
+        raise RedmineWriteError(
+            "Nota do Redmine está vazia."
+        )
+
+    status_id = obter_status_id_por_nome(
+        status_nome
+    )
+
+    url = (
+        f"{REDMINE_URL}/issues/"
+        f"{int(chamado_id)}.json"
+    )
+
+    resposta = requests.put(
+        url,
+        headers=_headers(),
+        json={
+            "issue": {
+                "notes": nota,
+                "status_id": status_id,
+            }
+        },
+        timeout=(
+            20,
+            60,
+        ),
+    )
+
+    if resposta.status_code not in {
+        200,
+        204,
+    }:
+        raise RedmineWriteError(
+            "Falha ao registrar e-mail/status no Redmine: "
+            f"HTTP {resposta.status_code} - "
+            f"{resposta.text[:800]}"
+        )
+
+    print(
+        "[EDNNA] Redmine pós-envio | "
+        f"OK chamado={chamado_id} | "
+        f"status={status_nome} | "
+        f"id={status_id}",
+        flush=True,
+    )
+
+    return {
+        "ok": True,
+        "status_code": resposta.status_code,
+        "chamado_id": int(
+            chamado_id
+        ),
+        "status_id": status_id,
+        "status_nome": status_nome,
+    }
+
+
 def montar_nota_email_enviado(
     *,
     remetente: str,
