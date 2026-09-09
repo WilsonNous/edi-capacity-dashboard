@@ -9,6 +9,7 @@ from ednna.acompanhamento_acoes import (
     adquirir_envio,
     confirmar_envio_real,
     marcar_redmine_atualizado,
+    marcar_status_redmine,
     registrar_falha_envio,
     registrar_falha_redmine,
 )
@@ -292,6 +293,18 @@ def executar_acoes_automaticas(
             marcar_redmine_atualizado(
                 chamado_id,
                 regra_id,
+            )
+
+            marcar_status_redmine(
+                chamado_id,
+                regra_id,
+                str(
+                    regra.get(
+                        "status_pos_envio",
+                        "Aguardando Retorno Cliente",
+                    )
+                    or "Aguardando Retorno Cliente"
+                ),
             )
 
             resumo[

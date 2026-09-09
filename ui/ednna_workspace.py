@@ -17,6 +17,7 @@ from ednna.acompanhamento_acoes import (
     confirmar_envio_real,
     registrar_falha_envio,
     marcar_redmine_atualizado,
+    marcar_status_redmine,
     registrar_falha_redmine,
     registrar_resposta,
     rotulo_estado,
@@ -96,7 +97,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.20.
+    Workspace visual da EDNNA — v3.20.1.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -822,13 +823,32 @@ def render_ednna_workspace(
                                             "✅ E-mail registrado no chamado do Redmine."
                                         )
 
-                                        estado_redmine_atual = str(
+                                        estado_snapshot = str(
                                             linha_acao.get(
                                                 "Estado",
                                                 "",
                                             )
                                             or ""
                                         ).strip()
+
+                                        estado_confirmado_ednna = str(
+                                            acompanhamento.get(
+                                                "redmine_status_nome",
+                                                "",
+                                            )
+                                            or ""
+                                        ).strip()
+
+                                        estado_redmine_atual = (
+                                            estado_confirmado_ednna
+                                            or estado_snapshot
+                                        )
+
+                                        if estado_confirmado_ednna:
+                                            st.caption(
+                                                "Status confirmado pela EDNNA no Redmine: "
+                                                f"{estado_confirmado_ednna}."
+                                            )
 
                                         if (
                                             estado_acomp
@@ -858,6 +878,12 @@ def render_ednna_workspace(
                                                         status_nome=(
                                                             "Aguardando Retorno Cliente"
                                                         ),
+                                                    )
+
+                                                    marcar_status_redmine(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                        "Aguardando Retorno Cliente",
                                                     )
 
                                                     st.success(
@@ -950,6 +976,12 @@ def render_ednna_workspace(
                                                 marcar_redmine_atualizado(
                                                     chamado_int,
                                                     regra_id_acao,
+                                                )
+
+                                                marcar_status_redmine(
+                                                    chamado_int,
+                                                    regra_id_acao,
+                                                    "Aguardando Retorno Cliente",
                                                 )
 
                                                 st.success(
@@ -1104,6 +1136,12 @@ def render_ednna_workspace(
                                                         marcar_redmine_atualizado(
                                                             chamado_int,
                                                             regra_id_acao,
+                                                        )
+
+                                                        marcar_status_redmine(
+                                                            chamado_int,
+                                                            regra_id_acao,
+                                                            "Aguardando Retorno Cliente",
                                                         )
 
                                                         st.success(

@@ -61,6 +61,8 @@ def inicializar_acompanhamento() -> None:
                 erro_envio TEXT,
                 redmine_atualizado_em TEXT,
                 redmine_erro TEXT,
+                redmine_status_nome TEXT,
+                redmine_status_atualizado_em TEXT,
                 PRIMARY KEY (chamado_id, regra_id)
             )
             """
@@ -95,6 +97,23 @@ def inicializar_acompanhamento() -> None:
                 """
                 ALTER TABLE acoes_operacionais
                 ADD COLUMN redmine_erro TEXT
+                """
+            )
+
+
+        if "redmine_status_nome" not in colunas:
+            conn.execute(
+                """
+                ALTER TABLE acoes_operacionais
+                ADD COLUMN redmine_status_nome TEXT
+                """
+            )
+
+        if "redmine_status_atualizado_em" not in colunas:
+            conn.execute(
+                """
+                ALTER TABLE acoes_operacionais
+                ADD COLUMN redmine_status_atualizado_em TEXT
                 """
             )
 
@@ -144,6 +163,8 @@ def obter_acompanhamento(
             "erro_envio": "",
             "redmine_atualizado_em": "",
             "redmine_erro": "",
+            "redmine_status_nome": "",
+            "redmine_status_atualizado_em": "",
         }
 
     dados = dict(row)
@@ -365,6 +386,56 @@ def registrar_falha_redmine(
                 str(
                     erro
                 )[:1500],
+                _iso(
+                    agora
+                ),
+                int(
+                    chamado_id
+                ),
+                str(
+                    regra_id
+                ),
+            ),
+        )
+
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
+
+
+
+def marcar_status_redmine(
+    chamado_id: int,
+    regra_id: str,
+    status_nome: str,
+) -> dict:
+    """
+    Persiste o status que a própria EDNNA confirmou via PUT no Redmine.
+
+    Esse valor é usado como fonte mais recente enquanto o snapshot
+    geral do painel ainda estiver desatualizado.
+    """
+    agora = _agora()
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            UPDATE acoes_operacionais
+               SET redmine_status_nome = ?,
+                   redmine_status_atualizado_em = ?,
+                   atualizado_em = ?
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (
+                str(
+                    status_nome
+                    or ""
+                ).strip(),
+                _iso(
+                    agora
+                ),
                 _iso(
                     agora
                 ),
