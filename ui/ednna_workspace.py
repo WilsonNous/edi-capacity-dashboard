@@ -28,6 +28,32 @@ def _carregar_css() -> None:
     )
 
 
+def _rotulo_intencao(valor: str) -> str:
+    mapa = {
+        "NAO_CLASSIFICADO": "Não classificado",
+        "FALTA_ARQUIVO": "Falta de arquivo",
+        "INCLUSAO_ESTABELECIMENTO": "Inclusão de estabelecimento",
+        "RELACIONAMENTO_CREDENCIAMENTO": "Relacionamento / credenciamento",
+        "DUVIDA_ORIENTACAO": "Dúvida / orientação",
+        "REPROCESSAMENTO": "Reprocessamento",
+    }
+
+    texto = str(valor or "").strip()
+
+    if texto in mapa:
+        return mapa[texto]
+
+    if not texto:
+        return "Sem classificação"
+
+    return (
+        texto
+        .replace("_", " ")
+        .strip()
+        .title()
+    )
+
+
 def render_ednna_workspace(
     *,
     ednna_analisados: pd.DataFrame,
@@ -42,7 +68,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA.
+    Workspace visual da EDNNA — v3.17.1.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -194,8 +220,54 @@ def render_ednna_workspace(
                 .fillna("NAO_CLASSIFICADO")
                 .astype(str)
                 .value_counts()
-                .rename_axis("Intenção")
+                .rename_axis("Intenção técnica")
                 .reset_index(name="Chamados")
+            )
+
+            intencoes_resumo["Intenção"] = (
+                intencoes_resumo["Intenção técnica"]
+                .map(_rotulo_intencao)
+            )
+
+            # ==================================================
+            # v3.17.1 — LEITURA RÁPIDA DINÂMICA
+            # ==================================================
+
+            total_atual = len(base_demandas)
+
+            sem_classificacao_atual = int(
+                (
+                    base_demandas["EDNNA - Intenção"]
+                    .fillna("NAO_CLASSIFICADO")
+                    .astype(str)
+                    == "NAO_CLASSIFICADO"
+                ).sum()
+            )
+
+            reconhecidos_atual = max(
+                total_atual - sem_classificacao_atual,
+                0,
+            )
+
+            conflitos_atual = int(
+                (
+                    base_demandas.get(
+                        "EDNNA - Conflito de classificação",
+                        pd.Series("", index=base_demandas.index),
+                    )
+                    .fillna("")
+                    .astype(str)
+                    .str.upper()
+                    == "SIM"
+                ).sum()
+            )
+
+            alta_prontidao_atual = int(
+                resumo_op.get(
+                    "alta_prontidao",
+                    0,
+                )
+                or 0
             )
 
             c_res1, c_res2 = st.columns([1.35, 1])
@@ -219,18 +291,27 @@ def render_ednna_workspace(
 
             with c_res2:
                 st.markdown("**Leitura rápida**")
+
                 st.write(
-                    f"**{resumo_op.get('reconhecidos', 0)}** chamado(s) com padrão reconhecido."
+                    f"**{reconhecidos_atual}** chamado(s) com padrão reconhecido."
                 )
+
                 st.write(
-                    f"**{resumo_op.get('nao_classificados', 0)}** ainda sem classificação suficiente."
+                    f"**{sem_classificacao_atual}** ainda sem classificação suficiente."
                 )
+
                 st.write(
-                    f"**{resumo_op.get('conflitos', 0)}** conflito(s) de classificação."
+                    f"**{conflitos_atual}** conflito(s) de classificação."
                 )
+
                 st.write(
-                    f"**{resumo_op.get('alta_prontidao', 0)}** grupo(s) com alta prontidão para estudo."
+                    f"**{alta_prontidao_atual}** grupo(s) com alta prontidão para estudo."
                 )
+
+                st.caption(
+                    "Os números acompanham automaticamente o conjunto atual analisado pela EDNNA."
+                )
+
                 st.info(
                     "Dados completos não significam automaticamente que o chamado "
                     "possui regra homologada ou está pronto para rascunho."
