@@ -16,12 +16,20 @@ from ednna.acompanhamento_acoes import (
     adquirir_envio,
     confirmar_envio_real,
     registrar_falha_envio,
+    marcar_redmine_atualizado,
+    registrar_falha_redmine,
     registrar_resposta,
     rotulo_estado,
 )
 
 from ednna.email_sender import (
     enviar_email_graph,
+)
+
+
+from ednna.redmine_writer import (
+    adicionar_nota_chamado,
+    montar_nota_email_enviado,
 )
 
 
@@ -81,7 +89,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.19.
+    Workspace visual da EDNNA — v3.19.1.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -739,6 +747,110 @@ def render_ednna_workspace(
                                             + resposta_em
                                         )
 
+                                    redmine_ok_em = (
+                                        acompanhamento.get(
+                                            "redmine_atualizado_em",
+                                            "",
+                                        )
+                                        or ""
+                                    )
+
+                                    redmine_erro = (
+                                        acompanhamento.get(
+                                            "redmine_erro",
+                                            "",
+                                        )
+                                        or ""
+                                    )
+
+                                    if redmine_ok_em:
+                                        st.success(
+                                            "✅ E-mail registrado no chamado do Redmine."
+                                        )
+
+                                    elif (
+                                        enviado_em
+                                        and redmine_erro
+                                    ):
+                                        st.warning(
+                                            "⚠️ E-mail enviado, mas a atualização "
+                                            "do Redmine está pendente."
+                                        )
+
+                                        with st.expander(
+                                            "Detalhe da pendência Redmine",
+                                            expanded=False,
+                                        ):
+                                            st.code(
+                                                redmine_erro,
+                                                language=None,
+                                            )
+
+                                        if st.button(
+                                            "🔄 Repetir atualização no Redmine",
+                                            key=(
+                                                f"retry_redmine_"
+                                                f"{chamado_card}_"
+                                                f"{regra_id_acao}"
+                                            ),
+                                        ):
+                                            try:
+                                                nota_retry = (
+                                                    montar_nota_email_enviado(
+                                                        remetente=rascunho.get(
+                                                            "remetente",
+                                                            "edi@netunna.com.br",
+                                                        ),
+                                                        para=rascunho.get(
+                                                            "destinatarios",
+                                                            [],
+                                                        ),
+                                                        cc=rascunho.get(
+                                                            "cc",
+                                                            [],
+                                                        ),
+                                                        assunto=rascunho.get(
+                                                            "assunto",
+                                                            "",
+                                                        ),
+                                                        corpo=rascunho.get(
+                                                            "corpo",
+                                                            "",
+                                                        ),
+                                                        enviado_em=enviado_em,
+                                                        prazo_resposta_em=prazo_em,
+                                                    )
+                                                )
+
+                                                adicionar_nota_chamado(
+                                                    chamado_id=chamado_int,
+                                                    nota=nota_retry,
+                                                )
+
+                                                marcar_redmine_atualizado(
+                                                    chamado_int,
+                                                    regra_id_acao,
+                                                )
+
+                                                st.success(
+                                                    "Chamado atualizado no Redmine."
+                                                )
+                                                st.rerun()
+
+                                            except Exception as exc_retry:
+                                                registrar_falha_redmine(
+                                                    chamado_int,
+                                                    regra_id_acao,
+                                                    str(
+                                                        exc_retry
+                                                    ),
+                                                )
+
+                                                st.error(
+                                                    "A atualização do Redmine "
+                                                    f"continua pendente: {exc_retry}"
+                                                )
+
                                     if estado_acomp in {
                                         "RASCUNHO",
                                         "ERRO_ENVIO",
@@ -810,20 +922,87 @@ def render_ednna_workspace(
                                                         ),
                                                     )
 
-                                                    confirmar_envio_real(
-                                                        chamado_int,
-                                                        regra_id_acao,
-                                                        prazo_dias_uteis=(
-                                                            rascunho.get(
-                                                                "prazo_resposta_dias_uteis",
-                                                                1,
-                                                            )
-                                                        ),
+                                                    acompanhamento_envio = (
+                                                        confirmar_envio_real(
+                                                            chamado_int,
+                                                            regra_id_acao,
+                                                            prazo_dias_uteis=(
+                                                                rascunho.get(
+                                                                    "prazo_resposta_dias_uteis",
+                                                                    1,
+                                                                )
+                                                            ),
+                                                        )
                                                     )
 
-                                                    st.success(
-                                                        "E-mail enviado com sucesso pela EDNNA."
-                                                    )
+                                                    try:
+                                                        nota_redmine = (
+                                                            montar_nota_email_enviado(
+                                                                remetente=rascunho.get(
+                                                                    "remetente",
+                                                                    "edi@netunna.com.br",
+                                                                ),
+                                                                para=rascunho.get(
+                                                                    "destinatarios",
+                                                                    [],
+                                                                ),
+                                                                cc=rascunho.get(
+                                                                    "cc",
+                                                                    [],
+                                                                ),
+                                                                assunto=rascunho.get(
+                                                                    "assunto",
+                                                                    "",
+                                                                ),
+                                                                corpo=rascunho.get(
+                                                                    "corpo",
+                                                                    "",
+                                                                ),
+                                                                enviado_em=(
+                                                                    acompanhamento_envio.get(
+                                                                        "enviado_em",
+                                                                        "",
+                                                                    )
+                                                                ),
+                                                                prazo_resposta_em=(
+                                                                    acompanhamento_envio.get(
+                                                                        "prazo_resposta_em",
+                                                                        "",
+                                                                    )
+                                                                ),
+                                                            )
+                                                        )
+
+                                                        adicionar_nota_chamado(
+                                                            chamado_id=chamado_int,
+                                                            nota=nota_redmine,
+                                                        )
+
+                                                        marcar_redmine_atualizado(
+                                                            chamado_int,
+                                                            regra_id_acao,
+                                                        )
+
+                                                        st.success(
+                                                            "E-mail enviado e chamado "
+                                                            "atualizado no Redmine."
+                                                        )
+
+                                                    except Exception as exc_redmine:
+                                                        registrar_falha_redmine(
+                                                            chamado_int,
+                                                            regra_id_acao,
+                                                            str(
+                                                                exc_redmine
+                                                            ),
+                                                        )
+
+                                                        st.warning(
+                                                            "O e-mail foi enviado, mas "
+                                                            "a atualização do Redmine falhou. "
+                                                            "A EDNNA não reenviará o e-mail."
+                                                        )
+
                                                     st.rerun()
 
                                                 except Exception as exc:

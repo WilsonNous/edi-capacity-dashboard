@@ -59,6 +59,8 @@ def inicializar_acompanhamento() -> None:
                 atualizado_em TEXT NOT NULL,
                 observacao TEXT,
                 erro_envio TEXT,
+                redmine_atualizado_em TEXT,
+                redmine_erro TEXT,
                 PRIMARY KEY (chamado_id, regra_id)
             )
             """
@@ -76,6 +78,23 @@ def inicializar_acompanhamento() -> None:
                 """
                 ALTER TABLE acoes_operacionais
                 ADD COLUMN erro_envio TEXT
+                """
+            )
+
+
+        if "redmine_atualizado_em" not in colunas:
+            conn.execute(
+                """
+                ALTER TABLE acoes_operacionais
+                ADD COLUMN redmine_atualizado_em TEXT
+                """
+            )
+
+        if "redmine_erro" not in colunas:
+            conn.execute(
+                """
+                ALTER TABLE acoes_operacionais
+                ADD COLUMN redmine_erro TEXT
                 """
             )
 
@@ -123,6 +142,8 @@ def obter_acompanhamento(
             "resposta_recebida_em": "",
             "observacao": "",
             "erro_envio": "",
+            "redmine_atualizado_em": "",
+            "redmine_erro": "",
         }
 
     dados = dict(row)
@@ -233,7 +254,9 @@ def confirmar_envio_real(
                    prazo_resposta_em = ?,
                    resposta_recebida_em = NULL,
                    atualizado_em = ?,
-                   erro_envio = NULL
+                   erro_envio = NULL,
+                   redmine_atualizado_em = NULL,
+                   redmine_erro = NULL
              WHERE chamado_id = ?
                AND regra_id = ?
             """,
@@ -274,6 +297,83 @@ def registrar_falha_envio(
                 str(erro)[:1500],
                 int(chamado_id),
                 str(regra_id),
+            ),
+        )
+
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
+
+
+
+def marcar_redmine_atualizado(
+    chamado_id: int,
+    regra_id: str,
+) -> dict:
+    agora = _agora()
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            UPDATE acoes_operacionais
+               SET redmine_atualizado_em = ?,
+                   redmine_erro = NULL,
+                   atualizado_em = ?
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (
+                _iso(
+                    agora
+                ),
+                _iso(
+                    agora
+                ),
+                int(
+                    chamado_id
+                ),
+                str(
+                    regra_id
+                ),
+            ),
+        )
+
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
+
+
+def registrar_falha_redmine(
+    chamado_id: int,
+    regra_id: str,
+    erro: str,
+) -> dict:
+    agora = _agora()
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            UPDATE acoes_operacionais
+               SET redmine_erro = ?,
+                   atualizado_em = ?
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (
+                str(
+                    erro
+                )[:1500],
+                _iso(
+                    agora
+                ),
+                int(
+                    chamado_id
+                ),
+                str(
+                    regra_id
+                ),
             ),
         )
 
