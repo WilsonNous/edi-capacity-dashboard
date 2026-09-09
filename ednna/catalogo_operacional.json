@@ -1,5 +1,5 @@
 {
-  "versao": "1.1",
+  "versao": "1.2",
   "modo": "RASCUNHO_ASSISTIDO",
   "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
   "regras": [
@@ -57,7 +57,7 @@
       "canal": "EMAIL",
       "responsavel_fornecimento": "CLIENTE",
       "homologada_para_rascunho": true,
-      "executavel": false,
+      "executavel": true,
       "requer_dados_completos": false,
       "campos_obrigatorios": [
         "cliente",
@@ -73,11 +73,17 @@
       "destinatarios": [
         "francimar.tondello@grupoargenta.com.br"
       ],
-      "cc_padrao": [],
+      "cc_padrao": [
+        "bpo@netunna.com.br",
+        "suporte@netunna.com.br",
+        "consultores@netunna.com.br"
+      ],
       "saudacao": "Olá, Time SIMREDE, tudo bem?",
       "assunto_template": "[ SIM REDE - Arquivo bancário faltante - {origem} - #{chamado_id} ]",
       "prazo_resposta_dias_uteis": 1,
-      "observacao": "Rascunho e acompanhamento assistidos. Santander PIX está excluído. Envio e resposta são confirmados manualmente no painel."
+      "observacao": "Regra homologada para envio real via Microsoft Graph. Santander PIX está excluído. O envio é idempotente e registrado no SQLite compartilhado.",
+      "remetente": "edi@netunna.com.br",
+      "modo_execucao": "ENVIO_EMAIL_GRAPH"
     }
   ]
 }

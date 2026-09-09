@@ -13,9 +13,15 @@ from ednna.motor_acoes import (
 
 from ednna.acompanhamento_acoes import (
     obter_acompanhamento,
-    registrar_envio,
+    adquirir_envio,
+    confirmar_envio_real,
+    registrar_falha_envio,
     registrar_resposta,
     rotulo_estado,
+)
+
+from ednna.email_sender import (
+    enviar_email_graph,
 )
 
 
@@ -75,7 +81,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.18.
+    Workspace visual da EDNNA — v3.19.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -733,26 +739,103 @@ def render_ednna_workspace(
                                             + resposta_em
                                         )
 
-                                    if estado_acomp == "RASCUNHO":
-                                        if st.button(
-                                            "📨 Registrar como enviado",
-                                            key=(
-                                                f"acao_enviada_"
-                                                f"{chamado_card}_"
-                                                f"{regra_id_acao}"
-                                            ),
-                                        ):
-                                            registrar_envio(
-                                                chamado_int,
-                                                regra_id_acao,
-                                                prazo_dias_uteis=(
-                                                    rascunho.get(
-                                                        "prazo_resposta_dias_uteis",
-                                                        1,
-                                                    )
+                                    if estado_acomp in {
+                                        "RASCUNHO",
+                                        "ERRO_ENVIO",
+                                    }:
+                                        envio_habilitado = bool(
+                                            rascunho.get(
+                                                "executavel",
+                                                False,
+                                            )
+                                        )
+
+                                        if not envio_habilitado:
+                                            st.info(
+                                                "Esta regra ainda não permite envio real."
+                                            )
+                                        else:
+                                            confirmar = st.checkbox(
+                                                "Confirmo o envio deste e-mail pela EDNNA",
+                                                key=(
+                                                    f"confirmar_envio_"
+                                                    f"{chamado_card}_"
+                                                    f"{regra_id_acao}"
                                                 ),
                                             )
-                                            st.rerun()
+
+                                            if st.button(
+                                                "📨 Enviar pela EDNNA",
+                                                type="primary",
+                                                disabled=not confirmar,
+                                                key=(
+                                                    f"acao_enviar_real_"
+                                                    f"{chamado_card}_"
+                                                    f"{regra_id_acao}"
+                                                ),
+                                            ):
+                                                adquirido, _ = adquirir_envio(
+                                                    chamado_int,
+                                                    regra_id_acao,
+                                                )
+
+                                                if not adquirido:
+                                                    st.warning(
+                                                        "Este envio já foi iniciado "
+                                                        "ou concluído por outra sessão."
+                                                    )
+                                                    st.rerun()
+
+                                                try:
+                                                    enviar_email_graph(
+                                                        remetente=rascunho.get(
+                                                            "remetente",
+                                                            "edi@netunna.com.br",
+                                                        ),
+                                                        para=rascunho.get(
+                                                            "destinatarios",
+                                                            [],
+                                                        ),
+                                                        cc=rascunho.get(
+                                                            "cc",
+                                                            [],
+                                                        ),
+                                                        assunto=rascunho.get(
+                                                            "assunto",
+                                                            "",
+                                                        ),
+                                                        corpo=rascunho.get(
+                                                            "corpo",
+                                                            "",
+                                                        ),
+                                                    )
+
+                                                    confirmar_envio_real(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                        prazo_dias_uteis=(
+                                                            rascunho.get(
+                                                                "prazo_resposta_dias_uteis",
+                                                                1,
+                                                            )
+                                                        ),
+                                                    )
+
+                                                    st.success(
+                                                        "E-mail enviado com sucesso pela EDNNA."
+                                                    )
+                                                    st.rerun()
+
+                                                except Exception as exc:
+                                                    registrar_falha_envio(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                        str(exc),
+                                                    )
+                                                    st.error(
+                                                        "Falha no envio do e-mail: "
+                                                        f"{exc}"
+                                                    )
 
                                     elif estado_acomp in {
                                         "AGUARDANDO_RESPOSTA",
@@ -778,10 +861,24 @@ def render_ednna_workspace(
                                                 "Ação sugerida: cobrar retorno."
                                             )
 
+                                    elif estado_acomp == "ENVIANDO":
+                                        st.info(
+                                            "Envio em andamento por outra sessão."
+                                        )
+
+                                    if (
+                                        estado_acomp == "ERRO_ENVIO"
+                                        and acompanhamento.get("erro_envio")
+                                    ):
+                                        st.error(
+                                            "Última tentativa de envio falhou: "
+                                            + str(acompanhamento.get("erro_envio"))
+                                        )
+
                                     st.caption(
-                                        "Nesta versão, envio e resposta são "
-                                        "confirmados manualmente. A EDNNA "
-                                        "mantém o acompanhamento no SQLite compartilhado."
+                                        "O envio real é realizado pelo Microsoft Graph "
+                                        "e registrado no SQLite compartilhado. "
+                                        "O acompanhamento da resposta continua centralizado na EDNNA."
                                     )
 
                             except Exception as exc:

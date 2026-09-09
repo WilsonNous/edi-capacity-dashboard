@@ -34,7 +34,11 @@ def _conectar() -> sqlite3.Connection:
     caminho = _db_path()
     caminho.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(caminho, timeout=10)
+    conn = sqlite3.connect(
+        caminho,
+        timeout=10,
+        isolation_level=None,
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
@@ -54,13 +58,32 @@ def inicializar_acompanhamento() -> None:
                 resposta_recebida_em TEXT,
                 atualizado_em TEXT NOT NULL,
                 observacao TEXT,
+                erro_envio TEXT,
                 PRIMARY KEY (chamado_id, regra_id)
             )
             """
         )
 
+        colunas = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(acoes_operacionais)"
+            ).fetchall()
+        }
 
-def _adicionar_dias_uteis(inicio: datetime, dias: int) -> datetime:
+        if "erro_envio" not in colunas:
+            conn.execute(
+                """
+                ALTER TABLE acoes_operacionais
+                ADD COLUMN erro_envio TEXT
+                """
+            )
+
+
+def _adicionar_dias_uteis(
+    inicio: datetime,
+    dias: int,
+) -> datetime:
     atual = inicio
     adicionados = 0
 
@@ -73,7 +96,10 @@ def _adicionar_dias_uteis(inicio: datetime, dias: int) -> datetime:
     return atual
 
 
-def obter_acompanhamento(chamado_id: int, regra_id: str) -> dict:
+def obter_acompanhamento(
+    chamado_id: int,
+    regra_id: str,
+) -> dict:
     inicializar_acompanhamento()
 
     with _conectar() as conn:
@@ -96,13 +122,19 @@ def obter_acompanhamento(chamado_id: int, regra_id: str) -> dict:
             "prazo_resposta_em": "",
             "resposta_recebida_em": "",
             "observacao": "",
+            "erro_envio": "",
         }
 
     dados = dict(row)
 
-    if dados.get("estado") == "AGUARDANDO_RESPOSTA" and dados.get("prazo_resposta_em"):
+    if (
+        dados.get("estado") == "AGUARDANDO_RESPOSTA"
+        and dados.get("prazo_resposta_em")
+    ):
         try:
-            if _agora() > datetime.fromisoformat(dados["prazo_resposta_em"]):
+            if _agora() > datetime.fromisoformat(
+                dados["prazo_resposta_em"]
+            ):
                 dados["estado"] = "PRAZO_VENCIDO"
         except Exception:
             pass
@@ -110,44 +142,151 @@ def obter_acompanhamento(chamado_id: int, regra_id: str) -> dict:
     return dados
 
 
-def registrar_envio(
+def adquirir_envio(
+    chamado_id: int,
+    regra_id: str,
+) -> tuple[bool, dict]:
+    inicializar_acompanhamento()
+
+    conn = _conectar()
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+
+        row = conn.execute(
+            """
+            SELECT *
+              FROM acoes_operacionais
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (int(chamado_id), str(regra_id)),
+        ).fetchone()
+
+        if row is not None:
+            estado = str(row["estado"] or "")
+
+            if estado in {
+                "ENVIANDO",
+                "AGUARDANDO_RESPOSTA",
+                "PRAZO_VENCIDO",
+                "RESPOSTA_RECEBIDA",
+            }:
+                conn.execute("ROLLBACK")
+                return False, dict(row)
+
+        agora = _iso(_agora())
+
+        conn.execute(
+            """
+            INSERT INTO acoes_operacionais (
+                chamado_id,
+                regra_id,
+                estado,
+                atualizado_em,
+                erro_envio
+            )
+            VALUES (?, ?, 'ENVIANDO', ?, NULL)
+            ON CONFLICT(chamado_id, regra_id)
+            DO UPDATE SET
+                estado = 'ENVIANDO',
+                atualizado_em = excluded.atualizado_em,
+                erro_envio = NULL
+            """,
+            (int(chamado_id), str(regra_id), agora),
+        )
+
+        conn.execute("COMMIT")
+
+        return True, obter_acompanhamento(
+            chamado_id,
+            regra_id,
+        )
+
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def confirmar_envio_real(
     chamado_id: int,
     regra_id: str,
     prazo_dias_uteis: int = 1,
 ) -> dict:
-    inicializar_acompanhamento()
     agora = _agora()
-    prazo = _adicionar_dias_uteis(agora, int(prazo_dias_uteis or 0))
+    prazo = _adicionar_dias_uteis(
+        agora,
+        int(prazo_dias_uteis or 0),
+    )
 
     with _conectar() as conn:
         conn.execute(
             """
-            INSERT INTO acoes_operacionais (
-                chamado_id, regra_id, estado, enviado_em,
-                prazo_resposta_em, resposta_recebida_em, atualizado_em
-            )
-            VALUES (?, ?, 'AGUARDANDO_RESPOSTA', ?, ?, NULL, ?)
-            ON CONFLICT(chamado_id, regra_id)
-            DO UPDATE SET
-                estado = 'AGUARDANDO_RESPOSTA',
-                enviado_em = excluded.enviado_em,
-                prazo_resposta_em = excluded.prazo_resposta_em,
-                resposta_recebida_em = NULL,
-                atualizado_em = excluded.atualizado_em
+            UPDATE acoes_operacionais
+               SET estado = 'AGUARDANDO_RESPOSTA',
+                   enviado_em = ?,
+                   prazo_resposta_em = ?,
+                   resposta_recebida_em = NULL,
+                   atualizado_em = ?,
+                   erro_envio = NULL
+             WHERE chamado_id = ?
+               AND regra_id = ?
             """,
             (
-                int(chamado_id),
-                str(regra_id),
                 _iso(agora),
                 _iso(prazo),
                 _iso(agora),
+                int(chamado_id),
+                str(regra_id),
             ),
         )
 
-    return obter_acompanhamento(chamado_id, regra_id)
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
 
 
-def registrar_resposta(chamado_id: int, regra_id: str) -> dict:
+def registrar_falha_envio(
+    chamado_id: int,
+    regra_id: str,
+    erro: str,
+) -> dict:
+    agora = _agora()
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            UPDATE acoes_operacionais
+               SET estado = 'ERRO_ENVIO',
+                   atualizado_em = ?,
+                   erro_envio = ?
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (
+                _iso(agora),
+                str(erro)[:1500],
+                int(chamado_id),
+                str(regra_id),
+            ),
+        )
+
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
+
+
+def registrar_resposta(
+    chamado_id: int,
+    regra_id: str,
+) -> dict:
     inicializar_acompanhamento()
     agora = _agora()
 
@@ -155,8 +294,11 @@ def registrar_resposta(chamado_id: int, regra_id: str) -> dict:
         conn.execute(
             """
             INSERT INTO acoes_operacionais (
-                chamado_id, regra_id, estado,
-                resposta_recebida_em, atualizado_em
+                chamado_id,
+                regra_id,
+                estado,
+                resposta_recebida_em,
+                atualizado_em
             )
             VALUES (?, ?, 'RESPOSTA_RECEBIDA', ?, ?)
             ON CONFLICT(chamado_id, regra_id)
@@ -173,13 +315,23 @@ def registrar_resposta(chamado_id: int, regra_id: str) -> dict:
             ),
         )
 
-    return obter_acompanhamento(chamado_id, regra_id)
+    return obter_acompanhamento(
+        chamado_id,
+        regra_id,
+    )
 
 
-def rotulo_estado(estado: str) -> str:
+def rotulo_estado(
+    estado: str,
+) -> str:
     return {
         "RASCUNHO": "⚪ Rascunho",
+        "ENVIANDO": "🔵 Enviando",
+        "ERRO_ENVIO": "🔴 Erro no envio",
         "AGUARDANDO_RESPOSTA": "🟡 Aguardando resposta",
         "PRAZO_VENCIDO": "🔴 Prazo de resposta vencido",
         "RESPOSTA_RECEBIDA": "🟢 Resposta recebida",
-    }.get(str(estado or ""), str(estado or "Sem estado"))
+    }.get(
+        str(estado or ""),
+        str(estado or "Sem estado"),
+    )

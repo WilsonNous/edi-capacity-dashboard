@@ -371,6 +371,13 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
 
     return {
         **avaliacao,
+        "remetente": str(
+            regra.get(
+                "remetente",
+                "edi@netunna.com.br",
+            )
+            or "edi@netunna.com.br"
+        ),
         "destinatarios": list(regra.get("destinatarios", [])),
         "cc": list(regra.get("cc_padrao", [])),
         "assunto": assunto,
