@@ -97,7 +97,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.21.1.
+    Workspace visual da EDNNA — v3.21.3.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -557,6 +557,63 @@ def render_ednna_workspace(
                 "RESPOSTA_RECEBIDA",
             }
 
+            # v3.21.3 — a lista "Chamado para avaliar" contém
+            # somente chamados ainda pendentes de execução.
+            if not candidatos_acao.empty:
+                indices_pendentes_acao = []
+
+                for idx_cand, row_cand in candidatos_acao.iterrows():
+
+                    try:
+                        chamado_cand = int(
+                            float(
+                                row_cand.get(
+                                    "#",
+                                    0,
+                                )
+                            )
+                        )
+
+                        regra_cand = str(
+                            row_cand.get(
+                                "EDNNA - Regra operacional",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+
+                        if not regra_cand:
+                            continue
+
+                        acomp_cand = obter_acompanhamento(
+                            chamado_cand,
+                            regra_cand,
+                        )
+
+                        estado_cand = str(
+                            acomp_cand.get(
+                                "estado",
+                                "RASCUNHO",
+                            )
+                            or "RASCUNHO"
+                        ).strip()
+
+                        if estado_cand not in estados_acompanhamento:
+                            indices_pendentes_acao.append(
+                                idx_cand
+                            )
+
+                    except Exception:
+                        # Se não conseguirmos consultar o acompanhamento,
+                        # mantemos o chamado visível para revisão humana.
+                        indices_pendentes_acao.append(
+                            idx_cand
+                        )
+
+                candidatos_acao = candidatos_acao.loc[
+                    indices_pendentes_acao
+                ].copy()
+
             for _, row_proc in todos_procedimento.iterrows():
 
                 try:
@@ -708,627 +765,371 @@ def render_ednna_workspace(
                     "Por isso o número de pendentes pode cair sem que uma automação tenha sido perdida."
                 )
 
-                opcoes_acao = []
-
-                for idx_acao, row_acao in candidatos_acao.iterrows():
-                    chamado_label = str(row_acao.get("#", ""))
-                    if chamado_label.endswith(".0"):
-                        chamado_label = chamado_label[:-2]
-
-                    cliente_label = str(row_acao.get("Clientes", "") or "Sem cliente")
-                    origem_label = str(
-                        row_acao.get("EDNNA - Origem operacional", "")
-                        or row_acao.get("Origem", "")
-                        or "Sem origem"
+                if candidatos_acao.empty:
+                    st.info(
+                        "Nenhum chamado pendente de execução neste momento. "
+                        "Os chamados já automatizados permanecem em acompanhamento."
                     )
 
-                    pronto_label = (
-                        "🟢"
-                        if str(row_acao.get("EDNNA - Apto para rascunho", "")).upper() == "SIM"
-                        else "🟡"
-                    )
+                else:
+                    opcoes_acao = []
 
-                    opcoes_acao.append(
-                        (
-                            idx_acao,
-                            f"{pronto_label} #{chamado_label} • {cliente_label} • {origem_label}",
-                        )
-                    )
+                    for idx_acao, row_acao in candidatos_acao.iterrows():
+                        chamado_label = str(row_acao.get("#", ""))
+                        if chamado_label.endswith(".0"):
+                            chamado_label = chamado_label[:-2]
 
-                indice_acao = st.selectbox(
-                    "Chamado para avaliar",
-                    options=[item[0] for item in opcoes_acao],
-                    format_func=lambda valor: next(
-                        (rotulo for idx, rotulo in opcoes_acao if idx == valor),
-                        str(valor),
-                    ),
-                    key="ednna_acao_chamado_v316",
-                )
-
-                linha_acao = candidatos_acao.loc[indice_acao]
-                avaliacao_acao = avaliar_acao(linha_acao)
-
-                with st.container(border=True):
-                    chamado_card = str(linha_acao.get("#", ""))
-                    if chamado_card.endswith(".0"):
-                        chamado_card = chamado_card[:-2]
-
-                    cliente_card = str(
-                        linha_acao.get("Clientes", "")
-                        or "Sem cliente"
-                    )
-
-                    origem_card = str(
-                        linha_acao.get("EDNNA - Origem operacional", "")
-                        or linha_acao.get("Origem", "")
-                        or "Sem origem"
-                    )
-
-                    subtipo_raw = str(
-                        linha_acao.get("EDNNA - Subtipo", "")
-                        or ""
-                    )
-
-                    subtipo_visual = {
-                        "ARQUIVO_NAO_RECEBIDO": "Arquivo não recebido",
-                        "ARQUIVO_CORROMPIDO": "Arquivo corrompido",
-                        "FALTA_REGISTRO": "Falta de registro",
-                    }.get(
-                        subtipo_raw,
-                        subtipo_raw.replace("_", " ").title()
-                        if subtipo_raw
-                        else "Sem subtipo",
-                    )
-
-                    status_html = (
-                        '<span class="ednna-status-ready">🟢 Pronto</span>'
-                        if avaliacao_acao.get("apto_rascunho")
-                        else '<span class="ednna-status-warn">🟡 Atenção</span>'
-                    )
-
-                    st.markdown(
-                        f"""
-                        <div class="ednna-action-head">
-                            <div>
-                                <div class="ednna-action-title">#{chamado_card} • {cliente_card}</div>
-                                <div class="ednna-action-meta">{origem_card} • {subtipo_visual}</div>
-                            </div>
-                            <div>{status_html}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    convenio_val = str(
-                        linha_acao.get("EDNNA - Convênio", "")
-                        or "—"
-                    )
-                    referencia_val = str(
-                        linha_acao.get("EDNNA - Referência operacional", "")
-                        or "—"
-                    )
-                    tipo_val = str(
-                        linha_acao.get("EDNNA - Tipos arquivo", "")
-                        or "—"
-                    )
-                    nsa_val = str(
-                        linha_acao.get("EDNNA - NSA referência", "")
-                        or "—"
-                    )
-
-                    st.markdown(
-                        f"""
-                        <div class="ednna-data-grid">
-                            <div class="ednna-data-item">
-                                <div class="ednna-data-label">Convênio</div>
-                                <div class="ednna-data-value">{convenio_val}</div>
-                            </div>
-                            <div class="ednna-data-item">
-                                <div class="ednna-data-label">Referência</div>
-                                <div class="ednna-data-value">{referencia_val}</div>
-                            </div>
-                            <div class="ednna-data-item">
-                                <div class="ednna-data-label">Tipo</div>
-                                <div class="ednna-data-value">{tipo_val}</div>
-                            </div>
-                            <div class="ednna-data-item">
-                                <div class="ednna-data-label">NSA</div>
-                                <div class="ednna-data-value">{nsa_val}</div>
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    procedimento_nome = (
-                        avaliacao_acao.get("regra_nome")
-                        or "Sem procedimento homologado."
-                    )
-                    procedimento_nota = (
-                        avaliacao_acao.get("motivo", "")
-                        or ""
-                    )
-
-                    st.markdown(
-                        f"""
-                        <div class="ednna-procedure-box">
-                            <div class="ednna-procedure-title">Procedimento</div>
-                            <div class="ednna-procedure-name">{procedimento_nome}</div>
-                            <div class="ednna-procedure-note">{procedimento_nota}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    acao_left, acao_right = st.columns(
-                        [1.1, 3.9]
-                    )
-
-                    with acao_left:
-                        st.link_button(
-                            "Abrir no Redmine",
-                            f"{redmine_web_url}/issues/{chamado_card}",
-                            width="stretch",
+                        cliente_label = str(row_acao.get("Clientes", "") or "Sem cliente")
+                        origem_label = str(
+                            row_acao.get("EDNNA - Origem operacional", "")
+                            or row_acao.get("Origem", "")
+                            or "Sem origem"
                         )
 
-                    with acao_right:
-                        if avaliacao_acao.get("apto_rascunho"):
-                            rascunho = gerar_rascunho(linha_acao)
+                        pronto_label = (
+                            "🟢"
+                            if str(row_acao.get("EDNNA - Apto para rascunho", "")).upper() == "SIM"
+                            else "🟡"
+                        )
 
-                            with st.expander(
-                                "✉️ Visualizar rascunho",
-                                expanded=False,
-                            ):
-                                st.markdown("**Para**")
-                                st.caption(
-                                    "; ".join(
-                                        rascunho.get(
-                                            "destinatarios",
-                                            [],
-                                        )
-                                    )
-                                    or "Sem destinatários definidos."
-                                )
+                        opcoes_acao.append(
+                            (
+                                idx_acao,
+                                f"{pronto_label} #{chamado_label} • {cliente_label} • {origem_label}",
+                            )
+                        )
 
-                                if rascunho.get("cc"):
-                                    st.markdown("**Cc**")
+                    indice_acao = st.selectbox(
+                        "Chamado para avaliar",
+                        options=[item[0] for item in opcoes_acao],
+                        format_func=lambda valor: next(
+                            (rotulo for idx, rotulo in opcoes_acao if idx == valor),
+                            str(valor),
+                        ),
+                        key="ednna_acao_chamado_v316",
+                    )
+
+                    if indice_acao is None:
+                        st.warning(
+                            "A seleção anterior não é mais válida. "
+                            "Atualize a página para carregar os chamados pendentes."
+                        )
+                        st.stop()
+
+                    linha_acao = candidatos_acao.loc[
+                        indice_acao
+                    ]
+                    avaliacao_acao = avaliar_acao(linha_acao)
+
+                    with st.container(border=True):
+                        chamado_card = str(linha_acao.get("#", ""))
+                        if chamado_card.endswith(".0"):
+                            chamado_card = chamado_card[:-2]
+
+                        cliente_card = str(
+                            linha_acao.get("Clientes", "")
+                            or "Sem cliente"
+                        )
+
+                        origem_card = str(
+                            linha_acao.get("EDNNA - Origem operacional", "")
+                            or linha_acao.get("Origem", "")
+                            or "Sem origem"
+                        )
+
+                        subtipo_raw = str(
+                            linha_acao.get("EDNNA - Subtipo", "")
+                            or ""
+                        )
+
+                        subtipo_visual = {
+                            "ARQUIVO_NAO_RECEBIDO": "Arquivo não recebido",
+                            "ARQUIVO_CORROMPIDO": "Arquivo corrompido",
+                            "FALTA_REGISTRO": "Falta de registro",
+                        }.get(
+                            subtipo_raw,
+                            subtipo_raw.replace("_", " ").title()
+                            if subtipo_raw
+                            else "Sem subtipo",
+                        )
+
+                        status_html = (
+                            '<span class="ednna-status-ready">🟢 Pronto</span>'
+                            if avaliacao_acao.get("apto_rascunho")
+                            else '<span class="ednna-status-warn">🟡 Atenção</span>'
+                        )
+
+                        st.markdown(
+                            f"""
+                            <div class="ednna-action-head">
+                                <div>
+                                    <div class="ednna-action-title">#{chamado_card} • {cliente_card}</div>
+                                    <div class="ednna-action-meta">{origem_card} • {subtipo_visual}</div>
+                                </div>
+                                <div>{status_html}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        convenio_val = str(
+                            linha_acao.get("EDNNA - Convênio", "")
+                            or "—"
+                        )
+                        referencia_val = str(
+                            linha_acao.get("EDNNA - Referência operacional", "")
+                            or "—"
+                        )
+                        tipo_val = str(
+                            linha_acao.get("EDNNA - Tipos arquivo", "")
+                            or "—"
+                        )
+                        nsa_val = str(
+                            linha_acao.get("EDNNA - NSA referência", "")
+                            or "—"
+                        )
+
+                        st.markdown(
+                            f"""
+                            <div class="ednna-data-grid">
+                                <div class="ednna-data-item">
+                                    <div class="ednna-data-label">Convênio</div>
+                                    <div class="ednna-data-value">{convenio_val}</div>
+                                </div>
+                                <div class="ednna-data-item">
+                                    <div class="ednna-data-label">Referência</div>
+                                    <div class="ednna-data-value">{referencia_val}</div>
+                                </div>
+                                <div class="ednna-data-item">
+                                    <div class="ednna-data-label">Tipo</div>
+                                    <div class="ednna-data-value">{tipo_val}</div>
+                                </div>
+                                <div class="ednna-data-item">
+                                    <div class="ednna-data-label">NSA</div>
+                                    <div class="ednna-data-value">{nsa_val}</div>
+                                </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        procedimento_nome = (
+                            avaliacao_acao.get("regra_nome")
+                            or "Sem procedimento homologado."
+                        )
+                        procedimento_nota = (
+                            avaliacao_acao.get("motivo", "")
+                            or ""
+                        )
+
+                        st.markdown(
+                            f"""
+                            <div class="ednna-procedure-box">
+                                <div class="ednna-procedure-title">Procedimento</div>
+                                <div class="ednna-procedure-name">{procedimento_nome}</div>
+                                <div class="ednna-procedure-note">{procedimento_nota}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                        acao_left, acao_right = st.columns(
+                            [1.1, 3.9]
+                        )
+
+                        with acao_left:
+                            st.link_button(
+                                "Abrir no Redmine",
+                                f"{redmine_web_url}/issues/{chamado_card}",
+                                width="stretch",
+                            )
+
+                        with acao_right:
+                            if avaliacao_acao.get("apto_rascunho"):
+                                rascunho = gerar_rascunho(linha_acao)
+
+                                with st.expander(
+                                    "✉️ Visualizar rascunho",
+                                    expanded=False,
+                                ):
+                                    st.markdown("**Para**")
                                     st.caption(
                                         "; ".join(
                                             rascunho.get(
-                                                "cc",
+                                                "destinatarios",
                                                 [],
                                             )
                                         )
+                                        or "Sem destinatários definidos."
                                     )
 
-                                st.markdown("**Assunto**")
-                                st.code(
-                                    rascunho.get("assunto", ""),
-                                    language=None,
-                                )
-
-                                st.markdown("**Mensagem**")
-                                st.text_area(
-                                    "Rascunho do e-mail",
-                                    value=rascunho.get("corpo", ""),
-                                    height=300,
-                                    key=f"rascunho_v3161_{chamado_card}",
-                                    label_visibility="collapsed",
-                                )
-
-                                st.caption(
-                                    "Modo assistido: o rascunho não é enviado "
-                                    "e nenhuma alteração é feita no Redmine."
-                                )
-
-
-                            try:
-                                chamado_int = int(float(chamado_card))
-                                regra_id_acao = str(
-                                    avaliacao_acao.get("regra_id", "")
-                                    or ""
-                                )
-
-                                if regra_id_acao:
-                                    acompanhamento = obter_acompanhamento(
-                                        chamado_int,
-                                        regra_id_acao,
-                                    )
-
-                                    st.markdown("**Acompanhamento**")
-
-                                    estado_acomp = acompanhamento.get(
-                                        "estado",
-                                        "RASCUNHO",
-                                    )
-
-                                    st.write(
-                                        rotulo_estado(
-                                            estado_acomp
-                                        )
-                                    )
-
-                                    enviado_em = (
-                                        acompanhamento.get("enviado_em", "")
-                                        or ""
-                                    )
-                                    prazo_em = (
-                                        acompanhamento.get("prazo_resposta_em", "")
-                                        or ""
-                                    )
-                                    resposta_em = (
-                                        acompanhamento.get("resposta_recebida_em", "")
-                                        or ""
-                                    )
-
-                                    if enviado_em:
+                                    if rascunho.get("cc"):
+                                        st.markdown("**Cc**")
                                         st.caption(
-                                            "Envio registrado em: "
-                                            + enviado_em
-                                        )
-
-                                    if prazo_em:
-                                        st.caption(
-                                            "Prazo de resposta: "
-                                            + prazo_em
-                                        )
-
-                                    if resposta_em:
-                                        st.caption(
-                                            "Resposta registrada em: "
-                                            + resposta_em
-                                        )
-
-                                    redmine_ok_em = (
-                                        acompanhamento.get(
-                                            "redmine_atualizado_em",
-                                            "",
-                                        )
-                                        or ""
-                                    )
-
-                                    redmine_erro = (
-                                        acompanhamento.get(
-                                            "redmine_erro",
-                                            "",
-                                        )
-                                        or ""
-                                    )
-
-                                    if redmine_ok_em:
-                                        st.success(
-                                            "✅ E-mail registrado no chamado do Redmine."
-                                        )
-
-                                        estado_snapshot = str(
-                                            linha_acao.get(
-                                                "Estado",
-                                                "",
+                                            "; ".join(
+                                                rascunho.get(
+                                                    "cc",
+                                                    [],
+                                                )
                                             )
-                                            or ""
-                                        ).strip()
-
-                                        estado_confirmado_ednna = str(
-                                            acompanhamento.get(
-                                                "redmine_status_nome",
-                                                "",
-                                            )
-                                            or ""
-                                        ).strip()
-
-                                        estado_redmine_atual = (
-                                            estado_confirmado_ednna
-                                            or estado_snapshot
                                         )
 
-                                        if estado_confirmado_ednna:
+                                    st.markdown("**Assunto**")
+                                    st.code(
+                                        rascunho.get("assunto", ""),
+                                        language=None,
+                                    )
+
+                                    st.markdown("**Mensagem**")
+                                    st.text_area(
+                                        "Rascunho do e-mail",
+                                        value=rascunho.get("corpo", ""),
+                                        height=300,
+                                        key=f"rascunho_v3161_{chamado_card}",
+                                        label_visibility="collapsed",
+                                    )
+
+                                    st.caption(
+                                        "Modo assistido: o rascunho não é enviado "
+                                        "e nenhuma alteração é feita no Redmine."
+                                    )
+
+
+                                try:
+                                    chamado_int = int(float(chamado_card))
+                                    regra_id_acao = str(
+                                        avaliacao_acao.get("regra_id", "")
+                                        or ""
+                                    )
+
+                                    if regra_id_acao:
+                                        acompanhamento = obter_acompanhamento(
+                                            chamado_int,
+                                            regra_id_acao,
+                                        )
+
+                                        st.markdown("**Acompanhamento**")
+
+                                        estado_acomp = acompanhamento.get(
+                                            "estado",
+                                            "RASCUNHO",
+                                        )
+
+                                        st.write(
+                                            rotulo_estado(
+                                                estado_acomp
+                                            )
+                                        )
+
+                                        enviado_em = (
+                                            acompanhamento.get("enviado_em", "")
+                                            or ""
+                                        )
+                                        prazo_em = (
+                                            acompanhamento.get("prazo_resposta_em", "")
+                                            or ""
+                                        )
+                                        resposta_em = (
+                                            acompanhamento.get("resposta_recebida_em", "")
+                                            or ""
+                                        )
+
+                                        if enviado_em:
                                             st.caption(
-                                                "Status confirmado pela EDNNA no Redmine: "
-                                                f"{estado_confirmado_ednna}."
+                                                "Envio registrado em: "
+                                                + enviado_em
                                             )
 
-                                        if (
-                                            estado_acomp
-                                            in {
-                                                "AGUARDANDO_RESPOSTA",
-                                                "PRAZO_VENCIDO",
-                                            }
-                                            and estado_redmine_atual.casefold()
-                                            == "aberto"
-                                        ):
-                                            st.warning(
-                                                "⚠️ O chamado ainda está como Aberto "
-                                                "no conjunto atual do painel."
+                                        if prazo_em:
+                                            st.caption(
+                                                "Prazo de resposta: "
+                                                + prazo_em
                                             )
 
-                                            if st.button(
-                                                "🔄 Alterar para Aguardando Retorno Cliente",
-                                                key=(
-                                                    f"status_cliente_"
-                                                    f"{chamado_card}_"
-                                                    f"{regra_id_acao}"
-                                                ),
-                                            ):
-                                                try:
-                                                    alterar_status_chamado(
-                                                        chamado_id=chamado_int,
-                                                        status_nome=(
-                                                            "Aguardando Retorno Cliente"
-                                                        ),
-                                                        data_inicio=enviado_em,
-                                                        data_fim=prazo_em,
-                                                    )
-
-                                                    marcar_status_redmine(
-                                                        chamado_int,
-                                                        regra_id_acao,
-                                                        "Aguardando Retorno Cliente",
-                                                    )
-
-                                                    st.success(
-                                                        "Status do chamado atualizado "
-                                                        "para Aguardando Retorno Cliente."
-                                                    )
-                                                    st.rerun()
-
-                                                except Exception as exc_status:
-                                                    st.error(
-                                                        "Não foi possível alterar o "
-                                                        f"status no Redmine: {exc_status}"
-                                                    )
-
-                                    elif enviado_em:
-                                        if redmine_erro:
-                                            st.warning(
-                                                "⚠️ E-mail enviado, mas a atualização "
-                                                "do Redmine está pendente."
+                                        if resposta_em:
+                                            st.caption(
+                                                "Resposta registrada em: "
+                                                + resposta_em
                                             )
 
-                                            with st.expander(
-                                                "Detalhe da pendência Redmine",
-                                                expanded=False,
-                                            ):
-                                                st.code(
-                                                    redmine_erro,
-                                                    language=None,
-                                                )
-
-                                            rotulo_redmine = (
-                                                "🔄 Repetir atualização no Redmine"
+                                        redmine_ok_em = (
+                                            acompanhamento.get(
+                                                "redmine_atualizado_em",
+                                                "",
                                             )
-
-                                        else:
-                                            st.info(
-                                                "📌 Este envio ocorreu antes da integração "
-                                                "automática com o Redmine. O e-mail não será "
-                                                "reenviado."
-                                            )
-
-                                            rotulo_redmine = (
-                                                "📝 Registrar este envio no Redmine"
-                                            )
-
-                                        if st.button(
-                                            rotulo_redmine,
-                                            key=(
-                                                f"registrar_redmine_"
-                                                f"{chamado_card}_"
-                                                f"{regra_id_acao}"
-                                            ),
-                                        ):
-                                            try:
-                                                nota_retry = (
-                                                    montar_nota_email_enviado(
-                                                        remetente=rascunho.get(
-                                                            "remetente",
-                                                            "edi@netunna.com.br",
-                                                        ),
-                                                        para=rascunho.get(
-                                                            "destinatarios",
-                                                            [],
-                                                        ),
-                                                        cc=rascunho.get(
-                                                            "cc",
-                                                            [],
-                                                        ),
-                                                        assunto=rascunho.get(
-                                                            "assunto",
-                                                            "",
-                                                        ),
-                                                        corpo=rascunho.get(
-                                                            "corpo",
-                                                            "",
-                                                        ),
-                                                        enviado_em=enviado_em,
-                                                        prazo_resposta_em=prazo_em,
-                                                    )
-                                                )
-
-                                                registrar_email_e_status_chamado(
-                                                    chamado_id=chamado_int,
-                                                    nota=nota_retry,
-                                                    status_nome=(
-                                                        "Aguardando Retorno Cliente"
-                                                    ),
-                                                    data_inicio=enviado_em,
-                                                    data_fim=prazo_em,
-                                                )
-
-                                                marcar_redmine_atualizado(
-                                                    chamado_int,
-                                                    regra_id_acao,
-                                                )
-
-                                                marcar_status_redmine(
-                                                    chamado_int,
-                                                    regra_id_acao,
-                                                    "Aguardando Retorno Cliente",
-                                                )
-
-                                                st.success(
-                                                    "Envio registrado no chamado do Redmine."
-                                                )
-                                                st.rerun()
-
-                                            except Exception as exc_retry:
-                                                registrar_falha_redmine(
-                                                    chamado_int,
-                                                    regra_id_acao,
-                                                    str(
-                                                        exc_retry
-                                                    ),
-                                                )
-
-                                                st.error(
-                                                    "A atualização do Redmine "
-                                                    f"continua pendente: {exc_retry}"
-                                                )
-
-                                    if estado_acomp in {
-                                        "RASCUNHO",
-                                        "ERRO_ENVIO",
-                                    }:
-                                        envio_habilitado = bool(
-                                            rascunho.get(
-                                                "executavel",
-                                                False,
-                                            )
+                                            or ""
                                         )
 
-                                        if not envio_habilitado:
-                                            st.info(
-                                                "Esta regra ainda não permite envio real."
+                                        redmine_erro = (
+                                            acompanhamento.get(
+                                                "redmine_erro",
+                                                "",
                                             )
-                                        else:
-                                            confirmar = st.checkbox(
-                                                "Confirmo o envio deste e-mail pela EDNNA",
-                                                key=(
-                                                    f"confirmar_envio_"
-                                                    f"{chamado_card}_"
-                                                    f"{regra_id_acao}"
-                                                ),
+                                            or ""
+                                        )
+
+                                        if redmine_ok_em:
+                                            st.success(
+                                                "✅ E-mail registrado no chamado do Redmine."
                                             )
 
-                                            if st.button(
-                                                "📨 Enviar pela EDNNA",
-                                                type="primary",
-                                                disabled=not confirmar,
-                                                key=(
-                                                    f"acao_enviar_real_"
-                                                    f"{chamado_card}_"
-                                                    f"{regra_id_acao}"
-                                                ),
-                                            ):
-                                                adquirido, _ = adquirir_envio(
-                                                    chamado_int,
-                                                    regra_id_acao,
+                                            estado_snapshot = str(
+                                                linha_acao.get(
+                                                    "Estado",
+                                                    "",
+                                                )
+                                                or ""
+                                            ).strip()
+
+                                            estado_confirmado_ednna = str(
+                                                acompanhamento.get(
+                                                    "redmine_status_nome",
+                                                    "",
+                                                )
+                                                or ""
+                                            ).strip()
+
+                                            estado_redmine_atual = (
+                                                estado_confirmado_ednna
+                                                or estado_snapshot
+                                            )
+
+                                            if estado_confirmado_ednna:
+                                                st.caption(
+                                                    "Status confirmado pela EDNNA no Redmine: "
+                                                    f"{estado_confirmado_ednna}."
                                                 )
 
-                                                if not adquirido:
-                                                    st.warning(
-                                                        "Este envio já foi iniciado "
-                                                        "ou concluído por outra sessão."
-                                                    )
-                                                    st.rerun()
+                                            if (
+                                                estado_acomp
+                                                in {
+                                                    "AGUARDANDO_RESPOSTA",
+                                                    "PRAZO_VENCIDO",
+                                                }
+                                                and estado_redmine_atual.casefold()
+                                                == "aberto"
+                                            ):
+                                                st.warning(
+                                                    "⚠️ O chamado ainda está como Aberto "
+                                                    "no conjunto atual do painel."
+                                                )
 
-                                                try:
-                                                    enviar_email_graph(
-                                                        remetente=rascunho.get(
-                                                            "remetente",
-                                                            "edi@netunna.com.br",
-                                                        ),
-                                                        para=rascunho.get(
-                                                            "destinatarios",
-                                                            [],
-                                                        ),
-                                                        cc=rascunho.get(
-                                                            "cc",
-                                                            [],
-                                                        ),
-                                                        assunto=rascunho.get(
-                                                            "assunto",
-                                                            "",
-                                                        ),
-                                                        corpo=rascunho.get(
-                                                            "corpo",
-                                                            "",
-                                                        ),
-                                                    )
-
-                                                    acompanhamento_envio = (
-                                                        confirmar_envio_real(
-                                                            chamado_int,
-                                                            regra_id_acao,
-                                                            prazo_dias_uteis=(
-                                                                rascunho.get(
-                                                                    "prazo_resposta_dias_uteis",
-                                                                    1,
-                                                                )
-                                                            ),
-                                                        )
-                                                    )
-
+                                                if st.button(
+                                                    "🔄 Alterar para Aguardando Retorno Cliente",
+                                                    key=(
+                                                        f"status_cliente_"
+                                                        f"{chamado_card}_"
+                                                        f"{regra_id_acao}"
+                                                    ),
+                                                ):
                                                     try:
-                                                        nota_redmine = (
-                                                            montar_nota_email_enviado(
-                                                                remetente=rascunho.get(
-                                                                    "remetente",
-                                                                    "edi@netunna.com.br",
-                                                                ),
-                                                                para=rascunho.get(
-                                                                    "destinatarios",
-                                                                    [],
-                                                                ),
-                                                                cc=rascunho.get(
-                                                                    "cc",
-                                                                    [],
-                                                                ),
-                                                                assunto=rascunho.get(
-                                                                    "assunto",
-                                                                    "",
-                                                                ),
-                                                                corpo=rascunho.get(
-                                                                    "corpo",
-                                                                    "",
-                                                                ),
-                                                                enviado_em=(
-                                                                    acompanhamento_envio.get(
-                                                                        "enviado_em",
-                                                                        "",
-                                                                    )
-                                                                ),
-                                                                prazo_resposta_em=(
-                                                                    acompanhamento_envio.get(
-                                                                        "prazo_resposta_em",
-                                                                        "",
-                                                                    )
-                                                                ),
-                                                            )
-                                                        )
-
-                                                        registrar_email_e_status_chamado(
+                                                        alterar_status_chamado(
                                                             chamado_id=chamado_int,
-                                                            nota=nota_redmine,
                                                             status_nome=(
                                                                 "Aguardando Retorno Cliente"
                                                             ),
-                                                            data_inicio=(
-                                                                acompanhamento_envio.get(
-                                                                    "enviado_em",
-                                                                    "",
-                                                                )
-                                                            ),
-                                                            data_fim=(
-                                                                acompanhamento_envio.get(
-                                                                    "prazo_resposta_em",
-                                                                    "",
-                                                                )
-                                                            ),
-                                                        )
-
-                                                        marcar_redmine_atualizado(
-                                                            chamado_int,
-                                                            regra_id_acao,
+                                                            data_inicio=enviado_em,
+                                                            data_fim=prazo_em,
                                                         )
 
                                                         marcar_status_redmine(
@@ -1338,88 +1139,359 @@ def render_ednna_workspace(
                                                         )
 
                                                         st.success(
-                                                            "E-mail enviado e chamado "
-                                                            "atualizado no Redmine."
+                                                            "Status do chamado atualizado "
+                                                            "para Aguardando Retorno Cliente."
+                                                        )
+                                                        st.rerun()
+
+                                                    except Exception as exc_status:
+                                                        st.error(
+                                                            "Não foi possível alterar o "
+                                                            f"status no Redmine: {exc_status}"
                                                         )
 
-                                                    except Exception as exc_redmine:
-                                                        registrar_falha_redmine(
-                                                            chamado_int,
-                                                            regra_id_acao,
-                                                            str(
-                                                                exc_redmine
+                                        elif enviado_em:
+                                            if redmine_erro:
+                                                st.warning(
+                                                    "⚠️ E-mail enviado, mas a atualização "
+                                                    "do Redmine está pendente."
+                                                )
+
+                                                with st.expander(
+                                                    "Detalhe da pendência Redmine",
+                                                    expanded=False,
+                                                ):
+                                                    st.code(
+                                                        redmine_erro,
+                                                        language=None,
+                                                    )
+
+                                                rotulo_redmine = (
+                                                    "🔄 Repetir atualização no Redmine"
+                                                )
+
+                                            else:
+                                                st.info(
+                                                    "📌 Este envio ocorreu antes da integração "
+                                                    "automática com o Redmine. O e-mail não será "
+                                                    "reenviado."
+                                                )
+
+                                                rotulo_redmine = (
+                                                    "📝 Registrar este envio no Redmine"
+                                                )
+
+                                            if st.button(
+                                                rotulo_redmine,
+                                                key=(
+                                                    f"registrar_redmine_"
+                                                    f"{chamado_card}_"
+                                                    f"{regra_id_acao}"
+                                                ),
+                                            ):
+                                                try:
+                                                    nota_retry = (
+                                                        montar_nota_email_enviado(
+                                                            remetente=rascunho.get(
+                                                                "remetente",
+                                                                "edi@netunna.com.br",
+                                                            ),
+                                                            para=rascunho.get(
+                                                                "destinatarios",
+                                                                [],
+                                                            ),
+                                                            cc=rascunho.get(
+                                                                "cc",
+                                                                [],
+                                                            ),
+                                                            assunto=rascunho.get(
+                                                                "assunto",
+                                                                "",
+                                                            ),
+                                                            corpo=rascunho.get(
+                                                                "corpo",
+                                                                "",
+                                                            ),
+                                                            enviado_em=enviado_em,
+                                                            prazo_resposta_em=prazo_em,
+                                                        )
+                                                    )
+
+                                                    registrar_email_e_status_chamado(
+                                                        chamado_id=chamado_int,
+                                                        nota=nota_retry,
+                                                        status_nome=(
+                                                            "Aguardando Retorno Cliente"
+                                                        ),
+                                                        data_inicio=enviado_em,
+                                                        data_fim=prazo_em,
+                                                    )
+
+                                                    marcar_redmine_atualizado(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                    )
+
+                                                    marcar_status_redmine(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                        "Aguardando Retorno Cliente",
+                                                    )
+
+                                                    st.success(
+                                                        "Envio registrado no chamado do Redmine."
+                                                    )
+                                                    st.rerun()
+
+                                                except Exception as exc_retry:
+                                                    registrar_falha_redmine(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                        str(
+                                                            exc_retry
+                                                        ),
+                                                    )
+
+                                                    st.error(
+                                                        "A atualização do Redmine "
+                                                        f"continua pendente: {exc_retry}"
+                                                    )
+
+                                        if estado_acomp in {
+                                            "RASCUNHO",
+                                            "ERRO_ENVIO",
+                                        }:
+                                            envio_habilitado = bool(
+                                                rascunho.get(
+                                                    "executavel",
+                                                    False,
+                                                )
+                                            )
+
+                                            if not envio_habilitado:
+                                                st.info(
+                                                    "Esta regra ainda não permite envio real."
+                                                )
+                                            else:
+                                                confirmar = st.checkbox(
+                                                    "Confirmo o envio deste e-mail pela EDNNA",
+                                                    key=(
+                                                        f"confirmar_envio_"
+                                                        f"{chamado_card}_"
+                                                        f"{regra_id_acao}"
+                                                    ),
+                                                )
+
+                                                if st.button(
+                                                    "📨 Enviar pela EDNNA",
+                                                    type="primary",
+                                                    disabled=not confirmar,
+                                                    key=(
+                                                        f"acao_enviar_real_"
+                                                        f"{chamado_card}_"
+                                                        f"{regra_id_acao}"
+                                                    ),
+                                                ):
+                                                    adquirido, _ = adquirir_envio(
+                                                        chamado_int,
+                                                        regra_id_acao,
+                                                    )
+
+                                                    if not adquirido:
+                                                        st.warning(
+                                                            "Este envio já foi iniciado "
+                                                            "ou concluído por outra sessão."
+                                                        )
+                                                        st.rerun()
+
+                                                    try:
+                                                        enviar_email_graph(
+                                                            remetente=rascunho.get(
+                                                                "remetente",
+                                                                "edi@netunna.com.br",
+                                                            ),
+                                                            para=rascunho.get(
+                                                                "destinatarios",
+                                                                [],
+                                                            ),
+                                                            cc=rascunho.get(
+                                                                "cc",
+                                                                [],
+                                                            ),
+                                                            assunto=rascunho.get(
+                                                                "assunto",
+                                                                "",
+                                                            ),
+                                                            corpo=rascunho.get(
+                                                                "corpo",
+                                                                "",
                                                             ),
                                                         )
 
-                                                        st.warning(
-                                                            "O e-mail foi enviado, mas "
-                                                            "a atualização do Redmine falhou. "
-                                                            "A EDNNA não reenviará o e-mail."
+                                                        acompanhamento_envio = (
+                                                            confirmar_envio_real(
+                                                                chamado_int,
+                                                                regra_id_acao,
+                                                                prazo_dias_uteis=(
+                                                                    rascunho.get(
+                                                                        "prazo_resposta_dias_uteis",
+                                                                        1,
+                                                                    )
+                                                                ),
+                                                            )
                                                         )
 
-                                                    st.rerun()
+                                                        try:
+                                                            nota_redmine = (
+                                                                montar_nota_email_enviado(
+                                                                    remetente=rascunho.get(
+                                                                        "remetente",
+                                                                        "edi@netunna.com.br",
+                                                                    ),
+                                                                    para=rascunho.get(
+                                                                        "destinatarios",
+                                                                        [],
+                                                                    ),
+                                                                    cc=rascunho.get(
+                                                                        "cc",
+                                                                        [],
+                                                                    ),
+                                                                    assunto=rascunho.get(
+                                                                        "assunto",
+                                                                        "",
+                                                                    ),
+                                                                    corpo=rascunho.get(
+                                                                        "corpo",
+                                                                        "",
+                                                                    ),
+                                                                    enviado_em=(
+                                                                        acompanhamento_envio.get(
+                                                                            "enviado_em",
+                                                                            "",
+                                                                        )
+                                                                    ),
+                                                                    prazo_resposta_em=(
+                                                                        acompanhamento_envio.get(
+                                                                            "prazo_resposta_em",
+                                                                            "",
+                                                                        )
+                                                                    ),
+                                                                )
+                                                            )
 
-                                                except Exception as exc:
-                                                    registrar_falha_envio(
-                                                        chamado_int,
-                                                        regra_id_acao,
-                                                        str(exc),
-                                                    )
-                                                    st.error(
-                                                        "Falha no envio do e-mail: "
-                                                        f"{exc}"
-                                                    )
+                                                            registrar_email_e_status_chamado(
+                                                                chamado_id=chamado_int,
+                                                                nota=nota_redmine,
+                                                                status_nome=(
+                                                                    "Aguardando Retorno Cliente"
+                                                                ),
+                                                                data_inicio=(
+                                                                    acompanhamento_envio.get(
+                                                                        "enviado_em",
+                                                                        "",
+                                                                    )
+                                                                ),
+                                                                data_fim=(
+                                                                    acompanhamento_envio.get(
+                                                                        "prazo_resposta_em",
+                                                                        "",
+                                                                    )
+                                                                ),
+                                                            )
 
-                                    elif estado_acomp in {
-                                        "AGUARDANDO_RESPOSTA",
-                                        "PRAZO_VENCIDO",
-                                    }:
-                                        if st.button(
-                                            "📥 Informar manualmente que recebemos resposta",
-                                            key=(
-                                                f"acao_resposta_"
-                                                f"{chamado_card}_"
-                                                f"{regra_id_acao}"
-                                            ),
+                                                            marcar_redmine_atualizado(
+                                                                chamado_int,
+                                                                regra_id_acao,
+                                                            )
+
+                                                            marcar_status_redmine(
+                                                                chamado_int,
+                                                                regra_id_acao,
+                                                                "Aguardando Retorno Cliente",
+                                                            )
+
+                                                            st.success(
+                                                                "E-mail enviado e chamado "
+                                                                "atualizado no Redmine."
+                                                            )
+
+                                                        except Exception as exc_redmine:
+                                                            registrar_falha_redmine(
+                                                                chamado_int,
+                                                                regra_id_acao,
+                                                                str(
+                                                                    exc_redmine
+                                                                ),
+                                                            )
+
+                                                            st.warning(
+                                                                "O e-mail foi enviado, mas "
+                                                                "a atualização do Redmine falhou. "
+                                                                "A EDNNA não reenviará o e-mail."
+                                                            )
+
+                                                        st.rerun()
+
+                                                    except Exception as exc:
+                                                        registrar_falha_envio(
+                                                            chamado_int,
+                                                            regra_id_acao,
+                                                            str(exc),
+                                                        )
+                                                        st.error(
+                                                            "Falha no envio do e-mail: "
+                                                            f"{exc}"
+                                                        )
+
+                                        elif estado_acomp in {
+                                            "AGUARDANDO_RESPOSTA",
+                                            "PRAZO_VENCIDO",
+                                        }:
+                                            if st.button(
+                                                "📥 Informar manualmente que recebemos resposta",
+                                                key=(
+                                                    f"acao_resposta_"
+                                                    f"{chamado_card}_"
+                                                    f"{regra_id_acao}"
+                                                ),
+                                            ):
+                                                registrar_resposta(
+                                                    chamado_int,
+                                                    regra_id_acao,
+                                                )
+                                                st.rerun()
+
+                                            if estado_acomp == "PRAZO_VENCIDO":
+                                                st.error(
+                                                    "Prazo vencido. "
+                                                    "Ação sugerida: cobrar retorno."
+                                                )
+
+                                        elif estado_acomp == "ENVIANDO":
+                                            st.info(
+                                                "Envio em andamento por outra sessão."
+                                            )
+
+                                        if (
+                                            estado_acomp == "ERRO_ENVIO"
+                                            and acompanhamento.get("erro_envio")
                                         ):
-                                            registrar_resposta(
-                                                chamado_int,
-                                                regra_id_acao,
-                                            )
-                                            st.rerun()
-
-                                        if estado_acomp == "PRAZO_VENCIDO":
                                             st.error(
-                                                "Prazo vencido. "
-                                                "Ação sugerida: cobrar retorno."
+                                                "Última tentativa de envio falhou: "
+                                                + str(acompanhamento.get("erro_envio"))
                                             )
 
-                                    elif estado_acomp == "ENVIANDO":
-                                        st.info(
-                                            "Envio em andamento por outra sessão."
+                                        st.caption(
+                                            "O envio real é realizado pelo Microsoft Graph "
+                                            "e registrado no SQLite compartilhado. "
+                                            "O acompanhamento da resposta continua centralizado na EDNNA."
                                         )
 
-                                    if (
-                                        estado_acomp == "ERRO_ENVIO"
-                                        and acompanhamento.get("erro_envio")
-                                    ):
-                                        st.error(
-                                            "Última tentativa de envio falhou: "
-                                            + str(acompanhamento.get("erro_envio"))
-                                        )
-
-                                    st.caption(
-                                        "O envio real é realizado pelo Microsoft Graph "
-                                        "e registrado no SQLite compartilhado. "
-                                        "O acompanhamento da resposta continua centralizado na EDNNA."
+                                except Exception as exc:
+                                    st.warning(
+                                        "Não foi possível carregar o acompanhamento "
+                                        f"da ação: {exc}"
                                     )
-
-                            except Exception as exc:
-                                st.warning(
-                                    "Não foi possível carregar o acompanhamento "
-                                    f"da ação: {exc}"
-                                )
-
 
         # ================================================
         # INTELIGÊNCIA
