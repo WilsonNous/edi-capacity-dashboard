@@ -97,7 +97,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.21.3.
+    Workspace visual da EDNNA — v3.22.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -1273,8 +1273,18 @@ def render_ednna_workspace(
                                                     "Esta regra ainda não permite envio real."
                                                 )
                                             else:
+                                                if rascunho.get("requer_aprovacao_humana", False):
+                                                    st.warning(
+                                                        "⚠️ Procedimento sensível: cancelamentos exigem aprovação humana explícita. "
+                                                        "Esta regra nunca é executada automaticamente."
+                                                    )
+
                                                 confirmar = st.checkbox(
-                                                    "Confirmo o envio deste e-mail pela EDNNA",
+                                                    (
+                                                        "Aprovo este cancelamento e confirmo o envio pela EDNNA"
+                                                        if rascunho.get("requer_aprovacao_humana", False)
+                                                        else "Confirmo o envio deste e-mail pela EDNNA"
+                                                    ),
                                                     key=(
                                                         f"confirmar_envio_"
                                                         f"{chamado_card}_"
@@ -1382,8 +1392,9 @@ def render_ednna_workspace(
                                                             registrar_email_e_status_chamado(
                                                                 chamado_id=chamado_int,
                                                                 nota=nota_redmine,
-                                                                status_nome=(
-                                                                    "Aguardando Retorno Cliente"
+                                                                status_nome=rascunho.get(
+                                                                    "status_pos_envio",
+                                                                    "Aguardando Retorno Cliente",
                                                                 ),
                                                                 data_inicio=(
                                                                     acompanhamento_envio.get(
@@ -1407,7 +1418,10 @@ def render_ednna_workspace(
                                                             marcar_status_redmine(
                                                                 chamado_int,
                                                                 regra_id_acao,
-                                                                "Aguardando Retorno Cliente",
+                                                                rascunho.get(
+                                                                    "status_pos_envio",
+                                                                    "Aguardando Retorno Cliente",
+                                                                ),
                                                             )
 
                                                             st.success(
@@ -1714,8 +1728,8 @@ def render_ednna_workspace(
                 unsafe_allow_html=True,
             )
             st.caption(
-                "Regras homologadas podem gerar somente rascunhos assistidos. "
-                "Nenhuma ação é executada automaticamente."
+                "O catálogo combina regras automáticas e assistidas. "
+                "Procedimentos sensíveis, como cancelamento de tráfego, exigem aprovação humana."
             )
 
             regras_operacionais = catalogo_operacional_ednna.get("regras", [])

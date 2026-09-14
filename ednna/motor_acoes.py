@@ -145,9 +145,25 @@ def _dados_disponiveis(linha: pd.Series | dict) -> dict[str, bool]:
             or linha.get("EDNNA - Referência")
         )),
         "tipo_arquivo": bool(_texto(linha.get("EDNNA - Tipos arquivo"))),
-        "convenio": bool(_texto(linha.get("EDNNA - Convênio"))),
+        "convenio": bool(_extrair_convenio_fallback(linha)),
         "nsa": bool(_texto(linha.get("EDNNA - NSA referência"))),
     }
+
+
+def _extrair_convenio_fallback(linha: pd.Series | dict) -> str:
+    convenio = _extrair_convenio_fallback(linha)
+    if convenio:
+        return convenio
+    texto = _texto_completo_linha(linha)
+    for padrao in [
+        r"\bEC\s*/\s*Conv[eê]nio\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
+        r"\bConv[eê]nio\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
+        r"\bEC\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
+    ]:
+        m = re.search(padrao, texto, flags=re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    return ""
 
 
 def _campos_faltantes_regra(regra: dict, linha: pd.Series | dict) -> list[str]:
@@ -317,6 +333,7 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
     assunto = _texto(regra.get("assunto_template")).format(
         cliente=cliente,
         origem=origem,
+        convenio=convenio,
         chamado_id=chamado_id,
     )
 
@@ -346,6 +363,18 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
             "Agradecemos e permanecemos à disposição para quaisquer esclarecimentos.\n\n"
             "Atenciosamente,\n"
             "Equipe EDI Netunna"
+        )
+
+    elif regra.get("id") == "CANCELAMENTO-GETNET-001":
+        corpo = (
+            f"{regra.get('saudacao', 'Olá, Time GETNET, tudo bem?')}\n\n"
+            "Solicitamos, por gentileza, o cancelamento do tráfego referente ao estabelecimento abaixo:\n\n"
+            f"Cliente: {cliente}\n"
+            f"EC / Convênio: {convenio}\n"
+            f"Chamado Netunna: #{chamado_id}\n\n"
+            "Pedimos a gentileza de confirmar a conclusão do cancelamento.\n\n"
+            "Agradecemos e permanecemos à disposição para quaisquer esclarecimentos.\n\n"
+            "Atenciosamente,\nEquipe EDI Netunna"
         )
 
     else:
@@ -384,6 +413,9 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
         "corpo": corpo,
         "canal": regra.get("canal", "EMAIL"),
         "executavel": bool(regra.get("executavel", False)),
+        "auto_executar": bool(regra.get("auto_executar", False)),
+        "requer_aprovacao_humana": bool(regra.get("requer_aprovacao_humana", False)),
+        "status_pos_envio": str(regra.get("status_pos_envio", "Aguardando Retorno Cliente") or "Aguardando Retorno Cliente"),
         "prazo_resposta_dias_uteis": int(
             regra.get("prazo_resposta_dias_uteis", 0) or 0
         ),

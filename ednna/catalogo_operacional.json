@@ -1,5 +1,5 @@
 {
-  "versao": "1.4",
+  "versao": "1.5",
   "modo": "RASCUNHO_ASSISTIDO",
   "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
   "regras": [
@@ -129,6 +129,46 @@
       "modo_execucao": "ENVIO_EMAIL_GRAPH",
       "auto_executar": true,
       "status_pos_envio": "Aguardando Retorno Cliente"
+    },
+    {
+      "id": "CANCELAMENTO-GETNET-001",
+      "nome": "GETNET — Solicitação de cancelamento de tráfego",
+      "intencao": "CANCELAMENTO_TRAFEGO",
+      "subtipo": "CANCELAMENTO_TOTAL",
+      "origens": [
+        "GETNET"
+      ],
+      "acao": "PREPARAR_EMAIL_CANCELAMENTO_TRAFEGO",
+      "canal": "EMAIL",
+      "homologada_para_rascunho": true,
+      "executavel": true,
+      "auto_executar": false,
+      "requer_aprovacao_humana": true,
+      "requer_dados_completos": false,
+      "campos_obrigatorios": [
+        "cliente",
+        "origem",
+        "convenio"
+      ],
+      "bloqueia_conflito": true,
+      "remetente": "edi@netunna.com.br",
+      "destinatarios": [
+        "atendimento.gtrtef@getnet.com.br",
+        "gtrtef@atendimento.getnet.com.br",
+        "gtrtef@getnet.com.br"
+      ],
+      "cc_padrao": [
+        "bpo@netunna.com.br",
+        "suporte@netunna.com.br",
+        "consultores@netunna.com.br"
+      ],
+      "saudacao": "Olá, Time GETNET, tudo bem?",
+      "assunto_template": "[ {cliente} - GETNET - Solicitação de cancelamento de tráfego - EC {convenio} - #{chamado_id} ]",
+      "prazo_resposta_dias_uteis": 1,
+      "status_pos_envio": "Aguardando Retorno Adquirente",
+      "modo_execucao": "ENVIO_EMAIL_GRAPH_APROVACAO_HUMANA",
+      "procedimento": "GETNET — Solicitação de cancelamento de tráfego",
+      "observacao": "Regra assistida: exige aprovação humana e nunca entra no executor automático. 'Ações do suporte já realizadas' não é requisito GETNET."
     }
   ]
 }

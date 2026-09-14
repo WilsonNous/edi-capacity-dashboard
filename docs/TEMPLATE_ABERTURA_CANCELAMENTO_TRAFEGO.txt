@@ -1,0 +1,27 @@
+PADRÃO DE ABERTURA — EDI - CANCELAMENTO DE TRÁFEGO
+
+Cliente:
+Origem / Adquirente:
+EC / Convênio:
+
+Tipo de cancelamento:
+[X] Cancelamento total do tráfego
+[ ] Cancelamento parcial / tipo específico
+[ ] Outro: ______________________________
+
+Motivo / observação:
+
+EXEMPLO — BONFIO / GETNET
+Cliente: BONFIO
+Origem / Adquirente: GETNET
+EC / Convênio: 6650652
+
+Tipo de cancelamento:
+[X] Cancelamento total do tráfego
+
+Motivo / observação:
+Prosseguir com o cancelamento do tráfego.
+
+IMPORTANTE
+“Ações do suporte já realizadas” não é requisito da regra GETNET.
+Cancelamentos GETNET nunca são disparados automaticamente: exigem aprovação humana.
