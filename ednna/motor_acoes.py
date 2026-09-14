@@ -151,7 +151,7 @@ def _dados_disponiveis(linha: pd.Series | dict) -> dict[str, bool]:
 
 
 def _extrair_convenio_fallback(linha: pd.Series | dict) -> str:
-    convenio = _extrair_convenio_fallback(linha)
+    convenio = _texto(linha.get("EDNNA - Convênio"))
     if convenio:
         return convenio
     texto = _texto_completo_linha(linha)
