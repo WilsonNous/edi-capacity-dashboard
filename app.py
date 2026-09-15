@@ -4856,7 +4856,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.28.7 — EDNNA Memória Operacional e Reconciliação de Retornos · interface responsiva e operação orientada à atenção "
+        "Versão 3.28.8 — EDNNA Laboratório de Inclusões e Memória Operacional · interface responsiva e operação orientada à atenção "
         "e EDNNA em modo híbrido. Regras homologadas podem executar ações automáticas; "
         "demais cenários permanecem em análise, observação ou modo assistido."
     )

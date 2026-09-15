@@ -50,6 +50,9 @@ from ednna.contexto_relacionamentos import (
 from ednna.planejador_cancelamentos import (
     preparar_plano_cancelamento,
 )
+from ednna.planejador_inclusoes import (
+    preparar_aprendizado_inclusao,
+)
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
 )
@@ -1771,6 +1774,44 @@ def render_ednna_workspace(
                     if eh_cancelamento_contexto else
                     "Este histórico é a base compartilhada para futuras regras homologadas de abertura, inclusão, falta de arquivo e demais atuações."
                 )
+                eh_inclusao_contexto = str(contexto.get("evento_atual") or "").upper() == "INCLUSAO"
+                if eh_inclusao_contexto:
+                    st.markdown("#### Laboratório de inclusão")
+                    st.caption("A EDNNA reconstrói BP, Abertura de Relacionamento e inclusões anteriores para propor uma regra candidata. Nenhuma ação externa é executada nesta etapa.")
+                    if st.button("🧠 Aprender procedimento de inclusão", key="ednna_btn_aprender_inclusao_v3288"):
+                        try:
+                            with st.spinner("EDNNA reconstruindo o procedimento histórico de inclusão..."):
+                                aprendizado = preparar_aprendizado_inclusao(int(contexto_chamado_id), force=False)
+                            st.session_state["ednna_aprendizado_inclusao_v3288"] = aprendizado
+                        except Exception as exc_inc:
+                            st.error(f"Não foi possível preparar o aprendizado de inclusão: {exc_inc}")
+
+                    aprendizado = st.session_state.get("ednna_aprendizado_inclusao_v3288")
+                    if isinstance(aprendizado, dict) and int(aprendizado.get("chamado_id", 0) or 0) == int(contexto_chamado_id):
+                        if aprendizado.get("blueprint_id"):
+                            st.success(f"BP/Novo Cliente localizado: #{aprendizado.get('blueprint_id')}")
+                        for regra in aprendizado.get("regras", []) or []:
+                            st.markdown(f"**{regra.get('regra_sugerida')} — {regra.get('player')}**")
+                            r1, r2, r3 = st.columns(3)
+                            r1.metric("Canal", regra.get("canal_sugerido") or "—")
+                            r2.metric("Confiança", regra.get("confianca") or "—")
+                            r3.metric("Situação", "Não homologada")
+                            ars = regra.get("aberturas_relacionamento", []) or []
+                            ants = regra.get("inclusoes_anteriores", []) or []
+                            if ars:
+                                st.markdown("Abertura(s) de Relacionamento: " + " · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ars))
+                            else:
+                                st.warning("Abertura de Relacionamento ainda não localizada no universo relacionado ao BP.")
+                            if ants:
+                                st.markdown("Inclusões anteriores: " + " · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ants))
+                            dados = regra.get("dados_identificados", {}) or {}
+                            st.write({"E-mails encontrados": dados.get("emails", []), "CNPJs encontrados": dados.get("cnpjs", []), "ECs encontrados": dados.get("ecs", [])})
+                            with st.expander("Ver fontes usadas no aprendizado", expanded=False):
+                                for fonte in regra.get("fontes", []) or []:
+                                    fid = fonte.get("id")
+                                    st.markdown(f"[#{fid}]({redmine_web_url}/issues/{fid}) — {fonte.get('evento') or 'fonte'} — {fonte.get('assunto') or ''}")
+                            st.info(regra.get("motivo_bloqueio"))
+
                 if eh_cancelamento_contexto and st.button("🧭 Preparar plano e rascunhos", key="ednna_btn_preparar_plano_cancelamento_v325"):
                     try:
                         with st.spinner("Preparando o plano de cancelamento a partir do histórico..."):
