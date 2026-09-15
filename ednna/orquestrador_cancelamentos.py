@@ -114,6 +114,22 @@ def marcar_etapa(chamado_id: int, player: str, estado: str, observacao: str = ''
           (int(chamado_id),p,rid,str(estado),1 if regra else 0,agora,str(observacao or '')))
 
 
+
+def listar_etapas_pendentes_monitoramento(player: str = "GETNET") -> list[dict]:
+    """Lista etapas já enviadas/aguardando retorno, inclusive legados sem ação_operacional."""
+    inicializar_orquestrador()
+    alvo = str(player or "").strip().upper()
+    estados = ("AGUARDANDO_RESPOSTA", "ENVIADO")
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM cancelamento_etapas
+                 WHERE player = ?
+                   AND estado IN (?, ?)
+                 ORDER BY atualizado_em ASC""",
+            (alvo, *estados),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
 def resumo_orquestracao(chamado_id: int) -> dict:
     etapas=listar_etapas(chamado_id)
     finais={'CANCELAMENTO_CONFIRMADO','CONCLUIDO_HISTORICO'}

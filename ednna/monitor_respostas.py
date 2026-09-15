@@ -15,16 +15,22 @@ from ednna.acompanhamento_acoes import (
     registrar_falha_redmine,
     registrar_resposta,
     obter_responsavel_original_cancelamento,
+    obter_acompanhamento,
+    adquirir_envio,
+    confirmar_envio_real,
 )
 from ednna.email_sender import (
     listar_mensagens_conversa,
     localizar_email_enviado,
     localizar_resposta_por_chamado,
+    localizar_email_enviado_por_chamado,
 )
 from ednna.redmine_writer import registrar_email_e_status_chamado, atribuir_chamado_responsavel
 from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
 from ednna.planejador_cancelamentos import extrair_dados_getnet, preparar_plano_cancelamento
-from ednna.orquestrador_cancelamentos import marcar_etapa, resumo_orquestracao
+from ednna.orquestrador_cancelamentos import (
+    marcar_etapa, resumo_orquestracao, listar_etapas_pendentes_monitoramento,
+)
 
 
 _THREAD: threading.Thread | None = None
@@ -209,6 +215,60 @@ def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
     return str(enviado.get("conversationId", "") or "").strip(), enviado
 
 
+
+def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
+    """Reconstrói acompanhamento de etapas GETNET enviadas antes/fora de acoes_operacionais.
+
+    Isso cobre o caso real em que o e-mail foi enviado e a etapa do orquestrador ficou
+    AGUARDANDO_RESPOSTA, mas não existe uma ação local elegível para o monitor.
+    """
+    recuperadas: list[dict] = []
+    for etapa in listar_etapas_pendentes_monitoramento("GETNET"):
+        chamado_id = int(etapa.get("chamado_id") or 0)
+        regra_id = str(etapa.get("regra_id") or "CANCELAMENTO-GETNET-001")
+        if not chamado_id:
+            continue
+
+        atual = obter_acompanhamento(chamado_id, regra_id)
+        if str(atual.get("estado") or "") in {
+            "AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA", "ENVIANDO"
+        }:
+            continue
+
+        enviado = localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
+        resposta = localizar_resposta_por_chamado(
+            caixa_postal=caixa,
+            chamado_id=chamado_id,
+            recebidas_apos=str(enviado.get("sentDateTime", "") or ""),
+        )
+
+        if enviado:
+            adquirido, _ = adquirir_envio(chamado_id, regra_id)
+            if adquirido:
+                confirmar_envio_real(
+                    chamado_id,
+                    regra_id,
+                    prazo_dias_uteis=1,
+                    email_assunto=str(enviado.get("subject", "") or ""),
+                    graph_message_id=str(enviado.get("id", "") or ""),
+                    graph_conversation_id=str(enviado.get("conversationId", "") or ""),
+                    graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
+                )
+                recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
+                print(
+                    f"[EDNNA] Monitor e-mail | reconciliação | chamado={chamado_id} | acompanhamento reconstruído",
+                    flush=True,
+                )
+
+        # Se já há resposta na Inbox, o ciclo normal recém-reconstruído a processará logo abaixo.
+        if resposta:
+            recuperadas.append({"chamado": chamado_id, "situacao": "RESPOSTA_LOCALIZADA"})
+            print(
+                f"[EDNNA] Monitor e-mail | reconciliação | chamado={chamado_id} | resposta já localizada",
+                flush=True,
+            )
+    return recuperadas
+
 def executar_monitoramento_respostas() -> dict:
     resumo = {
         "habilitado": _bool_env("EDNNA_MONITOR_EMAIL_ENABLED", True),
@@ -218,12 +278,22 @@ def executar_monitoramento_respostas() -> dict:
         "sem_resposta": 0,
         "erros": 0,
         "detalhes": [],
+        "reconciliados": 0,
     }
     if not resumo["habilitado"]:
         return resumo
 
     caixa = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
     status_retorno = str(os.getenv("EDNNA_STATUS_RESPOSTA_RECEBIDA", "Em andamento") or "Em andamento").strip()
+    try:
+        reconciliados = _reconciliar_cancelamentos_getnet_orfaos(caixa)
+        resumo["reconciliados"] = len({x.get("chamado") for x in reconciliados if x.get("chamado")})
+        resumo["detalhes"].extend(reconciliados)
+    except Exception as exc:
+        resumo["erros"] += 1
+        resumo["detalhes"].append({"reconciliacao": f"{type(exc).__name__}: {exc}"})
+        print(f"[EDNNA] Monitor e-mail | reconciliação falhou | {type(exc).__name__}: {exc}", flush=True)
+
     acoes = listar_acoes_aguardando_resposta()
     resumo["aguardando"] = len(acoes)
 

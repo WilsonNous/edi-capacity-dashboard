@@ -258,6 +258,23 @@ def listar_mensagens_conversa(
     return itens
 
 
+
+def localizar_email_enviado_por_chamado(*, remetente: str, chamado_id: int) -> dict:
+    """Reconciliação: localiza na pasta Enviados a mensagem mais recente contendo #ID no assunto."""
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{remetente}/mailFolders/sentitems/messages",
+        params={
+            "$select": "id,subject,conversationId,internetMessageId,sentDateTime,from,toRecipients,ccRecipients",
+            "$orderby": "sentDateTime desc",
+            "$top": "250",
+        },
+    )
+    alvo = f"#{int(chamado_id)}"
+    for item in dados.get("value", []) or []:
+        if alvo in str(item.get("subject", "") or ""):
+            return item
+    return {}
+
 def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebidas_apos: str = "") -> dict:
     """Fallback robusto: localiza resposta na Inbox pelo #ID, tolerando RE:/[EXT]."""
     dados = _graph_get(

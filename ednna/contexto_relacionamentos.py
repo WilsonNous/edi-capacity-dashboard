@@ -19,8 +19,8 @@ from painel_cache import adquirir_lock as painel_adquirir_lock, liberar_lock as 
 # status e NÃO executa cancelamentos.
 # ============================================================
 
-CACHE_HORAS_HISTORICO = 24
-CACHE_MINUTOS_ABERTO = 15
+CACHE_HORAS_HISTORICO = 168  # 7 dias: histórico concluído muda raramente
+CACHE_MINUTOS_ABERTO = 120  # 2h: evita avalanche de GETs ao navegar na Central
 
 PLAYER_ALIASES = {
     "GETNET": ("GETNET",),
