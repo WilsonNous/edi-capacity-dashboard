@@ -8,6 +8,7 @@ from typing import Any
 
 from ednna.armazenamento import conectar
 from redmine_api import buscar_detalhes_chamado, issue_para_linha
+from painel_cache import adquirir_lock as painel_adquirir_lock, liberar_lock as painel_liberar_lock
 
 
 # ============================================================
@@ -89,6 +90,21 @@ def _cache_obter(chamado_id: int) -> dict | None:
         return None
 
 
+def _cache_obter_stale(chamado_id: int) -> dict | None:
+    """Retorna a última cópia mesmo expirada, para contingência."""
+    _inicializar_cache()
+    with conectar() as conn:
+        row = conn.execute(
+            "SELECT payload_json FROM contexto_relacionamentos_cache WHERE chamado_id = ?",
+            (int(chamado_id),),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row["payload_json"])
+    except Exception:
+        return None
+
 def _cache_salvar(chamado_id: int, issue: dict) -> None:
     _inicializar_cache()
     estado = ((issue.get("status") or {}).get("name") or "")
@@ -112,17 +128,45 @@ def _cache_salvar(chamado_id: int, issue: dict) -> None:
 
 
 def _buscar_issue(chamado_id: int, *, force: bool = False) -> dict:
+    chamado_id = int(chamado_id)
     if not force:
         cached = _cache_obter(chamado_id)
         if cached:
             return cached
-    issue = buscar_detalhes_chamado(
-        int(chamado_id),
-        incluir_journals=True,
-        incluir_relacoes=True,
-    )
-    _cache_salvar(chamado_id, issue)
-    return issue
+
+    # Lock compartilhado por chamado: duas sessões não consultam o mesmo histórico.
+    chave_lock = f"ednna:issue_contexto:{chamado_id}"
+    dono = f"ctx:{chamado_id}:{id(object())}"
+    if not painel_adquirir_lock(chave_lock, dono, ttl_seconds=90):
+        stale = _cache_obter_stale(chamado_id)
+        if stale:
+            print(f"[EDNNA] Contexto histórico | #{chamado_id} em atualização por outra sessão | usando cache", flush=True)
+            return stale
+        # Sem cache, evita duplicar a consulta externa; falha rápido para a UI.
+        raise RuntimeError(f"Contexto do chamado #{chamado_id} já está sendo atualizado por outra sessão.")
+
+    try:
+        # Outra sessão pode ter preenchido o cache antes de adquirirmos o lock.
+        if not force:
+            cached = _cache_obter(chamado_id)
+            if cached:
+                return cached
+        try:
+            issue = buscar_detalhes_chamado(
+                chamado_id,
+                incluir_journals=True,
+                incluir_relacoes=True,
+            )
+            _cache_salvar(chamado_id, issue)
+            return issue
+        except Exception:
+            stale = _cache_obter_stale(chamado_id)
+            if stale:
+                print(f"[EDNNA] Contexto histórico | Redmine indisponível para #{chamado_id} | usando cache anterior", flush=True)
+                return stale
+            raise
+    finally:
+        painel_liberar_lock(chave_lock, dono)
 
 
 def _ids_relacionados(issue: dict) -> list[int]:

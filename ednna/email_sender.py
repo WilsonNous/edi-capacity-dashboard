@@ -230,11 +230,11 @@ def listar_mensagens_conversa(
     conversation_id: str,
     recebidas_apos: str = "",
 ) -> list[dict]:
-    """Busca mensagens recebidas de uma conversa na Inbox da caixa EDNNA."""
-    filtros = [f"conversationId eq '{conversation_id.replace(chr(39), chr(39)*2)}'"]
-    if recebidas_apos:
-        filtros.append(f"receivedDateTime ge {recebidas_apos}")
+    """Busca mensagens da conversa sem $filter complexo no Graph.
 
+    Exchange pode responder InefficientFilter ao combinar conversationId, data e
+    orderby. Buscamos uma janela recente da Inbox e filtramos localmente.
+    """
     dados = _graph_get(
         f"{GRAPH_BASE_URL}/users/{caixa_postal}/mailFolders/inbox/messages",
         params={
@@ -242,12 +242,20 @@ def listar_mensagens_conversa(
                 "id,subject,conversationId,internetMessageId,receivedDateTime,"
                 "from,body,bodyPreview,isRead"
             ),
-            "$filter": " and ".join(filtros),
-            "$orderby": "receivedDateTime asc",
-            "$top": "50",
+            "$orderby": "receivedDateTime desc",
+            "$top": "100",
         },
     )
-    return list(dados.get("value", []) or [])
+    itens = []
+    alvo = str(conversation_id or "")
+    for item in dados.get("value", []) or []:
+        if str(item.get("conversationId", "") or "") != alvo:
+            continue
+        if recebidas_apos and str(item.get("receivedDateTime", "") or "") < str(recebidas_apos):
+            continue
+        itens.append(item)
+    itens.sort(key=lambda x: str(x.get("receivedDateTime", "") or ""))
+    return itens
 
 
 def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebidas_apos: str = "") -> dict:

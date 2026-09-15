@@ -38,7 +38,8 @@ PAINEL_CACHE_TTL_SECONDS = max(
 
 _CUSTOM_FIELDS_CACHE: list[dict] | None = None
 _CUSTOM_FIELDS_CACHE_AT = 0.0
-_CUSTOM_FIELDS_TTL_SECONDS = int(os.getenv("REDMINE_CUSTOM_FIELDS_TTL", "300"))
+_CUSTOM_FIELDS_TTL_SECONDS = int(os.getenv("REDMINE_CUSTOM_FIELDS_TTL", "3600"))
+_CUSTOM_FIELDS_PERSIST_TTL_SECONDS = int(os.getenv("REDMINE_CUSTOM_FIELDS_PERSIST_TTL", "86400"))
 
 _SESSION = requests.Session()
 _ADAPTER = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
@@ -158,20 +159,69 @@ def _get(
 
 
 def buscar_custom_fields(force: bool = False) -> list[dict]:
+    """Catálogo compartilhado: memória -> SQLite -> Redmine.
+
+    Evita que cada sessão Streamlit consulte custom_fields.json. O catálogo é
+    praticamente estático e pode sobreviver entre processos/restarts no painel.db.
+    """
     global _CUSTOM_FIELDS_CACHE, _CUSTOM_FIELDS_CACHE_AT
     agora = monotonic()
-    cache_valido = (
-        _CUSTOM_FIELDS_CACHE is not None
+    if (
+        not force
+        and _CUSTOM_FIELDS_CACHE is not None
         and (agora - _CUSTOM_FIELDS_CACHE_AT) < _CUSTOM_FIELDS_TTL_SECONDS
-    )
-    if cache_valido and not force:
+    ):
         return _CUSTOM_FIELDS_CACHE
 
-    dados = _get("custom_fields.json")
-    campos = dados.get("custom_fields", [])
-    _CUSTOM_FIELDS_CACHE = campos
-    _CUSTOM_FIELDS_CACHE_AT = agora
-    return campos
+    chave = "redmine_custom_fields_v3282"
+    persistido = painel_obter_metadado_json(chave, {})
+    campos_persistidos = []
+    atualizado_em = ""
+    if isinstance(persistido, dict):
+        campos_persistidos = persistido.get("campos") or []
+        atualizado_em = str(persistido.get("atualizado_em") or "")
+
+    persistido_valido = False
+    if campos_persistidos and atualizado_em and not force:
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(atualizado_em)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            persistido_valido = (datetime.now(timezone.utc) - dt).total_seconds() < _CUSTOM_FIELDS_PERSIST_TTL_SECONDS
+        except Exception:
+            persistido_valido = False
+
+    if persistido_valido:
+        _CUSTOM_FIELDS_CACHE = list(campos_persistidos)
+        _CUSTOM_FIELDS_CACHE_AT = agora
+        return _CUSTOM_FIELDS_CACHE
+
+    # Se o circuito já está aberto, não gere uma enxurrada de chamadas bloqueadas.
+    if painel_circuit_breaker_ativo() and campos_persistidos:
+        _CUSTOM_FIELDS_CACHE = list(campos_persistidos)
+        _CUSTOM_FIELDS_CACHE_AT = agora
+        return _CUSTOM_FIELDS_CACHE
+
+    try:
+        dados = _get("custom_fields.json")
+        campos = dados.get("custom_fields", []) or []
+        if campos:
+            from datetime import datetime, timezone
+            painel_salvar_metadado_json(chave, {
+                "campos": campos,
+                "atualizado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            })
+        _CUSTOM_FIELDS_CACHE = campos
+        _CUSTOM_FIELDS_CACHE_AT = agora
+        return campos
+    except Exception:
+        if campos_persistidos:
+            print("[REDMINE] custom_fields | usando cache SQLite compartilhado", flush=True)
+            _CUSTOM_FIELDS_CACHE = list(campos_persistidos)
+            _CUSTOM_FIELDS_CACHE_AT = agora
+            return _CUSTOM_FIELDS_CACHE
+        raise
 
 
 def mapa_custom_field(field_id: int, force: bool = False) -> dict[str, str]:
