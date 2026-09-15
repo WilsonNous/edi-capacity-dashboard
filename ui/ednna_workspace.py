@@ -52,6 +52,7 @@ from ednna.planejador_cancelamentos import (
 )
 from ednna.planejador_inclusoes import (
     preparar_aprendizado_inclusao,
+    descobrir_candidatos_inclusao,
 )
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
@@ -1597,6 +1598,86 @@ def render_ednna_workspace(
                 "uma ocorrência em regra operacional."
             )
 
+            st.markdown("### 🔬 Central de Descoberta — Inclusões")
+            st.caption(
+                "Inventário de inclusões encontrado diretamente no snapshot aberto do Redmine. "
+                "Não exige regra homologada nem atribuição à EDNNA: primeiro descobrimos; depois homologamos uma por vez."
+            )
+            base_descoberta = snapshot_global.copy() if isinstance(snapshot_global, pd.DataFrame) and not snapshot_global.empty else ednna_analisados.copy()
+            inventario_inc = descobrir_candidatos_inclusao(base_descoberta)
+            candidatos_inc = pd.DataFrame(inventario_inc.get("candidatos", []))
+            grupos_inc = pd.DataFrame(inventario_inc.get("players", []))
+            di1, di2, di3 = st.columns(3)
+            di1.metric("Inclusões descobertas", inventario_inc.get("total", 0))
+            di2.metric("Players identificados", len([x for x in inventario_inc.get("players", []) if x.get("player") != "NÃO IDENTIFICADO"]))
+            di3.metric("A homologar", len(inventario_inc.get("players", [])))
+
+            if candidatos_inc.empty:
+                st.info("Nenhum chamado de inclusão foi localizado no snapshot atual.")
+            else:
+                if not grupos_inc.empty:
+                    with st.expander("Ver inventário por player", expanded=True):
+                        grupos_view = grupos_inc.copy()
+                        grupos_view["Chamados"] = grupos_view["chamados"].apply(
+                            lambda xs: ", ".join(f"#{int(x)}" for x in xs)
+                        )
+                        grupos_view = grupos_view.rename(columns={"player": "Player", "quantidade": "Casos"})
+                        st.dataframe(grupos_view[["Player", "Casos", "Chamados"]], width="stretch", hide_index=True)
+
+                ids_descoberta = candidatos_inc["id"].astype(int).tolist()
+                rot_descoberta = {
+                    int(r["id"]): f"#{int(r['id'])} · {r.get('cliente') or 'Sem cliente'} · {r.get('player') or 'Player não identificado'} · {str(r.get('assunto') or '')[:58]}"
+                    for _, r in candidatos_inc.iterrows()
+                }
+                selecao_descoberta = st.selectbox(
+                    "Inclusão para investigar",
+                    ids_descoberta,
+                    format_func=lambda x: rot_descoberta.get(int(x), f"#{x}"),
+                    key="ednna_descoberta_inclusao_v3289",
+                )
+                dc1, dc2 = st.columns([1, 3])
+                with dc1:
+                    investigar_descoberta = st.button(
+                        "🔎 Investigar inclusão",
+                        key="ednna_investigar_inclusao_v3289",
+                        width="stretch",
+                    )
+                with dc2:
+                    st.caption("A investigação consulta BP, relações, AR e inclusões anteriores somente quando você solicitar.")
+                with st.expander(f"Ver candidatos ({len(candidatos_inc)})", expanded=False):
+                    tab_inc = candidatos_inc.rename(columns={"id": "#", "cliente": "Clientes", "player": "Player", "estado": "Estado", "tipo": "Tipo", "assunto": "Assunto"})
+                    cols_inc = [c for c in ["#", "Clientes", "Player", "Estado", "Tipo", "Assunto"] if c in tab_inc.columns]
+                    tab_inc, cfg_inc = preparar_tabela_com_link_redmine_fn(tab_inc[cols_inc].copy())
+                    st.dataframe(tab_inc, width="stretch", hide_index=True, column_config=cfg_inc)
+
+                if investigar_descoberta:
+                    try:
+                        with st.spinner("EDNNA reconstruindo BP, AR e histórico da inclusão..."):
+                            aprendizado_desc = preparar_aprendizado_inclusao(int(selecao_descoberta), force=False)
+                        st.session_state["ednna_aprendizado_descoberta_v3289"] = aprendizado_desc
+                    except Exception as exc_desc:
+                        st.error(f"Não foi possível investigar a inclusão: {exc_desc}")
+                aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v3289")
+                if isinstance(aprendizado_desc, dict):
+                    cid_desc = int(aprendizado_desc.get("chamado_id", 0) or 0)
+                    if cid_desc == int(selecao_descoberta):
+                        st.markdown(f"#### Resultado da descoberta — [#{cid_desc}]({redmine_web_url}/issues/{cid_desc})")
+                        if aprendizado_desc.get("blueprint_id"):
+                            bid = int(aprendizado_desc["blueprint_id"])
+                            st.success(f"BP/Novo Cliente localizado: [#{bid}]({redmine_web_url}/issues/{bid})")
+                        for regra_desc in aprendizado_desc.get("regras", []) or []:
+                            st.markdown(f"**{regra_desc.get('regra_sugerida')} — {regra_desc.get('player')}**")
+                            q1, q2, q3 = st.columns(3)
+                            q1.metric("Canal", regra_desc.get("canal_sugerido") or "—")
+                            q2.metric("Confiança", regra_desc.get("confianca") or "—")
+                            q3.metric("Estado", "Candidata")
+                            ars = regra_desc.get("aberturas_relacionamento", []) or []
+                            ants = regra_desc.get("inclusoes_anteriores", []) or []
+                            st.markdown("AR: " + (" · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ars) if ars else "não localizada"))
+                            st.markdown("Inclusões anteriores: " + (" · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ants) if ants else "não localizadas"))
+                            st.info("Somente descoberta. Esta regra não executa ações até homologação explícita.")
+
+            st.divider()
             st.markdown("### 🧠 Central de Atuação EDNNA")
             st.caption(
                 "A EDNNA acompanha atuações ativas e reconstrói o contexto operacional a partir do BP/Novo Cliente, "

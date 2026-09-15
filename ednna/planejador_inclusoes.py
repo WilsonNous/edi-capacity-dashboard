@@ -140,3 +140,66 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         "contexto": contexto,
         "modo": "SOMENTE_LEITURA",
     }
+
+
+def descobrir_candidatos_inclusao(snapshot) -> dict:
+    """Descobre inclusões no snapshot sem exigir regra operacional prévia.
+
+    Não consulta o Redmine e não executa ações. Serve como inventário barato para
+    escolher quais chamados merecem reconstrução histórica/homologação.
+    """
+    if snapshot is None or getattr(snapshot, "empty", True):
+        return {"total": 0, "players": [], "candidatos": []}
+
+    candidatos: list[dict[str, Any]] = []
+    for _, row in snapshot.iterrows():
+        tipo = str(row.get("Tipo", "") or "")
+        assunto = str(row.get("Assunto", "") or "")
+        descricao = str(row.get("Descrição", "") or "")
+        texto = "\n".join([tipo, assunto, descricao])
+        norm = texto.upper()
+        if "INCLUS" not in norm and "HABILITA" not in norm:
+            continue
+        # Evita trazer outros trackers que apenas mencionam uma inclusão no texto.
+        if "INCLUS" not in tipo.upper() and "INCLUS" not in assunto.upper() and "HABILITA" not in assunto.upper():
+            continue
+
+        # Reusa o catálogo de aliases do contexto histórico, mantendo uma única
+        # taxonomia de players para descoberta e reconstrução.
+        from ednna.contexto_relacionamentos import _players_no_texto
+        players = _players_no_texto(texto)
+        # REDECARD possui o alias histórico "REDE". Em clientes como REDE SANTA
+        # LUCIA isso gera falso positivo. Na descoberta, só aceitamos REDECARD
+        # por "REDE" quando o assunto o apresenta como player delimitado.
+        assunto_up = assunto.upper()
+        if "REDECARD" in players and "REDECARD" not in assunto_up:
+            rede_como_player = bool(re.search(r"(?:^|[-–—|])\s*REDE\s*(?:[-–—|]|$)", assunto_up))
+            if not rede_como_player:
+                players = [p for p in players if p != "REDECARD"]
+        cid_raw = row.get("#", 0)
+        try:
+            cid = int(float(cid_raw))
+        except Exception:
+            continue
+        candidatos.append({
+            "id": cid,
+            "cliente": str(row.get("Clientes", "") or ""),
+            "estado": str(row.get("Estado", "") or ""),
+            "tipo": tipo,
+            "assunto": assunto,
+            "players": players,
+            "player": players[0] if len(players) == 1 else (" / ".join(players) if players else "NÃO IDENTIFICADO"),
+            "status_descoberta": "DESCOBERTO",
+            "pode_executar": False,
+        })
+
+    agrupados: dict[str, list[int]] = {}
+    for c in candidatos:
+        nomes = c["players"] or ["NÃO IDENTIFICADO"]
+        for player in nomes:
+            agrupados.setdefault(player, []).append(c["id"])
+    players = [
+        {"player": p, "quantidade": len(ids), "chamados": sorted(set(ids))}
+        for p, ids in sorted(agrupados.items(), key=lambda kv: (-len(set(kv[1])), kv[0]))
+    ]
+    return {"total": len(candidatos), "players": players, "candidatos": candidatos}
