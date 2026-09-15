@@ -317,13 +317,24 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
             presos_enviando.add(chamado_id)
         orfaos_reais.append(chamado_id)
 
+    monitorando_ids = sorted(candidatos & monitorados)
+    processados_ids = sorted(processados)
+    pendentes_redmine_ids = sorted(pendentes_redmine)
+    presos_enviando_ids = sorted(presos_enviando)
+    orfaos_reais_ids = sorted(orfaos_reais)
+
     print(
         f"[EDNNA] Reconciliação | enviados_descobertos={len(envios_por_chamado)} | "
-        f"candidatos={len(candidatos)} | monitorando={len(candidatos & monitorados)} | "
-        f"processados={len(processados)} | pendentes_redmine={len(pendentes_redmine)} | "
-        f"presos_enviando={len(presos_enviando)} | órfãos_reais={len(orfaos_reais)}",
+        f"candidatos={len(candidatos)} | monitorando={len(monitorando_ids)} | "
+        f"processados={len(processados_ids)} | pendentes_redmine={len(pendentes_redmine_ids)} | "
+        f"presos_enviando={len(presos_enviando_ids)} | órfãos_reais={len(orfaos_reais_ids)}",
         flush=True,
     )
+    print(f"[EDNNA] Reconciliação | monitorando_ids={monitorando_ids}", flush=True)
+    print(f"[EDNNA] Reconciliação | processados_ids={processados_ids}", flush=True)
+    print(f"[EDNNA] Reconciliação | pendentes_redmine_ids={pendentes_redmine_ids}", flush=True)
+    print(f"[EDNNA] Reconciliação | presos_enviando_ids={presos_enviando_ids}", flush=True)
+    print(f"[EDNNA] Reconciliação | orfaos_reais_ids={orfaos_reais_ids}", flush=True)
 
     for chamado_id in orfaos_reais:
         atual = obter_acompanhamento(chamado_id, regra_id)
