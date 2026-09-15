@@ -1617,15 +1617,17 @@ def render_ednna_workspace(
                     "A EDNNA prepara rascunhos somente para players com procedimento homologado. "
                     "Nesta fase nenhum envio é realizado por esta área."
                 )
-                if st.button("🧭 Preparar plano e rascunhos", key="ednna_plano_cancelamento_v325"):
+                if st.button("🧭 Preparar plano e rascunhos", key="ednna_btn_preparar_plano_cancelamento_v325"):
                     try:
                         with st.spinner("Preparando o plano de cancelamento a partir do histórico..."):
                             plano = preparar_plano_cancelamento(int(contexto_chamado_id), force=False)
-                        st.session_state["ednna_plano_cancelamento_v325"] = plano
+                        st.session_state["ednna_plano_cancelamento_dados_v325"] = plano
                     except Exception as exc_plano:
                         st.error(f"Não foi possível preparar o plano: {exc_plano}")
 
-                plano = st.session_state.get("ednna_plano_cancelamento_v325")
+                plano = st.session_state.get("ednna_plano_cancelamento_dados_v325")
+                if not isinstance(plano, dict):
+                    plano = None
                 if plano and int(plano.get("chamado_id", 0)) == int(contexto_chamado_id):
                     resumo_plano = plano.get("resumo", {})
                     pc1, pc2, pc3, pc4 = st.columns(4)
