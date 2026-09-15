@@ -139,6 +139,9 @@ def inicializar_acompanhamento() -> None:
             "responsavel_anterior_id": "INTEGER",
             "responsavel_anterior_nome": "TEXT",
             "ednna_assumiu_em": "TEXT",
+            "evidencia_anexada_em": "TEXT",
+            "evidencia_filename": "TEXT",
+            "evidencia_erro": "TEXT",
         }
 
         for nome, tipo in novas_colunas.items():
@@ -746,5 +749,32 @@ def marcar_resposta_sincronizada_redmine(chamado_id: int, regra_id: str) -> dict
                       atualizado_em=?
                 WHERE chamado_id=? AND regra_id=?""",
             (agora, agora, int(chamado_id), str(regra_id)),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)
+
+
+# ============================================================
+# v3.28.7.6 — evidência documental do retorno da adquirente
+# ============================================================
+def marcar_evidencia_anexada(chamado_id: int, regra_id: str, filename: str) -> dict:
+    inicializar_acompanhamento()
+    agora = _iso(_agora())
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais
+                  SET evidencia_anexada_em=?, evidencia_filename=?, evidencia_erro=NULL, atualizado_em=?
+                WHERE chamado_id=? AND regra_id=?""",
+            (agora, str(filename or "")[:500], agora, int(chamado_id), str(regra_id)),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)
+
+def registrar_falha_evidencia(chamado_id: int, regra_id: str, erro: str) -> dict:
+    inicializar_acompanhamento()
+    agora = _iso(_agora())
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais SET evidencia_erro=?, atualizado_em=?
+                WHERE chamado_id=? AND regra_id=?""",
+            (str(erro or "")[:2000], agora, int(chamado_id), str(regra_id)),
         )
     return obter_acompanhamento(chamado_id, regra_id)

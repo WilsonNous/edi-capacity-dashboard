@@ -45,7 +45,7 @@ class RedmineWriteError(RuntimeError):
     pass
 
 
-def _headers() -> dict[str, str]:
+def _headers(*, content_type: str = "application/json") -> dict[str, str]:
     if not REDMINE_API_KEY:
         raise RedmineWriteError(
             "REDMINE_API_KEY não configurada."
@@ -54,7 +54,7 @@ def _headers() -> dict[str, str]:
     headers = {
         "X-Redmine-API-Key": REDMINE_API_KEY,
         "Accept": "application/json",
-        "Content-Type": "application/json",
+        "Content-Type": content_type,
     }
 
     if REDMINE_AUTHORIZATION:
@@ -332,6 +332,65 @@ def alterar_status_chamado(
         "status_nome": status_nome,
     }
 
+
+
+def upload_arquivo_redmine(*, conteudo: bytes, filename: str, content_type: str = "message/rfc822") -> dict:
+    """Envia binário para /uploads.json e devolve o token para anexar ao chamado."""
+    if not conteudo:
+        raise RedmineWriteError("Conteúdo do anexo está vazio.")
+    filename = str(filename or "evidencia.eml").strip() or "evidencia.eml"
+    resposta = requests.post(
+        f"{REDMINE_URL}/uploads.json",
+        headers=_headers(content_type="application/octet-stream"),
+        params={"filename": filename},
+        data=conteudo,
+        timeout=(20, 90),
+    )
+    if resposta.status_code not in {200, 201}:
+        raise RedmineWriteError(
+            f"Falha no upload da evidência ao Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+    upload = (resposta.json() or {}).get("upload") or {}
+    token = str(upload.get("token") or "").strip()
+    if not token:
+        raise RedmineWriteError("Redmine não retornou token do upload.")
+    return {"token": token, "filename": filename, "content_type": content_type}
+
+
+def registrar_email_evidencia_e_status_chamado(
+    *, chamado_id: int, nota: str, status_nome: str, assigned_to_id: int | None,
+    evidencia: bytes, evidencia_filename: str, evidencia_content_type: str = "message/rfc822",
+) -> dict:
+    """Registra nota/status e anexa a mensagem original como evidência documental."""
+    upload = upload_arquivo_redmine(
+        conteudo=evidencia, filename=evidencia_filename, content_type=evidencia_content_type
+    )
+    status_id = obter_status_id_por_nome(status_nome)
+    payload = {
+        "notes": nota,
+        "status_id": status_id,
+        "uploads": [{
+            "token": upload["token"],
+            "filename": upload["filename"],
+            "content_type": upload["content_type"],
+            "description": "Evidência original do retorno da adquirente preservada pela EDNNA",
+        }],
+    }
+    if assigned_to_id is not None:
+        payload["assigned_to_id"] = int(assigned_to_id)
+    resposta = requests.put(
+        f"{REDMINE_URL}/issues/{int(chamado_id)}.json",
+        headers=_headers(), json={"issue": payload}, timeout=(20, 60),
+    )
+    if resposta.status_code not in {200, 204}:
+        raise RedmineWriteError(
+            f"Falha ao registrar retorno/evidência no Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+    print(
+        f"[EDNNA] Evidência Redmine | anexada | chamado={chamado_id} | arquivo={evidencia_filename}",
+        flush=True,
+    )
+    return {"ok": True, "chamado_id": int(chamado_id), "status_id": status_id, "status_nome": status_nome, "arquivo": evidencia_filename}
 
 def registrar_email_e_status_chamado(
     *,

@@ -21,6 +21,8 @@ from ednna.acompanhamento_acoes import (
     registrar_resposta_pendente_redmine,
     listar_respostas_pendentes_redmine,
     marcar_resposta_sincronizada_redmine,
+    marcar_evidencia_anexada,
+    registrar_falha_evidencia,
 )
 from ednna.email_sender import (
     listar_mensagens_conversa,
@@ -28,8 +30,12 @@ from ednna.email_sender import (
     localizar_resposta_por_chamado,
     localizar_email_enviado_por_chamado,
     listar_envios_cancelamento_getnet,
+    baixar_mensagem_eml,
 )
-from ednna.redmine_writer import registrar_email_e_status_chamado, atribuir_chamado_responsavel
+from ednna.redmine_writer import (
+    registrar_email_e_status_chamado, atribuir_chamado_responsavel,
+    registrar_email_evidencia_e_status_chamado,
+)
 from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
 from ednna.planejador_cancelamentos import extrair_dados_getnet, preparar_plano_cancelamento
 from ednna.orquestrador_cancelamentos import (
@@ -128,10 +134,30 @@ def _nota_retorno(*, remetente: str, assunto: str, corpo: str, recebida_em: str)
             "",
             "----",
             "",
-            "*Acompanhamento EDNNA:* Resposta recebida e encaminhada para interpretação operacional.",
+            "*Evidência:* E-mail original anexado ao chamado pela EDNNA.",
         ]
     ).strip()
 
+
+
+def _nome_evidencia(chamado_id: int, recebida_em: str) -> str:
+    try:
+        dt = datetime.fromisoformat(str(recebida_em).replace("Z", "+00:00"))
+        data = dt.strftime("%Y%m%d_%H%M%S")
+    except Exception:
+        data = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"GETNET_RETORNO_CANCELAMENTO_{int(chamado_id)}_{data}.eml"
+
+def _anexar_evidencia_retorno(*, caixa: str, chamado_id: int, regra_id: str, message_id: str,
+                               nota: str, status: str, assigned_to: int, recebida_em: str) -> str:
+    filename = _nome_evidencia(chamado_id, recebida_em)
+    eml = baixar_mensagem_eml(caixa_postal=caixa, message_id=message_id)
+    registrar_email_evidencia_e_status_chamado(
+        chamado_id=chamado_id, nota=nota, status_nome=status, assigned_to_id=assigned_to,
+        evidencia=eml, evidencia_filename=filename,
+    )
+    marcar_evidencia_anexada(chamado_id, regra_id, filename)
+    return filename
 
 def _complemento_getnet(chamado_id: int, corpo: str) -> str:
     texto = str(corpo or "").casefold()
@@ -510,6 +536,57 @@ def _auditar_processados_redmine(caixa: str) -> dict:
     return {"confirmados": confirmados, "reparo": reparo, "indisponiveis": indisponiveis}
 
 
+
+def _reconciliar_evidencias_processadas(caixa: str) -> dict:
+    """Anexa .eml retroativamente aos retornos GETNET já processados e ainda sem evidência."""
+    regra_id = "CANCELAMENTO-GETNET-001"
+    envios = listar_envios_cancelamento_getnet(remetente=caixa, top=500)
+    ids = sorted({int(x.get("chamado_id") or 0) for x in envios if int(x.get("chamado_id") or 0)})
+    anexadas, pendentes, erros = [], [], []
+    for chamado_id in ids:
+        acao = obter_acompanhamento(chamado_id, regra_id)
+        if str(acao.get("estado") or "").upper() != "RESPOSTA_RECEBIDA":
+            continue
+        if str(acao.get("evidencia_anexada_em") or "").strip():
+            continue
+        message_id = str(acao.get("resposta_graph_message_id") or "").strip()
+        if not message_id:
+            resposta = localizar_resposta_por_chamado(
+                caixa_postal=caixa, chamado_id=chamado_id, recebidas_apos=str(acao.get("enviado_em") or "")
+            )
+            message_id = str(resposta.get("id") or "").strip() if resposta else ""
+        if not message_id:
+            pendentes.append(chamado_id)
+            continue
+        try:
+            # Não duplica a nota histórica: neste reparo anexa somente a evidência, com nota curta de auditoria.
+            filename = _nome_evidencia(chamado_id, str(acao.get("resposta_recebida_em") or ""))
+            eml = baixar_mensagem_eml(caixa_postal=caixa, message_id=message_id)
+            from ednna.redmine_writer import upload_arquivo_redmine
+            upload = upload_arquivo_redmine(conteudo=eml, filename=filename)
+            # PUT específico para anexar o token, sem alterar status/responsável.
+            import requests as _requests
+            from ednna.redmine_writer import REDMINE_URL as _RU, _headers as _rh
+            r = _requests.put(
+                f"{_RU}/issues/{chamado_id}.json", headers=_rh(),
+                json={"issue": {"notes": "*EDNNA — Evidência documental*\n\nE-mail original do retorno da GETNET anexado ao chamado para rastreabilidade.",
+                                "uploads": [{"token": upload["token"], "filename": filename,
+                                             "content_type": "message/rfc822",
+                                             "description": "Evidência original do retorno da GETNET"}]}},
+                timeout=(20, 60),
+            )
+            if r.status_code not in {200, 204}:
+                raise RuntimeError(f"HTTP {r.status_code} - {r.text[:500]}")
+            marcar_evidencia_anexada(chamado_id, regra_id, filename)
+            anexadas.append(chamado_id)
+            print(f"[EDNNA] Evidência Redmine | anexada retroativamente | chamado={chamado_id} | arquivo={filename}", flush=True)
+        except Exception as exc:
+            registrar_falha_evidencia(chamado_id, regra_id, str(exc))
+            erros.append(chamado_id)
+            print(f"[EDNNA] Evidência Redmine | falha | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+    print(f"[EDNNA] Evidência auditoria | anexadas_ids={anexadas} | pendentes_ids={pendentes} | erros_ids={erros}", flush=True)
+    return {"anexadas": anexadas, "pendentes": pendentes, "erros": erros}
+
 def _sincronizar_respostas_pendentes_redmine() -> int:
     """Tenta descarregar no Redmine respostas já preservadas no SQLite."""
     sincronizadas = 0
@@ -527,9 +604,17 @@ def _sincronizar_respostas_pendentes_redmine() -> int:
             extra, assigned_to, status = _processar_retorno_getnet(chamado_id, corpo)
             nota += extra
         try:
-            registrar_email_e_status_chamado(
-                chamado_id=chamado_id, nota=nota, status_nome=status, assigned_to_id=assigned_to,
-            )
+            message_id = str(acao.get("resposta_graph_message_id") or "")
+            if message_id and not str(acao.get("evidencia_anexada_em") or ""):
+                _anexar_evidencia_retorno(
+                    caixa=str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or ""),
+                    chamado_id=chamado_id, regra_id=regra_id, message_id=message_id,
+                    nota=nota, status=status, assigned_to=assigned_to, recebida_em=recebida_em,
+                )
+            else:
+                registrar_email_e_status_chamado(
+                    chamado_id=chamado_id, nota=nota, status_nome=status, assigned_to_id=assigned_to,
+                )
             marcar_status_redmine(chamado_id, regra_id, status)
             marcar_resposta_sincronizada_redmine(chamado_id, regra_id)
             sincronizadas += 1
@@ -561,6 +646,12 @@ def executar_monitoramento_respostas() -> dict:
             resumo["detalhes"].append({"reparo_pendente": auditoria.get("reparo")})
     except Exception as exc:
         print(f"[EDNNA] Auditoria conclusão | falha | {type(exc).__name__}: {exc}", flush=True)
+    try:
+        evidencias = _reconciliar_evidencias_processadas(caixa)
+        if evidencias.get("anexadas"):
+            resumo["detalhes"].append({"evidencias_anexadas": evidencias.get("anexadas")})
+    except Exception as exc:
+        print(f"[EDNNA] Evidência auditoria | falha | {type(exc).__name__}: {exc}", flush=True)
     try:
         pendentes_sync = _sincronizar_respostas_pendentes_redmine()
         if pendentes_sync:
@@ -648,9 +739,10 @@ def executar_monitoramento_respostas() -> dict:
                 remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em,
             )
             try:
-                registrar_email_e_status_chamado(
-                    chamado_id=chamado_id, nota=nota, status_nome=status_efetivo,
-                    assigned_to_id=assigned_to_retorno,
+                message_id = str(resposta.get("id", "") or "")
+                _anexar_evidencia_retorno(
+                    caixa=caixa, chamado_id=chamado_id, regra_id=regra_id, message_id=message_id,
+                    nota=nota, status=status_efetivo, assigned_to=assigned_to_retorno, recebida_em=recebida_em,
                 )
                 marcar_status_redmine(chamado_id, regra_id, status_efetivo)
                 marcar_resposta_sincronizada_redmine(chamado_id, regra_id)

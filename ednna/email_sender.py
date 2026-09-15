@@ -203,6 +203,26 @@ def _graph_get(
     return resposta.json()
 
 
+
+def baixar_mensagem_eml(*, caixa_postal: str, message_id: str) -> bytes:
+    """Baixa a mensagem original RFC822/MIME pelo Microsoft Graph ($value)."""
+    caixa_postal = str(caixa_postal or "").strip()
+    message_id = str(message_id or "").strip()
+    if not caixa_postal or not message_id:
+        raise EmailConfigError("Caixa postal/message_id ausente para gerar evidência .eml.")
+    token = obter_token_graph()
+    resposta = requests.get(
+        f"{GRAPH_BASE_URL}/users/{caixa_postal}/messages/{message_id}/$value",
+        headers={"Authorization": f"Bearer {token}", "Accept": "message/rfc822"},
+        timeout=45,
+    )
+    if resposta.status_code != 200:
+        raise EmailSendError(
+            "Falha ao baixar e-mail original pelo Microsoft Graph: "
+            f"HTTP {resposta.status_code} - {resposta.text[:500]}"
+        )
+    return bytes(resposta.content)
+
 def localizar_email_enviado(
     *,
     remetente: str,
