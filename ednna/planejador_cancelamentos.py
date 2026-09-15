@@ -8,6 +8,7 @@ from ednna.contexto_relacionamentos import (
     buscar_issue_contexto,
 )
 from ednna.motor_acoes import gerar_rascunho
+from ednna.orquestrador_cancelamentos import sincronizar_plano
 
 # ============================================================
 # EDNNA — PLANEJADOR DE CANCELAMENTOS
@@ -179,6 +180,10 @@ def preparar_plano_cancelamento(chamado_id: int, *, force: bool = False) -> dict
                 "motivo": str(rascunho.get("motivo") or "O procedimento não ficou apto para rascunho."),
             })
         itens.append(base)
+
+    # v3.28.5: persiste uma etapa por player. Ao homologar uma nova regra no catálogo,
+    # a próxima reconstrução promove automaticamente a etapa correspondente.
+    sincronizar_plano(int(chamado_id), itens)
 
     return {
         "chamado_id": int(chamado_id),

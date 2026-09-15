@@ -679,3 +679,15 @@ def atribuir_chamado_ednna(*, chamado_id: int, ednna_user_id: int | None = None)
             raise RedmineWriteError(f"Falha ao atribuir chamado à EDNNA: HTTP {resp.status_code} - {resp.text[:500]}")
     return {"ok": True, "chamado_id": int(chamado_id), "ednna_user_id": user_id,
             "responsavel_anterior_id": anterior_id, "responsavel_anterior_nome": anterior_nome}
+
+
+def atribuir_chamado_responsavel(*, chamado_id: int, responsavel_id: int) -> dict:
+    """Devolve o chamado a um responsável humano explicitamente preservado pela EDNNA."""
+    rid = int(responsavel_id)
+    if rid <= 0:
+        raise RedmineWriteError('Responsável original inválido para handoff.')
+    url = f"{REDMINE_URL}/issues/{int(chamado_id)}.json"
+    resp = requests.put(url, headers=_headers(), json={'issue': {'assigned_to_id': rid}}, timeout=(20,60))
+    if resp.status_code not in {200,204}:
+        raise RedmineWriteError(f"Falha ao devolver chamado ao responsável original: HTTP {resp.status_code} - {resp.text[:500]}")
+    return {'ok':True,'chamado_id':int(chamado_id),'responsavel_id':rid}

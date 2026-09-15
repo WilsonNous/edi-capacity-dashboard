@@ -49,6 +49,9 @@ from ednna.contexto_relacionamentos import (
 from ednna.planejador_cancelamentos import (
     preparar_plano_cancelamento,
 )
+from ednna.orquestrador_cancelamentos import (
+    marcar_etapa, resumo_orquestracao, rotulo_etapa,
+)
 
 
 def _carregar_css() -> None:
@@ -1832,6 +1835,17 @@ def render_ednna_workspace(
                             f"{resumo_plano.get('sem_procedimento', 0)} player(s) ainda sem procedimento de cancelamento homologado."
                         )
 
+                    orq = resumo_orquestracao(int(contexto_chamado_id))
+                    if orq.get("total"):
+                        st.markdown("##### Orquestração por player")
+                        st.caption(f"Progresso externo: {orq['concluidas']} de {orq['total']} etapa(s) concluída(s).")
+                        df_orq = pd.DataFrame([{
+                            "Player": e.get("player"),
+                            "Situação": rotulo_etapa(e.get("estado")),
+                            "Procedimento": e.get("regra_id") or "—",
+                        } for e in orq.get("etapas", [])])
+                        st.dataframe(df_orq, use_container_width=True, hide_index=True)
+
                     for item_plano in plano.get("itens", []):
                         status_plano = item_plano.get("status_plano")
                         icone_plano = {
@@ -1937,6 +1951,7 @@ def render_ednna_workspace(
                                                     graph_conversation_id=resultado_email.get("conversation_id", ""),
                                                     graph_internet_message_id=resultado_email.get("internet_message_id", ""),
                                                 )
+                                                marcar_etapa(chamado_plano, str(item_plano.get("player") or "GETNET"), "AGUARDANDO_RESPOSTA", "Solicitação enviada pela EDNNA.")
                                                 responsabilidade = atribuir_chamado_ednna(chamado_id=chamado_plano)
                                                 registrar_responsabilidade_ednna(
                                                     chamado_plano, regra_plano,

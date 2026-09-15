@@ -642,3 +642,22 @@ def registrar_responsabilidade_ednna(chamado_id: int, regra_id: str, anterior_id
              WHERE chamado_id = ? AND regra_id = ?""",
             (anterior_id, str(anterior_nome or ""), _iso(agora), _iso(agora), int(chamado_id), str(regra_id)),
         )
+
+
+def obter_responsavel_original_cancelamento(chamado_id: int) -> dict:
+    """Recupera o primeiro responsável humano preservado por qualquer etapa do chamado."""
+    inicializar_acompanhamento()
+    with _conectar() as conn:
+        row = conn.execute(
+            """SELECT responsavel_anterior_id, responsavel_anterior_nome
+                 FROM acoes_operacionais
+                WHERE chamado_id = ?
+                  AND responsavel_anterior_id IS NOT NULL
+                  AND responsavel_anterior_id <> ?
+                ORDER BY COALESCE(ednna_assumiu_em, atualizado_em) ASC
+                LIMIT 1""",
+            (int(chamado_id), int(os.getenv('REDMINE_EDNNA_USER_ID','166') or 166)),
+        ).fetchone()
+    if not row:
+        return {}
+    return {'id': row['responsavel_anterior_id'], 'nome': row['responsavel_anterior_nome'] or ''}

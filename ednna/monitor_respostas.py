@@ -14,15 +14,17 @@ from ednna.acompanhamento_acoes import (
     marcar_status_redmine,
     registrar_falha_redmine,
     registrar_resposta,
+    obter_responsavel_original_cancelamento,
 )
 from ednna.email_sender import (
     listar_mensagens_conversa,
     localizar_email_enviado,
     localizar_resposta_por_chamado,
 )
-from ednna.redmine_writer import registrar_email_e_status_chamado
+from ednna.redmine_writer import registrar_email_e_status_chamado, atribuir_chamado_responsavel
 from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
-from ednna.planejador_cancelamentos import extrair_dados_getnet
+from ednna.planejador_cancelamentos import extrair_dados_getnet, preparar_plano_cancelamento
+from ednna.orquestrador_cancelamentos import marcar_etapa, resumo_orquestracao
 
 
 _THREAD: threading.Thread | None = None
@@ -115,7 +117,7 @@ def _nota_retorno(*, remetente: str, assunto: str, corpo: str, recebida_em: str)
             "",
             "----",
             "",
-            "*Acompanhamento EDNNA:* Resposta recebida. Chamado devolvido para andamento operacional.",
+            "*Acompanhamento EDNNA:* Resposta recebida e encaminhada para interpretação operacional.",
         ]
     ).strip()
 
@@ -155,6 +157,43 @@ def _complemento_getnet(chamado_id: int, corpo: str) -> str:
     else:
         linhas.extend(["*Resultado:* Não foi possível localizar EC/CNPJ com segurança.", "", "*Próxima ação EDNNA:* Requer intervenção humana."])
     return "\n".join(linhas)
+
+
+def _getnet_cancelamento_confirmado(corpo: str) -> bool:
+    t = re.sub(r"\s+", " ", str(corpo or "").casefold())
+    confirmacoes = [
+        "foram desativados", "foram desativadas", "foi desativado", "foi desativada",
+        "cancelamento concluído", "cancelamento concluido", "cancelamento realizado",
+        "tráfego cancelado", "trafego cancelado", "desativados para o envio",
+    ]
+    return any(x in t for x in confirmacoes)
+
+
+def _processar_retorno_getnet(chamado_id: int, corpo: str) -> tuple[str, int | None, str]:
+    """Retorna (nota_extra, assigned_to_id, status). Mantém EDNNA enquanto houver etapas externas pendentes."""
+    ednna_id = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+    if not _getnet_cancelamento_confirmado(corpo):
+        return _complemento_getnet(chamado_id, corpo), ednna_id, "Em andamento"
+
+    # Reconstrói/sincroniza todas as etapas antes de decidir handoff. Evita tratar GETNET
+    # como se fosse o único player de um cancelamento total (ex.: MAIS CAMPUS).
+    try:
+        preparar_plano_cancelamento(int(chamado_id), force=False)
+    except Exception as exc:
+        print(f"[EDNNA] Orquestrador | sincronização parcial | chamado={chamado_id} | {exc}", flush=True)
+    marcar_etapa(chamado_id, "GETNET", "CANCELAMENTO_CONFIRMADO", "Retorno da GETNET confirmou desativação/cancelamento.")
+    resumo = resumo_orquestracao(chamado_id)
+    linhas = ["", "*EDNNA — Resultado GETNET*", "", "*Resultado:* Cancelamento confirmado pela adquirente.",
+              f"*Progresso externo:* {resumo['concluidas']} de {resumo['total']} etapa(s) concluída(s)."]
+    if resumo['todas_concluidas']:
+        original = obter_responsavel_original_cancelamento(chamado_id)
+        if original.get('id'):
+            linhas += ["", "*Handoff EDNNA:* Etapas externas concluídas. Chamado devolvido ao responsável operacional original para ações internas (BATs, diretórios, servidor e demais procedimentos físicos)."]
+            return "\n".join(linhas), int(original['id']), "Em andamento"
+        linhas += ["", "*Handoff EDNNA:* Etapas externas concluídas, mas o responsável original não está disponível na memória. Requer revisão humana."]
+    else:
+        linhas += ["", "*Acompanhamento EDNNA:* A etapa GETNET foi concluída. A EDNNA permanece responsável porque ainda existem etapas externas pendentes por player."]
+    return "\n".join(linhas), ednna_id, "Em andamento"
 
 
 def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
@@ -241,17 +280,20 @@ def executar_monitoramento_respostas() -> dict:
             nota = _nota_retorno(
                 remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em,
             )
+            assigned_to_retorno = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+            status_efetivo = status_retorno
             if regra_id == "CANCELAMENTO-GETNET-001":
-                nota += _complemento_getnet(chamado_id, corpo)
+                extra, assigned_to_retorno, status_efetivo = _processar_retorno_getnet(chamado_id, corpo)
+                nota += extra
 
             # Primeiro atualiza o sistema oficial. Só depois encerra o acompanhamento local.
             registrar_email_e_status_chamado(
                 chamado_id=chamado_id,
                 nota=nota,
-                status_nome=status_retorno,
-                assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
+                status_nome=status_efetivo,
+                assigned_to_id=assigned_to_retorno,
             )
-            marcar_status_redmine(chamado_id, regra_id, status_retorno)
+            marcar_status_redmine(chamado_id, regra_id, status_efetivo)
             registrar_resposta(
                 chamado_id,
                 regra_id,
