@@ -26,23 +26,54 @@ def _texto_issue(issue: dict) -> str:
     return "\n".join(partes)
 
 
-def _extrair_identificadores_getnet(issues: list[dict]) -> list[str]:
-    """Extrai EC/Convênio somente quando explicitamente rotulado no histórico."""
-    valores: set[str] = set()
+def _eh_cnpj(valor: str) -> bool:
+    digitos = re.sub(r"\D", "", str(valor or ""))
+    return len(digitos) == 14
+
+
+def _normalizar_ec_getnet(valor: str) -> str:
+    """Normaliza EC GETNET. CNPJ e texto puro nunca viram EC."""
+    bruto = str(valor or "").strip()
+    if not bruto or _eh_cnpj(bruto):
+        return ""
+    # Casos históricos como 1039197GETNET devem resultar em 1039197.
+    m = re.match(r"^\s*(\d{5,12})(?:\s*GETNET)?\s*$", bruto, flags=re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # Aceita somente identificador numérico plausível; palavras são descartadas.
+    if re.fullmatch(r"\d{5,12}", bruto):
+        return bruto
+    return ""
+
+
+def extrair_dados_getnet(issues: list[dict]) -> dict:
+    """Separa ECs operacionais de CNPJs de contexto, sem contaminar com texto."""
+    ecs: set[str] = set()
+    cnpjs: set[str] = set()
     padroes = [
-        r"\bEC\s*/\s*Conv[eê]nio\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
-        r"\bConv[eê]nio\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
-        r"\bEC\s*(?:[:\-]\s*|\s+)([0-9][A-Za-z0-9._/-]*)",
-        r"\bEstabelecimento\s*[:\-]?\s*([A-Za-z0-9._/-]+)",
+        r"\bEC\s*/\s*Conv[eê]nio\s*[:\-]?\s*([^\s,;|]+)",
+        r"\bConv[eê]nio\s*[:\-]?\s*([^\s,;|]+)",
+        r"\bEC\s*(?:[:\-]\s*|\s+)([^\s,;|]+)",
+        r"\bEstabelecimento\s*[:\-]?\s*([^\s,;|]+)",
     ]
+    cnpj_re = re.compile(r"\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b")
     for issue in issues:
         texto = _texto_issue(issue)
+        cnpjs.update(cnpj_re.findall(texto))
         for padrao in padroes:
             for match in re.findall(padrao, texto, flags=re.IGNORECASE):
                 valor = str(match or "").strip().strip(".,;:)")
-                if valor:
-                    valores.add(valor)
-    return sorted(valores)
+                if _eh_cnpj(valor):
+                    cnpjs.add(valor)
+                    continue
+                ec = _normalizar_ec_getnet(valor)
+                if ec:
+                    ecs.add(ec)
+    return {"ecs": sorted(ecs, key=lambda x: (len(x), x)), "cnpjs": sorted(cnpjs)}
+
+
+def _extrair_identificadores_getnet(issues: list[dict]) -> list[str]:
+    return extrair_dados_getnet(issues)["ecs"]
 
 
 def _linha_sintetica_getnet(chamado_id: int, cliente: str, convenio: str) -> dict[str, Any]:
@@ -110,8 +141,10 @@ def preparar_plano_cancelamento(chamado_id: int, *, force: bool = False) -> dict
             except Exception:
                 continue
 
-        identificadores = _extrair_identificadores_getnet(issues)
+        dados_getnet = extrair_dados_getnet(issues)
+        identificadores = dados_getnet["ecs"]
         base["identificadores"] = identificadores
+        base["cnpjs"] = dados_getnet["cnpjs"]
 
         if not identificadores:
             base.update({
@@ -122,23 +155,16 @@ def preparar_plano_cancelamento(chamado_id: int, *, force: bool = False) -> dict
             itens.append(base)
             continue
 
-        if len(identificadores) > 1:
-            base.update({
-                "status_plano": "CONFLITO_HISTORICO",
-                "rotulo": "Revisão necessária",
-                "motivo": "Foram encontrados múltiplos ECs/Convênios no histórico. A EDNNA não escolheu um automaticamente.",
-            })
-            itens.append(base)
-            continue
-
-        linha = _linha_sintetica_getnet(int(chamado_id), cliente, identificadores[0])
+        # Em cancelamento TOTAL, múltiplos ECs são válidos: todos devem compor o pedido.
+        convenio_rascunho = ", ".join(identificadores)
+        linha = _linha_sintetica_getnet(int(chamado_id), cliente, convenio_rascunho)
         rascunho = gerar_rascunho(linha)
         if rascunho.get("apto_rascunho"):
             base.update({
                 "status_plano": "PRONTO_REVISAO",
                 "rotulo": "Pronto para revisão",
                 "rascunho": rascunho,
-                "motivo": "Procedimento GETNET homologado e dados mínimos reconstruídos do histórico.",
+                "motivo": f"Procedimento GETNET homologado com {len(identificadores)} EC(s) reconstruído(s) do histórico.",
             })
         else:
             base.update({

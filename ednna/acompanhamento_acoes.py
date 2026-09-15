@@ -136,6 +136,9 @@ def inicializar_acompanhamento() -> None:
             "resposta_assunto": "TEXT",
             "resposta_corpo": "TEXT",
             "monitorado_em": "TEXT",
+            "responsavel_anterior_id": "INTEGER",
+            "responsavel_anterior_nome": "TEXT",
+            "ednna_assumiu_em": "TEXT",
         }
 
         for nome, tipo in novas_colunas.items():
@@ -625,3 +628,17 @@ def rotulo_estado(
         str(estado or ""),
         str(estado or "Sem estado"),
     )
+
+
+def registrar_responsabilidade_ednna(chamado_id: int, regra_id: str, anterior_id: int | None, anterior_nome: str = "") -> None:
+    agora = _agora()
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais
+               SET responsavel_anterior_id = COALESCE(responsavel_anterior_id, ?),
+                   responsavel_anterior_nome = CASE WHEN COALESCE(responsavel_anterior_nome, '') = '' THEN ? ELSE responsavel_anterior_nome END,
+                   ednna_assumiu_em = COALESCE(ednna_assumiu_em, ?),
+                   atualizado_em = ?
+             WHERE chamado_id = ? AND regra_id = ?""",
+            (anterior_id, str(anterior_nome or ""), _iso(agora), _iso(agora), int(chamado_id), str(regra_id)),
+        )

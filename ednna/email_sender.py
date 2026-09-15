@@ -248,3 +248,24 @@ def listar_mensagens_conversa(
         },
     )
     return list(dados.get("value", []) or [])
+
+
+def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebidas_apos: str = "") -> dict:
+    """Fallback robusto: localiza resposta na Inbox pelo #ID, tolerando RE:/[EXT]."""
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{caixa_postal}/mailFolders/inbox/messages",
+        params={
+            "$select": "id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview,isRead",
+            "$orderby": "receivedDateTime desc",
+            "$top": "100",
+        },
+    )
+    alvo = f"#{int(chamado_id)}"
+    for item in dados.get("value", []) or []:
+        assunto = str(item.get("subject", "") or "")
+        if alvo not in assunto:
+            continue
+        if recebidas_apos and str(item.get("receivedDateTime", "") or "") < str(recebidas_apos):
+            continue
+        return item
+    return {}

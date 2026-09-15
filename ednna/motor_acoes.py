@@ -322,7 +322,7 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
         linha.get("EDNNA - Origem operacional")
         or linha.get("Origem")
     ) or "Origem não identificada"
-    convenio = _texto(linha.get("EDNNA - Convênio"))
+    convenio = _extrair_convenio_fallback(linha)
     referencia = _texto(
         linha.get("EDNNA - Referência operacional")
         or linha.get("EDNNA - Referência")
@@ -366,16 +366,35 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
         )
 
     elif regra.get("id") == "CANCELAMENTO-GETNET-001":
+        ecs = [x.strip() for x in re.split(r"[,;\n]+", convenio) if x.strip()]
+        ecs = list(dict.fromkeys(ecs))
+        if len(ecs) > 1:
+            assunto = f"[ {cliente} - GETNET - Solicitação de cancelamento de tráfego - {len(ecs)} ECs - #{chamado_id} ]"
+        if not ecs:
+            return {**avaliacao, "estado": "DADOS_INCOMPLETOS", "rotulo": "Dados incompletos",
+                    "apto_rascunho": False, "destinatarios": [], "cc": [], "assunto": "", "corpo": "",
+                    "motivo": "Envio GETNET bloqueado: nenhum EC/Convênio válido foi localizado."}
+        if len(ecs) == 1:
+            bloco_ec = f"EC / Convênio: {ecs[0]}"
+            referencia = "ao estabelecimento abaixo"
+        else:
+            bloco_ec = "ECs / Convênios:\n" + "\n".join(f"- {ec}" for ec in ecs)
+            referencia = "aos estabelecimentos abaixo"
         corpo = (
             f"{regra.get('saudacao', 'Olá, Time GETNET, tudo bem?')}\n\n"
-            "Solicitamos, por gentileza, o cancelamento do tráfego referente ao estabelecimento abaixo:\n\n"
+            f"Solicitamos, por gentileza, o cancelamento do tráfego referente {referencia}:\n\n"
             f"Cliente: {cliente}\n"
-            f"EC / Convênio: {convenio}\n"
+            f"{bloco_ec}\n"
             f"Chamado Netunna: #{chamado_id}\n\n"
             "Pedimos a gentileza de confirmar a conclusão do cancelamento.\n\n"
             "Agradecemos e permanecemos à disposição para quaisquer esclarecimentos.\n\n"
             "Atenciosamente,\nEquipe EDI Netunna"
         )
+        # Segunda barreira: nunca permitir um rascunho GETNET com EC vazio.
+        if not all(ec in corpo for ec in ecs):
+            return {**avaliacao, "estado": "DADOS_INCOMPLETOS", "rotulo": "Dados incompletos",
+                    "apto_rascunho": False, "destinatarios": [], "cc": [], "assunto": "", "corpo": "",
+                    "motivo": "Envio GETNET bloqueado pela validação final dos ECs."}
 
     else:
         arquivos_nsa = _texto(linha.get("EDNNA - Arquivos/NSA"))

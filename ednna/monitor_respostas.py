@@ -18,8 +18,11 @@ from ednna.acompanhamento_acoes import (
 from ednna.email_sender import (
     listar_mensagens_conversa,
     localizar_email_enviado,
+    localizar_resposta_por_chamado,
 )
 from ednna.redmine_writer import registrar_email_e_status_chamado
+from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
+from ednna.planejador_cancelamentos import extrair_dados_getnet
 
 
 _THREAD: threading.Thread | None = None
@@ -80,6 +83,43 @@ def _nota_retorno(*, remetente: str, assunto: str, corpo: str, recebida_em: str)
     ).strip()
 
 
+def _complemento_getnet(chamado_id: int, corpo: str) -> str:
+    texto = str(corpo or "").casefold()
+    if not ("cnpj" in texto or re.search(r"\bec\b", texto)):
+        return ""
+    issues = []
+    try:
+        issues.append(buscar_issue_contexto(int(chamado_id), force=False))
+    except Exception:
+        pass
+    dados = extrair_dados_getnet(issues)
+    if not dados["ecs"]:
+        try:
+            ctx = analisar_contexto_cancelamento(int(chamado_id), force=False)
+            fontes = []
+            for rel in ctx.get("relacionamentos", []) or []:
+                if str(rel.get("player", "")).upper() == "GETNET":
+                    fontes.extend(rel.get("fontes", []) or [])
+            for fonte in dict.fromkeys(fontes):
+                try:
+                    issues.append(buscar_issue_contexto(int(fonte), force=False))
+                except Exception:
+                    pass
+            dados = extrair_dados_getnet(issues)
+        except Exception:
+            pass
+    linhas = ["", "*EDNNA — Complementação solicitada pela GETNET*", ""]
+    if dados["ecs"]:
+        linhas.append("*EC(s) localizado(s):* " + ", ".join(dados["ecs"]))
+    if dados["cnpjs"]:
+        linhas.append("*CNPJ(s) relacionado(s):* " + ", ".join(dados["cnpjs"]))
+    if dados["ecs"] or dados["cnpjs"]:
+        linhas.extend(["", "*Próxima ação EDNNA:* Dados localizados para preparação da resposta à GETNET. Envio permanece sujeito à revisão humana."] )
+    else:
+        linhas.extend(["*Resultado:* Não foi possível localizar EC/CNPJ com segurança.", "", "*Próxima ação EDNNA:* Requer intervenção humana."])
+    return "\n".join(linhas)
+
+
 def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
     conversation_id = str(acao.get("graph_conversation_id", "") or "").strip()
     if conversation_id:
@@ -116,14 +156,19 @@ def executar_monitoramento_respostas() -> dict:
         regra_id = str(acao["regra_id"])
         try:
             conversation_id, enviado = _resolver_conversation_id(acao, caixa)
+            resposta_fallback = None
             if not conversation_id:
-                resumo["sem_resposta"] += 1
-                resumo["detalhes"].append({
-                    "chamado": chamado_id,
-                    "regra": regra_id,
-                    "situacao": "CONVERSA_NAO_LOCALIZADA",
-                })
-                continue
+                resposta_fallback = localizar_resposta_por_chamado(
+                    caixa_postal=caixa, chamado_id=chamado_id,
+                    recebidas_apos=str(acao.get("enviado_em", "") or ""),
+                )
+                if not resposta_fallback:
+                    resumo["sem_resposta"] += 1
+                    resumo["detalhes"].append({
+                        "chamado": chamado_id, "regra": regra_id,
+                        "situacao": "CONVERSA_NAO_LOCALIZADA",
+                    })
+                    continue
 
             marcar_monitorado(
                 chamado_id,
@@ -133,18 +178,20 @@ def executar_monitoramento_respostas() -> dict:
                 graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
             )
 
-            mensagens = listar_mensagens_conversa(
-                caixa_postal=caixa,
-                conversation_id=conversation_id,
-                recebidas_apos=str(acao.get("enviado_em", "") or ""),
-            )
+            mensagens = []
+            if conversation_id:
+                mensagens = listar_mensagens_conversa(
+                    caixa_postal=caixa, conversation_id=conversation_id,
+                    recebidas_apos=str(acao.get("enviado_em", "") or ""),
+                )
             resumo["consultados"] += 1
 
-            resposta = None
-            for msg in mensagens:
-                if _remetente(msg).casefold() != caixa.casefold():
-                    resposta = msg
-                    break
+            resposta = resposta_fallback
+            if not resposta:
+                for msg in mensagens:
+                    if _remetente(msg).casefold() != caixa.casefold():
+                        resposta = msg
+                        break
 
             if not resposta:
                 resumo["sem_resposta"] += 1
@@ -155,17 +202,17 @@ def executar_monitoramento_respostas() -> dict:
             corpo = _texto_corpo(resposta)
             recebida_em = str(resposta.get("receivedDateTime", "") or "")
             nota = _nota_retorno(
-                remetente=remetente,
-                assunto=assunto,
-                corpo=corpo,
-                recebida_em=recebida_em,
+                remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em,
             )
+            if regra_id == "CANCELAMENTO-GETNET-001":
+                nota += _complemento_getnet(chamado_id, corpo)
 
             # Primeiro atualiza o sistema oficial. Só depois encerra o acompanhamento local.
             registrar_email_e_status_chamado(
                 chamado_id=chamado_id,
                 nota=nota,
                 status_nome=status_retorno,
+                assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
             )
             marcar_status_redmine(chamado_id, regra_id, status_retorno)
             registrar_resposta(

@@ -12,6 +12,7 @@ from ednna.acompanhamento_acoes import (
     marcar_status_redmine,
     registrar_falha_envio,
     registrar_falha_redmine,
+    registrar_responsabilidade_ednna,
 )
 from ednna.email_sender import (
     enviar_email_graph,
@@ -24,6 +25,7 @@ from ednna.motor_acoes import (
 from ednna.redmine_writer import (
     montar_nota_email_enviado,
     registrar_email_e_status_chamado,
+    atribuir_chamado_ednna,
 )
 
 
@@ -251,6 +253,12 @@ def executar_acoes_automaticas(
             continue
 
         try:
+            responsabilidade = atribuir_chamado_ednna(chamado_id=chamado_id)
+            registrar_responsabilidade_ednna(
+                chamado_id, regra_id,
+                responsabilidade.get("responsavel_anterior_id"),
+                responsabilidade.get("responsavel_anterior_nome", ""),
+            )
             nota = montar_nota_email_enviado(
                 remetente=rascunho.get(
                     "remetente",

@@ -20,6 +20,7 @@ from ednna.acompanhamento_acoes import (
     marcar_status_redmine,
     registrar_falha_redmine,
     registrar_resposta,
+    registrar_responsabilidade_ednna,
     rotulo_estado,
 )
 
@@ -36,6 +37,7 @@ from ednna.executor_automatico import (
 from ednna.redmine_writer import (
     adicionar_nota_chamado,
     alterar_status_chamado,
+    atribuir_chamado_ednna,
     montar_nota_email_enviado,
     registrar_email_e_status_chamado,
 )
@@ -1351,6 +1353,12 @@ def render_ednna_workspace(
                                                         )
 
                                                         try:
+                                                            responsabilidade = atribuir_chamado_ednna(chamado_id=chamado_int)
+                                                            registrar_responsabilidade_ednna(
+                                                                chamado_int, regra_id_acao,
+                                                                responsabilidade.get("responsavel_anterior_id"),
+                                                                responsabilidade.get("responsavel_anterior_nome", ""),
+                                                            )
                                                             nota_redmine = (
                                                                 montar_nota_email_enviado(
                                                                     remetente=rascunho.get(

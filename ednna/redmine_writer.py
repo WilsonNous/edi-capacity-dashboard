@@ -340,6 +340,7 @@ def registrar_email_e_status_chamado(
     status_nome: str = "Aguardando Retorno Cliente",
     data_inicio: str = "",
     data_fim: str = "",
+    assigned_to_id: int | None = None,
 ) -> dict:
     """
     Registra o e-mail no histórico e altera o status em um único PUT.
@@ -364,6 +365,9 @@ def registrar_email_e_status_chamado(
         "notes": nota,
         "status_id": status_id,
     }
+
+    if assigned_to_id is not None:
+        issue_payload["assigned_to_id"] = int(assigned_to_id)
 
     if data_inicio:
         issue_payload["start_date"] = _data_redmine(
@@ -656,3 +660,22 @@ def adicionar_nota_chamado(
             or "Falha desconhecida ao atualizar Redmine."
         )
     )
+
+
+def atribuir_chamado_ednna(*, chamado_id: int, ednna_user_id: int | None = None) -> dict:
+    """Atribui o chamado à EDNNA e devolve o responsável anterior para auditoria."""
+    user_id = int(ednna_user_id or os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+    url = f"{REDMINE_URL}/issues/{int(chamado_id)}.json"
+    atual = requests.get(url, headers=_headers(), params={"include": "journals"}, timeout=(20, 60))
+    if atual.status_code != 200:
+        raise RedmineWriteError(f"Falha ao consultar responsável atual: HTTP {atual.status_code} - {atual.text[:500]}")
+    issue = atual.json().get("issue", {}) or {}
+    anterior = issue.get("assigned_to") or {}
+    anterior_id = anterior.get("id")
+    anterior_nome = str(anterior.get("name", "") or "")
+    if int(anterior_id or 0) != user_id:
+        resp = requests.put(url, headers=_headers(), json={"issue": {"assigned_to_id": user_id}}, timeout=(20, 60))
+        if resp.status_code not in {200, 204}:
+            raise RedmineWriteError(f"Falha ao atribuir chamado à EDNNA: HTTP {resp.status_code} - {resp.text[:500]}")
+    return {"ok": True, "chamado_id": int(chamado_id), "ednna_user_id": user_id,
+            "responsavel_anterior_id": anterior_id, "responsavel_anterior_nome": anterior_nome}
