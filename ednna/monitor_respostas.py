@@ -107,7 +107,7 @@ def executar_monitoramento_respostas() -> dict:
         return resumo
 
     caixa = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
-    status_retorno = str(os.getenv("EDNNA_STATUS_RESPOSTA_RECEBIDA", "Aberto") or "Aberto").strip()
+    status_retorno = str(os.getenv("EDNNA_STATUS_RESPOSTA_RECEBIDA", "Em andamento") or "Em andamento").strip()
     acoes = listar_acoes_aguardando_resposta()
     resumo["aguardando"] = len(acoes)
 
@@ -205,11 +205,17 @@ def executar_monitoramento_respostas() -> dict:
 def _loop() -> None:
     intervalo = max(300, int(os.getenv("EDNNA_MONITOR_EMAIL_INTERVAL_SECONDS", "900") or 900))
     atraso_inicial = max(10, int(os.getenv("EDNNA_MONITOR_EMAIL_INITIAL_DELAY_SECONDS", "30") or 30))
+    print(
+        "[EDNNA] Monitor e-mail | aguardando primeiro ciclo | "
+        f"em={atraso_inicial}s | intervalo={intervalo}s",
+        flush=True,
+    )
     if _STOP.wait(atraso_inicial):
         return
 
     while not _STOP.is_set():
         try:
+            print("[EDNNA] Monitor e-mail | iniciando ciclo", flush=True)
             resumo = executar_monitoramento_respostas()
             print(
                 "[EDNNA] Monitor e-mail | ciclo concluído | "
@@ -217,8 +223,18 @@ def _loop() -> None:
                 f"sem_resposta={resumo['sem_resposta']} | erros={resumo['erros']}",
                 flush=True,
             )
+            print(
+                "[EDNNA] Monitor e-mail | próximo ciclo | "
+                f"em={intervalo}s",
+                flush=True,
+            )
         except Exception as exc:
             print(f"[EDNNA] Monitor e-mail | falha no ciclo | {type(exc).__name__}: {exc}", flush=True)
+            print(
+                "[EDNNA] Monitor e-mail | próximo ciclo após falha | "
+                f"em={intervalo}s",
+                flush=True,
+            )
 
         _STOP.wait(intervalo)
 
