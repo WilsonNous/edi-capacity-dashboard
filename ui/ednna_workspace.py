@@ -104,7 +104,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.26 Executive Experience.
+    Workspace visual da EDNNA — v3.27 Central de Cancelamentos.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -1520,29 +1520,130 @@ def render_ednna_workspace(
                 "uma ocorrência em regra operacional."
             )
 
-            st.markdown("### 🧠 Contexto histórico de relacionamentos")
+            st.markdown("### 🧠 Central de cancelamentos")
             st.caption(
-                "Reconstrói aberturas, inclusões, implantações e cancelamentos relacionados. "
-                "Nesta fase a análise é somente leitura: nenhuma ação é executada no Redmine."
+                "A EDNNA reúne automaticamente os chamados classificados como cancelamento de tráfego. "
+                "A fila nasce da memória local; o histórico detalhado do Redmine é reconstruído somente sob demanda."
             )
 
-            ctx_c1, ctx_c2 = st.columns([1, 3])
-            with ctx_c1:
-                contexto_chamado_id = st.number_input(
-                    "Chamado de cancelamento", min_value=1, value=31592, step=1,
-                    key="ednna_contexto_cancelamento_id_v324",
-                )
-            with ctx_c2:
-                st.write("")
-                st.write("")
-                analisar_contexto = st.button("🔎 Reconstruir contexto", key="ednna_contexto_cancelamento_analisar_v324")
-                atualizar_contexto = st.button("🔄 Atualizar dados do Redmine", key="ednna_contexto_cancelamento_force_v324")
+            # v3.27 — carteira de cancelamentos. Não consulta o Redmine para montar a fila.
+            cancelamentos_df = ednna_analisados[
+                ednna_analisados.get(
+                    "EDNNA - Intenção",
+                    pd.Series("", index=ednna_analisados.index),
+                ).fillna("").astype(str).str.upper().eq("CANCELAMENTO_TRAFEGO")
+            ].copy()
 
-            if analisar_contexto or atualizar_contexto:
+            if "#" in cancelamentos_df.columns:
+                cancelamentos_df["__id_cancelamento"] = pd.to_numeric(
+                    cancelamentos_df["#"], errors="coerce"
+                )
+                cancelamentos_df = cancelamentos_df[
+                    cancelamentos_df["__id_cancelamento"].notna()
+                ].copy()
+                cancelamentos_df["__id_cancelamento"] = cancelamentos_df["__id_cancelamento"].astype(int)
+                cancelamentos_df = cancelamentos_df.drop_duplicates("__id_cancelamento")
+            else:
+                cancelamentos_df = pd.DataFrame()
+
+            total_cancelamentos = len(cancelamentos_df)
+            cancel_primeiro = 0
+            cancel_revisao = 0
+            cancel_atuados = 0
+            if not cancelamentos_df.empty and "EDNNA - Situação" in cancelamentos_df.columns:
+                situacoes_cancel = cancelamentos_df["EDNNA - Situação"].fillna("").astype(str)
+                cancel_primeiro = int(situacoes_cancel.eq("AGUARDANDO_PRIMEIRO_COMBATE").sum())
+                cancel_revisao = int(situacoes_cancel.eq("REVISAO_NECESSARIA").sum())
+                cancel_atuados = int(situacoes_cancel.eq("JA_ATUADO").sum())
+
+            fc1, fc2, fc3, fc4 = st.columns(4)
+            fc1.metric("Cancelamentos", total_cancelamentos)
+            fc2.metric("Primeiro combate", cancel_primeiro)
+            fc3.metric("Já atuados", cancel_atuados)
+            fc4.metric("Requer revisão", cancel_revisao)
+
+            if cancelamentos_df.empty:
+                st.info("Nenhum chamado classificado como cancelamento de tráfego foi localizado na memória atual da EDNNA.")
+                contexto_chamado_id = 0
+                analisar_contexto = False
+                atualizar_contexto = False
+            else:
+                def _texto_cancelamento(row):
+                    cid = int(row.get("__id_cancelamento"))
+                    cliente = str(row.get("Clientes", "") or "Cliente não identificado").strip()
+                    assunto = str(row.get("Assunto", "") or "").strip()
+                    situacao = str(row.get("EDNNA - Situação", "") or "").strip()
+                    situacao_rotulo = {
+                        "AGUARDANDO_PRIMEIRO_COMBATE": "Primeiro combate",
+                        "JA_ATUADO": "Já atuado",
+                        "REVISAO_NECESSARIA": "Revisão",
+                    }.get(situacao, situacao.replace("_", " ").title() if situacao else "Classificado")
+                    complemento = f" · {assunto[:58]}" if assunto else ""
+                    return f"#{cid} · {cliente} · {situacao_rotulo}{complemento}"
+
+                cancelamentos_df["__rotulo_cancelamento"] = cancelamentos_df.apply(_texto_cancelamento, axis=1)
+                ids_cancelamento = cancelamentos_df["__id_cancelamento"].tolist()
+                rotulos_cancelamento = dict(zip(ids_cancelamento, cancelamentos_df["__rotulo_cancelamento"]))
+
+                contexto_salvo = st.session_state.get("ednna_contexto_historico_v324")
+                id_contexto_salvo = 0
+                if isinstance(contexto_salvo, dict):
+                    try:
+                        id_contexto_salvo = int(contexto_salvo.get("chamado_id", 0) or 0)
+                    except Exception:
+                        id_contexto_salvo = 0
+                indice_padrao = ids_cancelamento.index(id_contexto_salvo) if id_contexto_salvo in ids_cancelamento else 0
+
+                contexto_chamado_id = st.selectbox(
+                    "Chamado para investigar",
+                    ids_cancelamento,
+                    index=indice_padrao,
+                    format_func=lambda x: rotulos_cancelamento.get(x, f"#{x}"),
+                    key="ednna_central_cancelamentos_selecionado_v327",
+                )
+
+                col_fila, col_analisar, col_atualizar = st.columns([2.2, 1, 1])
+                with col_fila:
+                    st.caption(
+                        f"Carteira local com {total_cancelamentos} cancelamento(s). "
+                        "Selecionar um chamado não consulta o Redmine."
+                    )
+                with col_analisar:
+                    analisar_contexto = st.button(
+                        "🔎 Abrir contexto",
+                        key="ednna_contexto_cancelamento_analisar_v327",
+                        width="stretch",
+                    )
+                with col_atualizar:
+                    atualizar_contexto = st.button(
+                        "🔄 Atualizar histórico",
+                        key="ednna_contexto_cancelamento_force_v327",
+                        width="stretch",
+                    )
+
+                with st.expander(f"Ver carteira de cancelamentos ({total_cancelamentos})", expanded=False):
+                    cols_fila = [
+                        c for c in ["#", "Clientes", "Origem", "Prioridade", "Tipo", "Assunto", "EDNNA - Situação"]
+                        if c in cancelamentos_df.columns
+                    ]
+                    tabela_fila = cancelamentos_df[cols_fila].copy()
+                    if "EDNNA - Situação" in tabela_fila.columns:
+                        tabela_fila["EDNNA - Situação"] = tabela_fila["EDNNA - Situação"].replace({
+                            "AGUARDANDO_PRIMEIRO_COMBATE": "Primeiro combate",
+                            "JA_ATUADO": "Já atuado",
+                            "REVISAO_NECESSARIA": "Revisão necessária",
+                        })
+                    st.dataframe(tabela_fila, width="stretch", hide_index=True)
+
+            if contexto_chamado_id and (analisar_contexto or atualizar_contexto):
                 try:
                     with st.spinner("EDNNA reconstruindo histórico do relacionamento..."):
                         contexto = analisar_contexto_cancelamento(int(contexto_chamado_id), force=bool(atualizar_contexto))
                     st.session_state["ednna_contexto_historico_v324"] = contexto
+                    # Evita exibir um plano antigo quando o operador muda de cancelamento.
+                    plano_anterior = st.session_state.get("ednna_plano_cancelamento_dados_v325")
+                    if isinstance(plano_anterior, dict) and int(plano_anterior.get("chamado_id", 0) or 0) != int(contexto_chamado_id):
+                        st.session_state.pop("ednna_plano_cancelamento_dados_v325", None)
                 except Exception as exc_ctx:
                     st.error(f"Não foi possível reconstruir o contexto histórico: {exc_ctx}")
 
@@ -1674,7 +1775,7 @@ def render_ednna_workspace(
                                     disabled=True,
                                     key=f"plano_corpo_{contexto_chamado_id}_{item_plano.get('player')}",
                                 )
-                                st.info("Rascunho preparado para revisão. O envio permanece bloqueado nesta área da v3.25.")
+                                st.info("Rascunho preparado para revisão. O envio permanece bloqueado nesta área da v3.27.")
 
             st.divider()
 
