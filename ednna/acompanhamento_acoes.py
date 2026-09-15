@@ -302,10 +302,20 @@ def confirmar_envio_real(
     graph_message_id: str = "",
     graph_conversation_id: str = "",
     graph_internet_message_id: str = "",
+    enviado_em_real: str = "",
 ) -> dict:
     agora = _agora()
+    envio_base = agora
+    if enviado_em_real:
+        try:
+            envio_base = datetime.fromisoformat(str(enviado_em_real).replace("Z", "+00:00"))
+            if envio_base.tzinfo is None:
+                envio_base = envio_base.replace(tzinfo=TZ_BRASIL)
+            envio_base = envio_base.astimezone(TZ_BRASIL)
+        except Exception:
+            envio_base = agora
     prazo = _adicionar_dias_uteis(
-        agora,
+        envio_base,
         int(prazo_dias_uteis or 0),
     )
 
@@ -334,7 +344,7 @@ def confirmar_envio_real(
                AND regra_id = ?
             """,
             (
-                _iso(agora),
+                _iso(envio_base),
                 _iso(prazo),
                 _iso(agora),
                 str(email_assunto or ""),
@@ -661,3 +671,80 @@ def obter_responsavel_original_cancelamento(chamado_id: int) -> dict:
     if not row:
         return {}
     return {'id': row['responsavel_anterior_id'], 'nome': row['responsavel_anterior_nome'] or ''}
+
+# ============================================================
+# v3.28.7.2 — fila resiliente de sincronização com Redmine
+# ============================================================
+def registrar_resposta_pendente_redmine(
+    chamado_id: int,
+    regra_id: str,
+    *,
+    graph_message_id: str = "",
+    remetente: str = "",
+    assunto: str = "",
+    corpo: str = "",
+    recebida_em: str = "",
+    erro: str = "",
+) -> dict:
+    """Persiste primeiro o retorno da adquirente, antes de depender do Redmine."""
+    inicializar_acompanhamento()
+    agora = _agora()
+    try:
+        recebida = datetime.fromisoformat(recebida_em.replace("Z", "+00:00")) if recebida_em else agora
+        if recebida.tzinfo is None:
+            recebida = recebida.replace(tzinfo=TZ_BRASIL)
+        recebida = recebida.astimezone(TZ_BRASIL)
+    except Exception:
+        recebida = agora
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            INSERT INTO acoes_operacionais (
+                chamado_id, regra_id, estado, resposta_recebida_em, atualizado_em,
+                resposta_graph_message_id, resposta_remetente, resposta_assunto,
+                resposta_corpo, monitorado_em, redmine_erro
+            ) VALUES (?, ?, 'RESPOSTA_PENDENTE_REDMINE', ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chamado_id, regra_id) DO UPDATE SET
+                estado = 'RESPOSTA_PENDENTE_REDMINE',
+                resposta_recebida_em = excluded.resposta_recebida_em,
+                resposta_graph_message_id = excluded.resposta_graph_message_id,
+                resposta_remetente = excluded.resposta_remetente,
+                resposta_assunto = excluded.resposta_assunto,
+                resposta_corpo = excluded.resposta_corpo,
+                monitorado_em = excluded.monitorado_em,
+                redmine_erro = excluded.redmine_erro,
+                atualizado_em = excluded.atualizado_em
+            """,
+            (
+                int(chamado_id), str(regra_id), _iso(recebida), _iso(agora),
+                str(graph_message_id or ""), str(remetente or "")[:500],
+                str(assunto or "")[:1000], str(corpo or "")[:12000], _iso(agora),
+                str(erro or "")[:1500],
+            ),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)
+
+
+def listar_respostas_pendentes_redmine() -> list[dict]:
+    inicializar_acompanhamento()
+    with _conectar() as conn:
+        rows = conn.execute(
+            """SELECT * FROM acoes_operacionais
+               WHERE estado = 'RESPOSTA_PENDENTE_REDMINE'
+               ORDER BY COALESCE(resposta_recebida_em, atualizado_em) ASC"""
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def marcar_resposta_sincronizada_redmine(chamado_id: int, regra_id: str) -> dict:
+    agora = _iso(_agora())
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais
+                  SET estado='RESPOSTA_RECEBIDA', redmine_atualizado_em=?, redmine_erro=NULL,
+                      atualizado_em=?
+                WHERE chamado_id=? AND regra_id=?""",
+            (agora, agora, int(chamado_id), str(regra_id)),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)

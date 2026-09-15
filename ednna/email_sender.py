@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from typing import Iterable
 
 import requests
@@ -294,3 +295,28 @@ def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebi
             continue
         return item
     return {}
+
+
+def listar_envios_cancelamento_getnet(*, remetente: str, top: int = 250) -> list[dict]:
+    """Descobre atuações GETNET diretamente em Sent Items, sem depender do snapshot Redmine."""
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{remetente}/mailFolders/sentitems/messages",
+        params={
+            "$select": "id,subject,conversationId,internetMessageId,sentDateTime,from,toRecipients,ccRecipients",
+            "$orderby": "sentDateTime desc",
+            "$top": str(max(25, min(int(top or 250), 500))),
+        },
+    )
+    resultado = []
+    for item in dados.get("value", []) or []:
+        assunto = str(item.get("subject", "") or "")
+        baixo = assunto.casefold()
+        if "getnet" not in baixo or "cancel" not in baixo:
+            continue
+        m = re.search(r"#\s*(\d{3,})\b", assunto)
+        if not m:
+            continue
+        copia = dict(item)
+        copia["chamado_id"] = int(m.group(1))
+        resultado.append(copia)
+    return resultado

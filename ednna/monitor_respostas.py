@@ -18,12 +18,16 @@ from ednna.acompanhamento_acoes import (
     obter_acompanhamento,
     adquirir_envio,
     confirmar_envio_real,
+    registrar_resposta_pendente_redmine,
+    listar_respostas_pendentes_redmine,
+    marcar_resposta_sincronizada_redmine,
 )
 from ednna.email_sender import (
     listar_mensagens_conversa,
     localizar_email_enviado,
     localizar_resposta_por_chamado,
     localizar_email_enviado_por_chamado,
+    listar_envios_cancelamento_getnet,
 )
 from ednna.redmine_writer import registrar_email_e_status_chamado, atribuir_chamado_responsavel
 from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
@@ -280,12 +284,18 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
     candidatos = {int(e.get("chamado_id") or 0) for e in etapas if int(e.get("chamado_id") or 0)}
     candidatos.update(_descobrir_orfaos_getnet_snapshot())
 
+    # v3.28.7.2: Sent Items também é fonte de recuperação. Isso permite
+    # reencontrar #48567 mesmo com snapshot Redmine antigo/indisponível.
+    envios_descobertos = listar_envios_cancelamento_getnet(remetente=caixa, top=250)
+    envios_por_chamado = {int(x.get("chamado_id") or 0): x for x in envios_descobertos if int(x.get("chamado_id") or 0)}
+    candidatos.update(envios_por_chamado.keys())
+
     acoes_atuais = listar_acoes_aguardando_resposta()
     monitorados = {int(a.get("chamado_id") or 0) for a in acoes_atuais if int(a.get("chamado_id") or 0)}
     orfaos = sorted(candidatos - monitorados)
     print(
-        f"[EDNNA] Reconciliação | candidatos={len(candidatos)} | "
-        f"já_monitorados={len(candidatos & monitorados)} | órfãos={len(orfaos)}",
+        f"[EDNNA] Reconciliação | enviados_descobertos={len(envios_por_chamado)} | "
+        f"candidatos={len(candidatos)} | já_monitorados={len(candidatos & monitorados)} | órfãos={len(orfaos)}",
         flush=True,
     )
 
@@ -294,10 +304,10 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
         print(f"[EDNNA] Reconciliação | avaliando chamado={chamado_id}", flush=True)
 
         atual = obter_acompanhamento(chamado_id, regra_id)
-        if str(atual.get("estado") or "") in {"RESPOSTA_RECEBIDA", "ENVIANDO"}:
+        if str(atual.get("estado") or "") in {"RESPOSTA_RECEBIDA", "RESPOSTA_PENDENTE_REDMINE", "ENVIANDO"}:
             continue
 
-        enviado = localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
+        enviado = envios_por_chamado.get(chamado_id) or localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
         if not enviado:
             print(f"[EDNNA] Reconciliação | enviado não localizado | chamado={chamado_id}", flush=True)
             continue
@@ -317,6 +327,7 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
                 graph_message_id=str(enviado.get("id", "") or ""),
                 graph_conversation_id=str(enviado.get("conversationId", "") or ""),
                 graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
+                enviado_em_real=str(enviado.get("sentDateTime", "") or ""),
             )
             recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
             print(f"[EDNNA] Reconciliação | acompanhamento reconstruído | chamado={chamado_id}", flush=True)
@@ -331,6 +342,36 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
             print(f"[EDNNA] Reconciliação | resposta localizada | chamado={chamado_id}", flush=True)
 
     return recuperadas
+
+def _sincronizar_respostas_pendentes_redmine() -> int:
+    """Tenta descarregar no Redmine respostas já preservadas no SQLite."""
+    sincronizadas = 0
+    for acao in listar_respostas_pendentes_redmine():
+        chamado_id = int(acao.get("chamado_id") or 0)
+        regra_id = str(acao.get("regra_id") or "")
+        corpo = str(acao.get("resposta_corpo") or "")
+        remetente = str(acao.get("resposta_remetente") or "")
+        assunto = str(acao.get("resposta_assunto") or "")
+        recebida_em = str(acao.get("resposta_recebida_em") or "")
+        nota = _nota_retorno(remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em)
+        assigned_to = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+        status = str(os.getenv("EDNNA_STATUS_RESPOSTA_RECEBIDA", "Em andamento") or "Em andamento")
+        if regra_id == "CANCELAMENTO-GETNET-001":
+            extra, assigned_to, status = _processar_retorno_getnet(chamado_id, corpo)
+            nota += extra
+        try:
+            registrar_email_e_status_chamado(
+                chamado_id=chamado_id, nota=nota, status_nome=status, assigned_to_id=assigned_to,
+            )
+            marcar_status_redmine(chamado_id, regra_id, status)
+            marcar_resposta_sincronizada_redmine(chamado_id, regra_id)
+            sincronizadas += 1
+            print(f"[EDNNA] Redmine pendente | sincronizado | chamado={chamado_id}", flush=True)
+        except Exception as exc:
+            registrar_falha_redmine(chamado_id, regra_id, f"Sincronização pendente: {exc}")
+            print(f"[EDNNA] Redmine pendente | ainda indisponível | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+    return sincronizadas
+
 
 def executar_monitoramento_respostas() -> dict:
     resumo = {
@@ -347,6 +388,12 @@ def executar_monitoramento_respostas() -> dict:
         return resumo
 
     caixa = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
+    try:
+        pendentes_sync = _sincronizar_respostas_pendentes_redmine()
+        if pendentes_sync:
+            resumo["detalhes"].append({"redmine_pendentes_sincronizados": pendentes_sync})
+    except Exception as exc:
+        print(f"[EDNNA] Redmine pendente | falha na fila | {type(exc).__name__}: {exc}", flush=True)
     status_retorno = str(os.getenv("EDNNA_STATUS_RESPOSTA_RECEBIDA", "Em andamento") or "Em andamento").strip()
     try:
         reconciliados = _reconciliar_cancelamentos_getnet_orfaos(caixa)
@@ -419,24 +466,33 @@ def executar_monitoramento_respostas() -> dict:
                 extra, assigned_to_retorno, status_efetivo = _processar_retorno_getnet(chamado_id, corpo)
                 nota += extra
 
-            # Primeiro atualiza o sistema oficial. Só depois encerra o acompanhamento local.
-            registrar_email_e_status_chamado(
-                chamado_id=chamado_id,
-                nota=nota,
-                status_nome=status_efetivo,
-                assigned_to_id=assigned_to_retorno,
-            )
-            marcar_status_redmine(chamado_id, regra_id, status_efetivo)
-            registrar_resposta(
-                chamado_id,
-                regra_id,
+            # v3.28.7.2: o e-mail é persistido ANTES do Redmine. Se o Redmine
+            # estiver indisponível, a resposta não se perde e será sincronizada
+            # em ciclo posterior.
+            registrar_resposta_pendente_redmine(
+                chamado_id, regra_id,
                 graph_message_id=str(resposta.get("id", "") or ""),
-                remetente=remetente,
-                assunto=assunto,
-                corpo=corpo,
-                recebida_em=recebida_em,
+                remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em,
             )
-            resumo["respostas"] += 1
+            try:
+                registrar_email_e_status_chamado(
+                    chamado_id=chamado_id, nota=nota, status_nome=status_efetivo,
+                    assigned_to_id=assigned_to_retorno,
+                )
+                marcar_status_redmine(chamado_id, regra_id, status_efetivo)
+                marcar_resposta_sincronizada_redmine(chamado_id, regra_id)
+                resumo["respostas"] += 1
+            except Exception as redmine_exc:
+                registrar_falha_redmine(chamado_id, regra_id, f"Resposta preservada; Redmine pendente: {redmine_exc}")
+                resumo["detalhes"].append({
+                    "chamado": chamado_id, "regra": regra_id,
+                    "situacao": "RESPOSTA_PRESERVADA_REDMINE_PENDENTE",
+                })
+                print(
+                    f"[EDNNA] Monitor e-mail | resposta preservada | chamado={chamado_id} | "
+                    f"Redmine pendente: {type(redmine_exc).__name__}: {redmine_exc}", flush=True,
+                )
+                continue
 
             print(
                 "[EDNNA] Monitor e-mail | resposta recebida | "
