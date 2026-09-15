@@ -514,10 +514,14 @@ def render_ednna_workspace(
                         "EDNNA - Regra operacional", "EDNNA - Situação",
                     ] if c in carteira_ednna.columns
                 ]
+                tabela_carteira, config_carteira = preparar_tabela_com_link_redmine_fn(
+                    carteira_ednna[colunas_carteira]
+                )
                 st.dataframe(
-                    carteira_ednna[colunas_carteira],
+                    tabela_carteira,
                     width="stretch",
                     hide_index=True,
+                    column_config=config_carteira,
                 )
 
         # ================================================
@@ -1699,7 +1703,13 @@ def render_ednna_workspace(
                             "JA_ATUADO": "Já atuado",
                             "REVISAO_NECESSARIA": "Revisão necessária",
                         })
-                    st.dataframe(tabela_fila, width="stretch", hide_index=True)
+                    tabela_fila_link, config_fila = preparar_tabela_com_link_redmine_fn(tabela_fila)
+                    st.dataframe(
+                        tabela_fila_link,
+                        width="stretch",
+                        hide_index=True,
+                        column_config=config_fila,
+                    )
 
             if contexto_chamado_id and (analisar_contexto or atualizar_contexto):
                 try:
@@ -1716,12 +1726,13 @@ def render_ednna_workspace(
             contexto = st.session_state.get("ednna_contexto_historico_v324")
             if contexto and int(contexto.get("chamado_id", 0)) == int(contexto_chamado_id):
                 st.markdown(
-                    f"**#{contexto.get('chamado_id')} • {contexto.get('cliente') or 'Cliente não identificado'}**  "
+                    f"**[#{contexto.get('chamado_id')}]({redmine_web_url}/issues/{contexto.get('chamado_id')}) • "
+                    f"{contexto.get('cliente') or 'Cliente não identificado'}**  "
                     f"— Escopo: **{contexto.get('escopo')}**"
                 )
                 if contexto.get("blueprint_id"):
                     st.caption(
-                        f"Blueprint/Novo Cliente localizado: #{contexto.get('blueprint_id')} • "
+                        f"Blueprint/Novo Cliente localizado: [{contexto.get('blueprint_id')}]({redmine_web_url}/issues/{contexto.get('blueprint_id')}) • "
                         f"{contexto.get('chamados_consultados', 0)} chamados consultados • modo somente leitura"
                     )
                 else:
@@ -1735,11 +1746,12 @@ def render_ednna_workspace(
                         "CANCELADO_CONFIRMADO": "⚪ Já cancelado anteriormente",
                         "DADOS_INSUFICIENTES": "⚠️ Dados insuficientes",
                     }.get(estado_ctx, estado_ctx)
-                    fontes_ctx = ", ".join(f"#{x}" for x in rel_ctx.get("fontes", [])) or "—"
+                    fontes_ids = rel_ctx.get("fontes", []) or []
                     linhas_ctx.append({
-                        "Player": rel_ctx.get("player", ""), "Estado histórico": rotulo_ctx,
-                        "Fontes": fontes_ctx,
-                        "Cancelamento anterior": f"#{rel_ctx.get('cancelamento_anterior')}" if rel_ctx.get("cancelamento_anterior") else "—",
+                        "Player": rel_ctx.get("player", ""),
+                        "Estado histórico": rotulo_ctx,
+                        "Fontes": f"{len(fontes_ids)} chamado(s)" if fontes_ids else "—",
+                        "Cancelamento anterior": "Sim" if rel_ctx.get("cancelamento_anterior") else "—",
                     })
 
                 if linhas_ctx:
@@ -1754,6 +1766,19 @@ def render_ednna_workspace(
                     with st.expander("Ver linha do tempo e fontes", expanded=False):
                         for rel_ctx in contexto.get("relacionamentos", []):
                             st.markdown(f"**{rel_ctx.get('player')}**")
+                            fontes_ids = rel_ctx.get("fontes", []) or []
+                            cancelamento_anterior = rel_ctx.get("cancelamento_anterior")
+                            links_fontes = [
+                                f"[#{fid}]({redmine_web_url}/issues/{fid})"
+                                for fid in fontes_ids
+                            ]
+                            if links_fontes:
+                                st.markdown("Fontes: " + " · ".join(links_fontes))
+                            if cancelamento_anterior:
+                                st.markdown(
+                                    f"Cancelamento anterior: [#{cancelamento_anterior}]"
+                                    f"({redmine_web_url}/issues/{cancelamento_anterior})"
+                                )
                             eventos_ctx = rel_ctx.get("eventos", [])
                             if not eventos_ctx:
                                 st.caption("Nenhum evento histórico relacionado localizado.")
@@ -1763,7 +1788,19 @@ def render_ednna_workspace(
                                 "Estado": e.get("estado"), "Tipo": e.get("tipo"),
                                 "Assunto": e.get("assunto"), "Data": e.get("data"),
                             } for e in eventos_ctx])
-                            st.dataframe(tabela_eventos, width="stretch", hide_index=True)
+                            tabela_eventos_link = tabela_eventos.copy()
+                            tabela_eventos_link["#"] = tabela_eventos_link["Chamado"].str.replace("#", "", regex=False)
+                            tabela_eventos_link = tabela_eventos_link.drop(columns=["Chamado"])
+                            cols_eventos = ["#"] + [c for c in tabela_eventos_link.columns if c != "#"]
+                            tabela_eventos_link, config_eventos = preparar_tabela_com_link_redmine_fn(
+                                tabela_eventos_link[cols_eventos]
+                            )
+                            st.dataframe(
+                                tabela_eventos_link,
+                                width="stretch",
+                                hide_index=True,
+                                column_config=config_eventos,
+                            )
                 else:
                     st.warning("Nenhum relacionamento operacional foi reconstruído para este cancelamento.")
 

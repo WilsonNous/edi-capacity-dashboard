@@ -4856,7 +4856,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.26 — EDNNA Executive Experience · interface responsiva e operação orientada à atenção "
+        "Versão 3.28.4 — EDNNA Navegação Redmine · interface responsiva e operação orientada à atenção "
         "e EDNNA em modo híbrido. Regras homologadas podem executar ações automáticas; "
         "demais cenários permanecem em análise, observação ou modo assistido."
     )
