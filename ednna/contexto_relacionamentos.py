@@ -309,3 +309,8 @@ def analisar_contexto_cancelamento(chamado_id: int, *, force: bool = False) -> d
         "chamados_consultados": len(universo),
         "modo": "SOMENTE_LEITURA",
     }
+
+
+def buscar_issue_contexto(chamado_id: int, *, force: bool = False) -> dict:
+    """Expõe a leitura cacheada usada pelo planejador, sem alterar o Redmine."""
+    return _buscar_issue(int(chamado_id), force=force)

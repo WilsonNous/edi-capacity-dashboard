@@ -43,6 +43,9 @@ from ednna.redmine_writer import (
 from ednna.contexto_relacionamentos import (
     analisar_contexto_cancelamento,
 )
+from ednna.planejador_cancelamentos import (
+    preparar_plano_cancelamento,
+)
 
 
 def _carregar_css() -> None:
@@ -1608,6 +1611,80 @@ def render_ednna_workspace(
                             st.dataframe(tabela_eventos, width="stretch", hide_index=True)
                 else:
                     st.warning("Nenhum relacionamento operacional foi reconstruído para este cancelamento.")
+
+                st.markdown("#### Plano assistido de cancelamento")
+                st.caption(
+                    "A EDNNA prepara rascunhos somente para players com procedimento homologado. "
+                    "Nesta fase nenhum envio é realizado por esta área."
+                )
+                if st.button("🧭 Preparar plano e rascunhos", key="ednna_plano_cancelamento_v325"):
+                    try:
+                        with st.spinner("Preparando o plano de cancelamento a partir do histórico..."):
+                            plano = preparar_plano_cancelamento(int(contexto_chamado_id), force=False)
+                        st.session_state["ednna_plano_cancelamento_v325"] = plano
+                    except Exception as exc_plano:
+                        st.error(f"Não foi possível preparar o plano: {exc_plano}")
+
+                plano = st.session_state.get("ednna_plano_cancelamento_v325")
+                if plano and int(plano.get("chamado_id", 0)) == int(contexto_chamado_id):
+                    resumo_plano = plano.get("resumo", {})
+                    pc1, pc2, pc3, pc4 = st.columns(4)
+                    pc1.metric("Prontos para revisão", resumo_plano.get("prontos", 0))
+                    pc2.metric("Dados incompletos", resumo_plano.get("incompletos", 0))
+                    pc3.metric("Conflitos", resumo_plano.get("conflitos", 0))
+                    pc4.metric("Já cancelados", resumo_plano.get("ja_cancelados", 0))
+                    if resumo_plano.get("sem_procedimento", 0):
+                        st.caption(
+                            f"{resumo_plano.get('sem_procedimento', 0)} player(s) ainda sem procedimento de cancelamento homologado."
+                        )
+
+                    for item_plano in plano.get("itens", []):
+                        status_plano = item_plano.get("status_plano")
+                        icone_plano = {
+                            "PRONTO_REVISAO": "🟢",
+                            "DADOS_INCOMPLETOS": "🟡",
+                            "CONFLITO_HISTORICO": "🔴",
+                            "JA_CANCELADO": "⚪",
+                            "PROCEDIMENTO_NAO_HOMOLOGADO": "🔵",
+                        }.get(status_plano, "•")
+                        fontes_plano = ", ".join(f"#{x}" for x in item_plano.get("fontes", [])) or "—"
+                        with st.expander(
+                            f"{icone_plano} {item_plano.get('player')} — {item_plano.get('rotulo')}",
+                            expanded=(status_plano == "PRONTO_REVISAO"),
+                        ):
+                            st.caption(f"Fontes históricas: {fontes_plano}")
+                            st.write(item_plano.get("motivo", ""))
+                            identificadores = item_plano.get("identificadores", [])
+                            if identificadores:
+                                st.write("**Identificador(es) encontrado(s):** " + ", ".join(identificadores))
+                            rascunho_plano = item_plano.get("rascunho") or {}
+                            if status_plano == "PRONTO_REVISAO" and rascunho_plano:
+                                st.text_input(
+                                    "Para",
+                                    value="; ".join(rascunho_plano.get("destinatarios", [])),
+                                    disabled=True,
+                                    key=f"plano_para_{contexto_chamado_id}_{item_plano.get('player')}",
+                                )
+                                st.text_input(
+                                    "Cc",
+                                    value="; ".join(rascunho_plano.get("cc", [])),
+                                    disabled=True,
+                                    key=f"plano_cc_{contexto_chamado_id}_{item_plano.get('player')}",
+                                )
+                                st.text_input(
+                                    "Assunto",
+                                    value=rascunho_plano.get("assunto", ""),
+                                    disabled=True,
+                                    key=f"plano_assunto_{contexto_chamado_id}_{item_plano.get('player')}",
+                                )
+                                st.text_area(
+                                    "Rascunho",
+                                    value=rascunho_plano.get("corpo", ""),
+                                    height=260,
+                                    disabled=True,
+                                    key=f"plano_corpo_{contexto_chamado_id}_{item_plano.get('player')}",
+                                )
+                                st.info("Rascunho preparado para revisão. O envio permanece bloqueado nesta área da v3.25.")
 
             st.divider()
 
