@@ -31,6 +31,7 @@ from ednna.planejador_cancelamentos import extrair_dados_getnet, preparar_plano_
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, listar_etapas_pendentes_monitoramento,
 )
+from ednna.armazenamento import carregar_snapshot_chamados
 
 
 _THREAD: threading.Thread | None = None
@@ -216,57 +217,119 @@ def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
 
 
 
-def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
-    """Reconstrói acompanhamento de etapas GETNET enviadas antes/fora de acoes_operacionais.
+def _id_linha_snapshot(linha: dict) -> int:
+    for chave in ("#", "ID", "id", "Chamado"):
+        valor = linha.get(chave)
+        try:
+            if valor is not None and str(valor).strip():
+                return int(str(valor).replace("#", "").strip())
+        except Exception:
+            continue
+    return 0
 
-    Isso cobre o caso real em que o e-mail foi enviado e a etapa do orquestrador ficou
-    AGUARDANDO_RESPOSTA, mas não existe uma ação local elegível para o monitor.
+
+def _linha_atribuida_ednna(linha: dict) -> bool:
+    ednna_id = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+    for chave in ("_Atribuído a ID", "assigned_to_id", "Atribuído a ID"):
+        try:
+            if int(linha.get(chave) or 0) == ednna_id:
+                return True
+        except Exception:
+            pass
+    nome = str(linha.get("Atribuído a") or linha.get("Responsável") or "").casefold()
+    return "ednna" in nome
+
+
+def _candidato_cancelamento_getnet(linha: dict) -> bool:
+    texto = " ".join(str(linha.get(k) or "") for k in (
+        "Tipo", "Assunto", "Descrição", "Origem", "Clientes"
+    )).casefold()
+    return "getnet" in texto and any(x in texto for x in ("cancel", "inativ", "excluir", "desativ"))
+
+
+def _descobrir_orfaos_getnet_snapshot() -> list[int]:
+    """Descobre legados atribuídos à EDNNA sem depender do orquestrador.
+
+    A fonte é o snapshot persistente da própria EDNNA, portanto o monitor não abre
+    uma nova avalanche de GETs no Redmine apenas para reconstruir sua fila.
+    """
+    ids: list[int] = []
+    for linha in carregar_snapshot_chamados() or []:
+        if not isinstance(linha, dict) or not _linha_atribuida_ednna(linha):
+            continue
+        if not _candidato_cancelamento_getnet(linha):
+            continue
+        chamado_id = _id_linha_snapshot(linha)
+        if chamado_id and chamado_id not in ids:
+            ids.append(chamado_id)
+    return ids
+
+
+def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
+    """Reconstrói acompanhamento GETNET inclusive para chamados anteriores ao orquestrador.
+
+    Estratégia:
+      1) etapas conhecidas pelo orquestrador;
+      2) chamados GETNET/cancelamento atribuídos à EDNNA no snapshot;
+      3) confirmação do envio real em Sent Items pelo #chamado;
+      4) reconstrução de etapa + acompanhamento;
+      5) a resposta localizada será processada pelo ciclo normal logo em seguida.
     """
     recuperadas: list[dict] = []
-    for etapa in listar_etapas_pendentes_monitoramento("GETNET"):
-        chamado_id = int(etapa.get("chamado_id") or 0)
-        regra_id = str(etapa.get("regra_id") or "CANCELAMENTO-GETNET-001")
-        if not chamado_id:
-            continue
+    etapas = listar_etapas_pendentes_monitoramento("GETNET")
+    candidatos = {int(e.get("chamado_id") or 0) for e in etapas if int(e.get("chamado_id") or 0)}
+    candidatos.update(_descobrir_orfaos_getnet_snapshot())
+
+    acoes_atuais = listar_acoes_aguardando_resposta()
+    monitorados = {int(a.get("chamado_id") or 0) for a in acoes_atuais if int(a.get("chamado_id") or 0)}
+    orfaos = sorted(candidatos - monitorados)
+    print(
+        f"[EDNNA] Reconciliação | candidatos={len(candidatos)} | "
+        f"já_monitorados={len(candidatos & monitorados)} | órfãos={len(orfaos)}",
+        flush=True,
+    )
+
+    for chamado_id in orfaos:
+        regra_id = "CANCELAMENTO-GETNET-001"
+        print(f"[EDNNA] Reconciliação | avaliando chamado={chamado_id}", flush=True)
 
         atual = obter_acompanhamento(chamado_id, regra_id)
-        if str(atual.get("estado") or "") in {
-            "AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA", "ENVIANDO"
-        }:
+        if str(atual.get("estado") or "") in {"RESPOSTA_RECEBIDA", "ENVIANDO"}:
             continue
 
         enviado = localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
+        if not enviado:
+            print(f"[EDNNA] Reconciliação | enviado não localizado | chamado={chamado_id}", flush=True)
+            continue
+
+        print(f"[EDNNA] Reconciliação | enviado localizado | chamado={chamado_id}", flush=True)
+        # O e-mail real é evidência suficiente para reconstruir o legado, mesmo que a
+        # cancelamento_etapas ainda não existisse quando o disparo ocorreu.
+        marcar_etapa(chamado_id, "GETNET", "AGUARDANDO_RESPOSTA", "Acompanhamento reconstruído a partir de Sent Items.")
+
+        adquirido, _ = adquirir_envio(chamado_id, regra_id)
+        if adquirido:
+            confirmar_envio_real(
+                chamado_id,
+                regra_id,
+                prazo_dias_uteis=1,
+                email_assunto=str(enviado.get("subject", "") or ""),
+                graph_message_id=str(enviado.get("id", "") or ""),
+                graph_conversation_id=str(enviado.get("conversationId", "") or ""),
+                graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
+            )
+            recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
+            print(f"[EDNNA] Reconciliação | acompanhamento reconstruído | chamado={chamado_id}", flush=True)
+
         resposta = localizar_resposta_por_chamado(
             caixa_postal=caixa,
             chamado_id=chamado_id,
             recebidas_apos=str(enviado.get("sentDateTime", "") or ""),
         )
-
-        if enviado:
-            adquirido, _ = adquirir_envio(chamado_id, regra_id)
-            if adquirido:
-                confirmar_envio_real(
-                    chamado_id,
-                    regra_id,
-                    prazo_dias_uteis=1,
-                    email_assunto=str(enviado.get("subject", "") or ""),
-                    graph_message_id=str(enviado.get("id", "") or ""),
-                    graph_conversation_id=str(enviado.get("conversationId", "") or ""),
-                    graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
-                )
-                recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
-                print(
-                    f"[EDNNA] Monitor e-mail | reconciliação | chamado={chamado_id} | acompanhamento reconstruído",
-                    flush=True,
-                )
-
-        # Se já há resposta na Inbox, o ciclo normal recém-reconstruído a processará logo abaixo.
         if resposta:
             recuperadas.append({"chamado": chamado_id, "situacao": "RESPOSTA_LOCALIZADA"})
-            print(
-                f"[EDNNA] Monitor e-mail | reconciliação | chamado={chamado_id} | resposta já localizada",
-                flush=True,
-            )
+            print(f"[EDNNA] Reconciliação | resposta localizada | chamado={chamado_id}", flush=True)
+
     return recuperadas
 
 def executar_monitoramento_respostas() -> dict:
