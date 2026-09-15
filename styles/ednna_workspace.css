@@ -1,148 +1,25 @@
-.ednna-hero {
-    padding: 18px 20px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #eef4ff 0%, #f8fbff 100%);
-    border: 1px solid #d9e6ff;
-    margin-bottom: 14px;
+/* EDNNA v3.26 — Executive Experience
+   Base: notebook 15\" / 1366px; expansão elegante em telas maiores. */
+:root {
+    --ed-blue:#1877f2; --ed-blue-700:#0b4f9c; --ed-ink:#172b4d;
+    --ed-muted:#667085; --ed-line:#e6eaf0; --ed-surface:#ffffff;
+    --ed-bg:#f7f9fc; --ed-green:#238636; --ed-amber:#b7791f; --ed-red:#c93737;
 }
-.ednna-hero-title {
-    font-size: 1.22rem;
-    font-weight: 750;
-    color: #163b72;
-    margin-bottom: 4px;
-}
-.ednna-hero-sub {
-    color: #52657d;
-    font-size: .94rem;
-}
-.ednna-card {
-    padding: 14px 16px;
-    border-radius: 14px;
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    min-height: 112px;
-    margin-bottom: 8px;
-}
-.ednna-card-blue { border-top: 4px solid #1877f2; }
-.ednna-card-green { border-top: 4px solid #2e9d59; }
-.ednna-card-yellow { border-top: 4px solid #d99a18; }
-.ednna-card-purple { border-top: 4px solid #7a5af8; }
-.ednna-card-red { border-top: 4px solid #d64545; }
-.ednna-card-label {
-    color: #667085;
-    font-size: .82rem;
-    font-weight: 650;
-}
-.ednna-card-value {
-    color: #1d2939;
-    font-size: 1.65rem;
-    line-height: 1.15;
-    font-weight: 780;
-    margin: 5px 0;
-}
-.ednna-card-note {
-    color: #667085;
-    font-size: .78rem;
-}
-.ednna-section-title {
-    font-size: 1.05rem;
-    font-weight: 740;
-    color: #243b53;
-    margin: 4px 0 8px 0;
-}
-.ednna-action-head {
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:12px;
-    flex-wrap:wrap;
-    margin-bottom:8px;
-}
-.ednna-action-title {
-    font-size:1.32rem;
-    font-weight:780;
-    color:#1d2939;
-    line-height:1.15;
-}
-.ednna-action-meta {
-    color:#667085;
-    font-size:.84rem;
-    margin-top:4px;
-}
-.ednna-status-ready,
-.ednna-status-warn {
-    border-radius:999px;
-    padding:6px 10px;
-    font-size:.82rem;
-    font-weight:700;
-    white-space:nowrap;
-}
-.ednna-status-ready {
-    background:#e8f7ee;
-    color:#187a3d;
-    border:1px solid #ccebd7;
-}
-.ednna-status-warn {
-    background:#fff7e6;
-    color:#9a6700;
-    border:1px solid #f1dfb7;
-}
-.ednna-data-grid {
-    display:grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap:10px;
-    margin:10px 0 14px 0;
-}
-.ednna-data-item {
-    background:#fff;
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    padding:10px 12px;
-    min-height:72px;
-}
-.ednna-data-label {
-    color:#667085;
-    font-size:.76rem;
-    font-weight:650;
-    margin-bottom:4px;
-}
-.ednna-data-value {
-    color:#1d2939;
-    font-size:1rem;
-    font-weight:720;
-    line-height:1.25;
-    overflow-wrap:anywhere;
-}
-.ednna-procedure-box {
-    background:#f8fafc;
-    border:1px solid #e5e7eb;
-    border-radius:10px;
-    padding:10px 12px;
-    margin:6px 0 10px 0;
-}
-.ednna-procedure-title {
-    font-size:.78rem;
-    color:#667085;
-    font-weight:650;
-    margin-bottom:3px;
-}
-.ednna-procedure-name {
-    color:#1d2939;
-    font-weight:700;
-    font-size:.95rem;
-}
-.ednna-procedure-note {
-    color:#667085;
-    font-size:.8rem;
-    margin-top:3px;
-}
-@media (max-width: 1100px) {
-    .ednna-data-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-@media (max-width: 700px) {
-    .ednna-data-grid {
-        grid-template-columns: 1fr;
-    }
-}
+.ednna-hero {padding:14px 18px;border-radius:12px;background:linear-gradient(135deg,#f2f7ff 0%,#fbfdff 100%);border:1px solid #dbe8fb;margin:4px 0 10px;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+.ednna-hero-eyebrow,.ednna-section-kicker{font-size:.68rem;font-weight:800;letter-spacing:.09em;color:#5b77a2;margin-bottom:3px}
+.ednna-hero-title{font-size:1.18rem;font-weight:780;color:var(--ed-ink);line-height:1.2;margin-bottom:2px}
+.ednna-hero-sub{color:#52657d;font-size:.84rem;line-height:1.35}
+.ednna-card{padding:11px 13px;border-radius:10px;border:1px solid var(--ed-line);background:#fff;min-height:92px;margin-bottom:6px;box-shadow:0 1px 2px rgba(16,24,40,.035)}
+.ednna-card-blue{border-top:3px solid var(--ed-blue)} .ednna-card-green{border-top:3px solid #2e9d59}.ednna-card-yellow{border-top:3px solid #d99a18}.ednna-card-purple{border-top:3px solid #6b7280}.ednna-card-red{border-top:3px solid var(--ed-red)}
+.ednna-card-label{color:#596579;font-size:.75rem;font-weight:700}.ednna-card-value{color:var(--ed-ink);font-size:1.55rem;line-height:1.05;font-weight:790;margin:5px 0}.ednna-card-note{color:#7a8699;font-size:.72rem;line-height:1.3}
+.ednna-section-title{font-size:1rem;font-weight:760;color:#243b53;margin:12px 0 7px}.ednna-section-kicker{margin:2px 0 7px}
+.ednna-action-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}.ednna-action-title{font-size:1.15rem;font-weight:780;color:#1d2939;line-height:1.15}.ednna-action-meta{color:#667085;font-size:.78rem;margin-top:3px}
+.ednna-status-ready,.ednna-status-warn{border-radius:999px;padding:5px 9px;font-size:.76rem;font-weight:700;white-space:nowrap}.ednna-status-ready{background:#e8f7ee;color:#187a3d;border:1px solid #ccebd7}.ednna-status-warn{background:#fff7e6;color:#9a6700;border:1px solid #f1dfb7}
+.ednna-data-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:8px 0 10px}.ednna-data-item{background:#fff;border:1px solid var(--ed-line);border-radius:8px;padding:8px 10px;min-height:62px}.ednna-data-label{color:#667085;font-size:.7rem;font-weight:650;margin-bottom:3px}.ednna-data-value{color:#1d2939;font-size:.9rem;font-weight:720;line-height:1.2;overflow-wrap:anywhere}
+.ednna-procedure-box{background:#f8fafc;border:1px solid var(--ed-line);border-radius:8px;padding:9px 11px;margin:5px 0 8px}.ednna-procedure-title{font-size:.72rem;color:#667085;font-weight:650;margin-bottom:2px}.ednna-procedure-name{color:#1d2939;font-weight:700;font-size:.9rem}.ednna-procedure-note{color:#667085;font-size:.75rem;margin-top:2px}
+/* Streamlit: compactação apenas dentro da experiência atual */
+div[data-testid="stTabs"] button[data-baseweb="tab"]{font-size:.84rem;padding:8px 12px;min-height:38px}div[data-testid="stTabs"] [data-baseweb="tab-list"]{gap:2px}
+div[data-testid="stExpander"] details{border-color:#e7ebf0;border-radius:9px;background:#fff}div[data-testid="stExpander"] summary{font-size:.82rem;min-height:38px}
+div[data-testid="stMetric"]{background:#fff;border:1px solid var(--ed-line);padding:8px 10px;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+@media (max-width:1100px){.ednna-data-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ednna-card{min-height:88px;padding:10px 11px}.ednna-card-note{font-size:.69rem}}
+@media (max-width:760px){.ednna-data-grid{grid-template-columns:1fr}.ednna-hero{padding:12px 14px}.ednna-hero-sub{display:none}}

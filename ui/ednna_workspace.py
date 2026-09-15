@@ -104,7 +104,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.22.
+    Workspace visual da EDNNA — v3.26 Executive Experience.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -122,11 +122,9 @@ def render_ednna_workspace(
     st.markdown(
         """
         <div class="ednna-hero">
-            <div class="ednna-hero-title">🤖 Workspace operacional da EDNNA</div>
-            <div class="ednna-hero-sub">
-                Acompanhe qualidade dos dados, ações assistidas, recorrências e regras
-                sem percorrer uma página única e extensa.
-            </div>
+            <div class="ednna-hero-eyebrow">EDNNA · INTELIGÊNCIA OPERACIONAL</div>
+            <div class="ednna-hero-title">Central Operacional EDI</div>
+            <div class="ednna-hero-sub">O que precisa de atenção, o que a EDNNA já entendeu e o que está pronto para avançar.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -229,12 +227,27 @@ def render_ednna_workspace(
             ).sum()
         )
 
+        # v3.26 — indicadores executivos: entendimento e atenção, não detalhes técnicos
+        intencao_serie = base_demandas.get(
+            "EDNNA - Intenção",
+            pd.Series("NAO_CLASSIFICADO", index=base_demandas.index),
+        ).fillna("NAO_CLASSIFICADO").astype(str)
+        reconhecidos_executivo = int((intencao_serie != "NAO_CLASSIFICADO").sum())
+        cancelamentos_executivo = int((intencao_serie == "CANCELAMENTO_TRAFEGO").sum())
+        conflitos_executivo = int(
+            (base_demandas.get(
+                "EDNNA - Conflito de classificação",
+                pd.Series("", index=base_demandas.index),
+            ).fillna("").astype(str).str.upper() == "SIM").sum()
+        )
+
+        # v3.26 — navegação curta, orientada à tarefa
         ws_resumo, ws_acoes, ws_inteligencia, ws_regras = st.tabs(
             [
-                "🏠 Resumo",
-                "🤖 Ações",
-                "📊 Inteligência",
-                "⚙️ Regras",
+                "Visão geral",
+                "Operação",
+                "Inteligência",
+                "Regras",
             ]
         )
 
@@ -243,58 +256,33 @@ def render_ednna_workspace(
         # ================================================
         with ws_resumo:
 
+            st.markdown(
+                '<div class="ednna-section-kicker">VISÃO EXECUTIVA</div>',
+                unsafe_allow_html=True,
+            )
             r1, r2, r3, r4 = st.columns(4)
 
-            with r1:
-                st.markdown(
-                    f"""
-                    <div class="ednna-card ednna-card-blue">
-                        <div class="ednna-card-label">CANDIDATOS</div>
-                        <div class="ednna-card-value">{len(base_demandas)}</div>
-                        <div class="ednna-card-note">Demandas aguardando primeiro combate</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with r2:
-                st.markdown(
-                    f"""
-                    <div class="ednna-card ednna-card-green">
-                        <div class="ednna-card-label">DADOS COMPLETOS</div>
-                        <div class="ednna-card-value">{completos_total}</div>
-                        <div class="ednna-card-note">Convênio + referência + tipo + NSA</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with r3:
-                st.markdown(
-                    f"""
-                    <div class="ednna-card ednna-card-purple">
-                        <div class="ednna-card-label">COM REGRA HOMOLOGADA</div>
-                        <div class="ednna-card-value">{regras_homologadas_total}</div>
-                        <div class="ednna-card-note">Possuem procedimento operacional conhecido</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            with r4:
-                st.markdown(
-                    f"""
-                    <div class="ednna-card ednna-card-yellow">
-                        <div class="ednna-card-label">PRONTOS PARA RASCUNHO</div>
-                        <div class="ednna-card-value">{prontos_rascunho_total}</div>
-                        <div class="ednna-card-note">Somente modo assistido</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+            cards_exec = [
+                (r1, "Primeiro combate", len(base_demandas), "Demandas que aguardam atuação", "blue"),
+                (r2, "Padrões reconhecidos", reconhecidos_executivo, "Demandas já compreendidas pela EDNNA", "green"),
+                (r3, "Cancelamentos", cancelamentos_executivo, "Demandas de cancelamento identificadas", "blue"),
+                (r4, "Requer atenção", conflitos_executivo, "Conflitos de classificação para revisão", "yellow"),
+            ]
+            for coluna, rotulo, valor, nota, cor in cards_exec:
+                with coluna:
+                    st.markdown(
+                        f"""
+                        <div class="ednna-card ednna-card-{cor}">
+                            <div class="ednna-card-label">{rotulo}</div>
+                            <div class="ednna-card-value">{valor}</div>
+                            <div class="ednna-card-note">{nota}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
 
             st.markdown(
-                '<div class="ednna-section-title">Panorama das demandas</div>',
+                '<div class="ednna-section-title">Panorama operacional</div>',
                 unsafe_allow_html=True,
             )
 
@@ -478,7 +466,7 @@ def render_ednna_workspace(
         with ws_acoes:
 
             st.markdown(
-                '<div class="ednna-section-title">Ações propostas pela EDNNA</div>',
+                '<div class="ednna-section-title">Operação assistida</div>',
                 unsafe_allow_html=True,
             )
             regras_auto = [
@@ -1524,7 +1512,7 @@ def render_ednna_workspace(
         with ws_inteligencia:
 
             st.markdown(
-                '<div class="ednna-section-title">Inteligência e recorrência</div>',
+                '<div class="ednna-section-title">Inteligência operacional</div>',
                 unsafe_allow_html=True,
             )
             st.caption(

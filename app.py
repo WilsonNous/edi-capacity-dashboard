@@ -3081,7 +3081,7 @@ with main_col:
                     str(
                         avatar_ednna
                     ),
-                    width=125,
+                    width=78,
                 )
 
         with ed_head2:
@@ -3095,9 +3095,8 @@ with main_col:
             )
 
             st.caption(
-                "A EDNNA cruza o snapshot operacional com o histórico "
-                "dos chamados para identificar primeiro combate, atuação "
-                "já realizada e situações que precisam de revisão."
+                "Inteligência operacional para entender a fila, executar procedimentos homologados "
+                "e acompanhar o que ainda precisa de decisão humana."
             )
 
             modo_col1, modo_col2 = st.columns(
@@ -3107,14 +3106,12 @@ with main_col:
 
             with modo_col1:
                 st.info(
-                    "A EDNNA continua classificando e priorizando chamados, "
-                    "mas agora também executa procedimentos homologados."
+                    "A EDNNA identifica padrões, prioriza o primeiro combate e prepara ações assistidas."
                 )
 
             with modo_col2:
                 st.success(
-                    "🤖 Automação ativa: regras homologadas podem enviar e-mail, "
-                    "registrar histórico no Redmine, alterar status e acompanhar prazo."
+                    "Automação ativa · envio, Redmine e acompanhamento de retorno em procedimentos homologados."
                 )
 
 
@@ -3562,12 +3559,12 @@ with main_col:
             ed_equipe,
         ) = st.tabs(
             [
-                "Visão EDNNA",
+                "Visão geral",
                 "Primeiro combate",
                 "Já atuados",
-                "Revisão",
-                "Workspace EDNNA",
-                "Equipe EDI",
+                "Atenção",
+                "Central EDNNA",
+                "Equipe",
             ]
         )
 
@@ -4858,7 +4855,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.21.1 — Painel EDI com navegação vertical, filtros horizontais em colunas "
+        "Versão 3.26 — EDNNA Executive Experience · interface responsiva e operação orientada à atenção "
         "e EDNNA em modo híbrido. Regras homologadas podem executar ações automáticas; "
         "demais cenários permanecem em análise, observação ou modo assistido."
     )
