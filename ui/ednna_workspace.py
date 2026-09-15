@@ -40,6 +40,10 @@ from ednna.redmine_writer import (
     registrar_email_e_status_chamado,
 )
 
+from ednna.contexto_relacionamentos import (
+    analisar_contexto_cancelamento,
+)
+
 
 def _carregar_css() -> None:
     css_path = (
@@ -1524,6 +1528,88 @@ def render_ednna_workspace(
                 "Use esta área para descobrir padrões repetitivos antes de transformar "
                 "uma ocorrência em regra operacional."
             )
+
+            st.markdown("### 🧠 Contexto histórico de relacionamentos")
+            st.caption(
+                "Reconstrói aberturas, inclusões, implantações e cancelamentos relacionados. "
+                "Nesta fase a análise é somente leitura: nenhuma ação é executada no Redmine."
+            )
+
+            ctx_c1, ctx_c2 = st.columns([1, 3])
+            with ctx_c1:
+                contexto_chamado_id = st.number_input(
+                    "Chamado de cancelamento", min_value=1, value=31592, step=1,
+                    key="ednna_contexto_cancelamento_id_v324",
+                )
+            with ctx_c2:
+                st.write("")
+                st.write("")
+                analisar_contexto = st.button("🔎 Reconstruir contexto", key="ednna_contexto_cancelamento_analisar_v324")
+                atualizar_contexto = st.button("🔄 Atualizar dados do Redmine", key="ednna_contexto_cancelamento_force_v324")
+
+            if analisar_contexto or atualizar_contexto:
+                try:
+                    with st.spinner("EDNNA reconstruindo histórico do relacionamento..."):
+                        contexto = analisar_contexto_cancelamento(int(contexto_chamado_id), force=bool(atualizar_contexto))
+                    st.session_state["ednna_contexto_historico_v324"] = contexto
+                except Exception as exc_ctx:
+                    st.error(f"Não foi possível reconstruir o contexto histórico: {exc_ctx}")
+
+            contexto = st.session_state.get("ednna_contexto_historico_v324")
+            if contexto and int(contexto.get("chamado_id", 0)) == int(contexto_chamado_id):
+                st.markdown(
+                    f"**#{contexto.get('chamado_id')} • {contexto.get('cliente') or 'Cliente não identificado'}**  "
+                    f"— Escopo: **{contexto.get('escopo')}**"
+                )
+                if contexto.get("blueprint_id"):
+                    st.caption(
+                        f"Blueprint/Novo Cliente localizado: #{contexto.get('blueprint_id')} • "
+                        f"{contexto.get('chamados_consultados', 0)} chamados consultados • modo somente leitura"
+                    )
+                else:
+                    st.warning("Blueprint/Novo Cliente não localizado entre as relações diretas do chamado.")
+
+                linhas_ctx = []
+                for rel_ctx in contexto.get("relacionamentos", []):
+                    estado_ctx = rel_ctx.get("estado", "DADOS_INSUFICIENTES")
+                    rotulo_ctx = {
+                        "RELACIONAMENTO_LOCALIZADO": "🟢 Relacionamento localizado",
+                        "CANCELADO_CONFIRMADO": "⚪ Já cancelado anteriormente",
+                        "DADOS_INSUFICIENTES": "⚠️ Dados insuficientes",
+                    }.get(estado_ctx, estado_ctx)
+                    fontes_ctx = ", ".join(f"#{x}" for x in rel_ctx.get("fontes", [])) or "—"
+                    linhas_ctx.append({
+                        "Player": rel_ctx.get("player", ""), "Estado histórico": rotulo_ctx,
+                        "Fontes": fontes_ctx,
+                        "Cancelamento anterior": f"#{rel_ctx.get('cancelamento_anterior')}" if rel_ctx.get("cancelamento_anterior") else "—",
+                    })
+
+                if linhas_ctx:
+                    st.dataframe(pd.DataFrame(linhas_ctx), width="stretch", hide_index=True)
+                    tratar = sum(1 for x in contexto.get("relacionamentos", []) if x.get("estado") == "RELACIONAMENTO_LOCALIZADO")
+                    cancelados = sum(1 for x in contexto.get("relacionamentos", []) if x.get("estado") == "CANCELADO_CONFIRMADO")
+                    insuficientes = sum(1 for x in contexto.get("relacionamentos", []) if x.get("estado") == "DADOS_INSUFICIENTES")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Relacionamentos a tratar", tratar)
+                    m2.metric("Já cancelados", cancelados)
+                    m3.metric("Dados insuficientes", insuficientes)
+                    with st.expander("Ver linha do tempo e fontes", expanded=False):
+                        for rel_ctx in contexto.get("relacionamentos", []):
+                            st.markdown(f"**{rel_ctx.get('player')}**")
+                            eventos_ctx = rel_ctx.get("eventos", [])
+                            if not eventos_ctx:
+                                st.caption("Nenhum evento histórico relacionado localizado.")
+                                continue
+                            tabela_eventos = pd.DataFrame([{
+                                "Chamado": f"#{e.get('id')}", "Evento": e.get("evento"),
+                                "Estado": e.get("estado"), "Tipo": e.get("tipo"),
+                                "Assunto": e.get("assunto"), "Data": e.get("data"),
+                            } for e in eventos_ctx])
+                            st.dataframe(tabela_eventos, width="stretch", hide_index=True)
+                else:
+                    st.warning("Nenhum relacionamento operacional foi reconstruído para este cancelamento.")
+
+            st.divider()
 
             intencoes = (
                 base_demandas["EDNNA - Intenção"]

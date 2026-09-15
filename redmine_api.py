@@ -414,8 +414,17 @@ def buscar_chamados_projeto(
 
     return chamados
 
-def buscar_detalhes_chamado(chamado_id: int, incluir_journals: bool = False) -> dict:
-    params = {"include": "journals"} if incluir_journals else None
+def buscar_detalhes_chamado(
+    chamado_id: int,
+    incluir_journals: bool = False,
+    incluir_relacoes: bool = False,
+) -> dict:
+    includes = []
+    if incluir_journals:
+        includes.append("journals")
+    if incluir_relacoes:
+        includes.append("relations")
+    params = {"include": ",".join(includes)} if includes else None
     return _get(f"issues/{chamado_id}.json", params).get("issue", {})
 
 
