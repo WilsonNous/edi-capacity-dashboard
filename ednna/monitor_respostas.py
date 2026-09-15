@@ -422,6 +422,94 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
 
     return recuperadas
 
+def _texto_redmine_issue(issue: dict) -> str:
+    partes = [str(issue.get("subject") or ""), str(issue.get("description") or "")]
+    for journal in issue.get("journals", []) or []:
+        nota = str(journal.get("notes") or "").strip()
+        if nota:
+            partes.append(nota)
+    return "\n".join(partes)
+
+
+def _normalizar_auditoria(texto: str) -> str:
+    return re.sub(r"\\s+", " ", str(texto or "")).strip().casefold()
+
+
+def _redmine_tem_retorno_ednna(issue: dict, acao: dict) -> bool:
+    """Confirma no próprio Redmine que o efeito do retorno realmente foi aplicado.
+
+    Não confia apenas no estado RESPOSTA_RECEBIDA do SQLite. Procura a assinatura
+    da nota EDNNA e, quando possível, elementos do retorno persistido.
+    """
+    texto = _normalizar_auditoria(_texto_redmine_issue(issue))
+    if "ednna — retorno de e-mail recebido" not in texto and "ednna - retorno de e-mail recebido" not in texto:
+        return False
+
+    assunto = _normalizar_auditoria(acao.get("resposta_assunto") or "")
+    if assunto and assunto[:80] in texto:
+        return True
+
+    corpo = _normalizar_auditoria(acao.get("resposta_corpo") or "")
+    # Usa um fragmento significativo do retorno, evitando depender de assinatura.
+    palavras = corpo.split()
+    fragmento = " ".join(palavras[:14])
+    if len(fragmento) >= 25 and fragmento in texto:
+        return True
+
+    # A assinatura EDNNA no histórico já é evidência suficiente para legados em que
+    # assunto/corpo foram normalizados de forma diferente.
+    return True
+
+
+def _auditar_processados_redmine(caixa: str) -> dict:
+    """v3.28.7.5 — audita PROCESSADO contra o efeito real no Redmine.
+
+    Se o SQLite diz RESPOSTA_RECEBIDA mas a nota não existe no chamado, reabre
+    somente a sincronização Redmine usando a resposta já preservada. Não relê nem
+    reinterpreta o e-mail e não dispara novo envio.
+    """
+    regra_id = "CANCELAMENTO-GETNET-001"
+    envios = listar_envios_cancelamento_getnet(remetente=caixa, top=500)
+    ids = sorted({int(x.get("chamado_id") or 0) for x in envios if int(x.get("chamado_id") or 0)})
+    confirmados: list[int] = []
+    reparo: list[int] = []
+    indisponiveis: list[int] = []
+
+    for chamado_id in ids:
+        acao = obter_acompanhamento(chamado_id, regra_id)
+        if str(acao.get("estado") or "").strip().upper() != "RESPOSTA_RECEBIDA":
+            continue
+        try:
+            issue = buscar_issue_contexto(chamado_id, force=True)
+        except Exception as exc:
+            indisponiveis.append(chamado_id)
+            print(f"[EDNNA] Auditoria conclusão | Redmine indisponível | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+            continue
+
+        if _redmine_tem_retorno_ednna(issue, acao):
+            confirmados.append(chamado_id)
+            continue
+
+        # Estado local dizia concluído, mas o efeito não existe no Redmine.
+        # Recria somente a pendência de sincronização com os dados já preservados.
+        registrar_resposta_pendente_redmine(
+            chamado_id, regra_id,
+            graph_message_id=str(acao.get("resposta_graph_message_id") or ""),
+            remetente=str(acao.get("resposta_remetente") or ""),
+            assunto=str(acao.get("resposta_assunto") or ""),
+            corpo=str(acao.get("resposta_corpo") or ""),
+            recebida_em=str(acao.get("resposta_recebida_em") or ""),
+            erro="Auditoria v3.28.7.5: resposta processada localmente sem evidência da nota no Redmine.",
+        )
+        reparo.append(chamado_id)
+        print(f"[EDNNA] Auditoria conclusão | REPARO_PENDENTE | chamado={chamado_id}", flush=True)
+
+    print(f"[EDNNA] Auditoria conclusão | confirmados_ids={confirmados}", flush=True)
+    print(f"[EDNNA] Auditoria conclusão | reparo_pendente_ids={reparo}", flush=True)
+    print(f"[EDNNA] Auditoria conclusão | indisponiveis_ids={indisponiveis}", flush=True)
+    return {"confirmados": confirmados, "reparo": reparo, "indisponiveis": indisponiveis}
+
+
 def _sincronizar_respostas_pendentes_redmine() -> int:
     """Tenta descarregar no Redmine respostas já preservadas no SQLite."""
     sincronizadas = 0
@@ -467,6 +555,12 @@ def executar_monitoramento_respostas() -> dict:
         return resumo
 
     caixa = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
+    try:
+        auditoria = _auditar_processados_redmine(caixa)
+        if auditoria.get("reparo"):
+            resumo["detalhes"].append({"reparo_pendente": auditoria.get("reparo")})
+    except Exception as exc:
+        print(f"[EDNNA] Auditoria conclusão | falha | {type(exc).__name__}: {exc}", flush=True)
     try:
         pendentes_sync = _sincronizar_respostas_pendentes_redmine()
         if pendentes_sync:
