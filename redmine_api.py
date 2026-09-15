@@ -789,6 +789,7 @@ def issue_para_linha(
         "Origem": origem,
         "_Origem_lista": origem_lista,
         "Atribuído a": (chamado.get("assigned_to") or {}).get("name"),
+        "_Atribuído a ID": (chamado.get("assigned_to") or {}).get("id"),
         "Projeto": (chamado.get("project") or {}).get("name"),
         "Tipo": (chamado.get("tracker") or {}).get("name"),
         "Estado": (chamado.get("status") or {}).get("name"),

@@ -3967,6 +3967,7 @@ with main_col:
 
             render_ednna_workspace(
                 ednna_analisados=ednna_analisados,
+                snapshot_global=df,
                 resumo_oportunidades_fn=resumo_oportunidades,
                 calcular_prontidao_automacao_fn=calcular_prontidao_automacao,
                 ranking_clientes_fn=ranking_clientes,

@@ -95,6 +95,7 @@ def _rotulo_intencao(valor: str) -> str:
 def render_ednna_workspace(
     *,
     ednna_analisados: pd.DataFrame,
+    snapshot_global: pd.DataFrame | None = None,
     resumo_oportunidades_fn,
     calcular_prontidao_automacao_fn,
     ranking_clientes_fn,
@@ -106,7 +107,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.28.1 Operação assistida e carteira EDNNA.
+    Workspace visual da EDNNA — v3.28.3 Carteira EDNNA baseada no snapshot global.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -469,17 +470,31 @@ def render_ednna_workspace(
                 "Visão dos chamados atualmente atribuídos à automação EDI. "
                 "A lista usa o responsável presente no snapshot do Redmine."
             )
-            if "Atribuído a" in ednna_analisados.columns:
-                mascara_ednna = (
-                    ednna_analisados["Atribuído a"]
-                    .fillna("")
-                    .astype(str)
-                    .str.casefold()
-                    .str.contains("ednna", regex=False)
-                )
-                carteira_ednna = ednna_analisados[mascara_ednna].copy()
-            else:
-                carteira_ednna = pd.DataFrame()
+            # v3.28.3 — a carteira precisa olhar o snapshot GLOBAL de chamados
+            # abertos do Redmine, e não somente o subconjunto Estado == Aberto
+            # usado pela inteligência de primeiro combate. Chamados assumidos pela
+            # EDNNA normalmente já estão em Em andamento / Aguardando Retorno.
+            base_carteira = (
+                snapshot_global.copy()
+                if isinstance(snapshot_global, pd.DataFrame) and not snapshot_global.empty
+                else ednna_analisados.copy()
+            )
+
+            ednna_user_id = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+            mascara_ednna = pd.Series(False, index=base_carteira.index)
+
+            # Critério principal: ID imutável do usuário EDNNA no Redmine.
+            if "_Atribuído a ID" in base_carteira.columns:
+                ids_resp = pd.to_numeric(base_carteira["_Atribuído a ID"], errors="coerce")
+                mascara_ednna = mascara_ednna | ids_resp.eq(ednna_user_id)
+
+            # Compatibilidade com snapshots anteriores à v3.28.3, que ainda não
+            # possuem o ID do responsável persistido na linha transformada.
+            if "Atribuído a" in base_carteira.columns:
+                nomes_resp = base_carteira["Atribuído a"].fillna("").astype(str).str.casefold()
+                mascara_ednna = mascara_ednna | nomes_resp.str.contains("ednna", regex=False)
+
+            carteira_ednna = base_carteira[mascara_ednna].copy()
 
             ce1, ce2 = st.columns([1, 3])
             ce1.metric("Sob responsabilidade EDNNA", len(carteira_ednna))
@@ -494,7 +509,7 @@ def render_ednna_workspace(
             else:
                 colunas_carteira = [
                     c for c in [
-                        "#", "Clientes", "Origem", "Estado", "Prioridade", "Tipo", "Assunto",
+                        "#", "Clientes", "Origem", "Atribuído a", "Estado", "Prioridade", "Tipo", "Assunto",
                         "EDNNA - Regra operacional", "EDNNA - Situação",
                     ] if c in carteira_ednna.columns
                 ]
