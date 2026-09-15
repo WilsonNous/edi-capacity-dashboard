@@ -334,63 +334,71 @@ def alterar_status_chamado(
 
 
 
-def upload_arquivo_redmine(*, conteudo: bytes, filename: str, content_type: str = "message/rfc822") -> dict:
-    """Envia binário para /uploads.json e devolve o token para anexar ao chamado."""
+def upload_arquivo_redmine(*, conteudo: bytes, filename: str, content_type: str = "message/rfc822", tentativas: int = 3) -> dict:
+    """Envia binário para /uploads.json com retry/backoff e devolve o token."""
     if not conteudo:
         raise RedmineWriteError("Conteúdo do anexo está vazio.")
     filename = str(filename or "evidencia.eml").strip() or "evidencia.eml"
-    resposta = requests.post(
-        f"{REDMINE_URL}/uploads.json",
-        headers=_headers(content_type="application/octet-stream"),
-        params={"filename": filename},
-        data=conteudo,
-        timeout=(20, 90),
-    )
-    if resposta.status_code not in {200, 201}:
-        raise RedmineWriteError(
-            f"Falha no upload da evidência ao Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}"
-        )
-    upload = (resposta.json() or {}).get("upload") or {}
-    token = str(upload.get("token") or "").strip()
-    if not token:
-        raise RedmineWriteError("Redmine não retornou token do upload.")
-    return {"token": token, "filename": filename, "content_type": content_type}
-
+    esperas = [0, 2, 5]
+    ultimo_erro = None
+    for tentativa in range(1, tentativas + 1):
+        if tentativa > 1:
+            espera = esperas[min(tentativa - 1, len(esperas) - 1)]
+            print(f"[EDNNA] Evidência upload | nova tentativa em {espera}s | arquivo={filename}", flush=True)
+            sleep(espera)
+        try:
+            print(f"[EDNNA] Evidência upload | POST | arquivo={filename} | tentativa {tentativa}/{tentativas}", flush=True)
+            resposta = requests.post(f"{REDMINE_URL}/uploads.json", headers=_headers(content_type="application/octet-stream"), params={"filename": filename}, data=conteudo, timeout=(20, 90))
+            if resposta.status_code not in {200, 201}:
+                raise RedmineWriteError(f"Falha no upload da evidência ao Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}")
+            upload = (resposta.json() or {}).get("upload") or {}
+            token = str(upload.get("token") or "").strip()
+            if not token:
+                raise RedmineWriteError("Redmine não retornou token do upload.")
+            print(f"[EDNNA] Evidência upload | OK | arquivo={filename} | tentativa={tentativa}", flush=True)
+            return {"token": token, "filename": filename, "content_type": content_type}
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, RedmineWriteError) as exc:
+            ultimo_erro = exc
+            print(f"[EDNNA] Evidência upload | falha | arquivo={filename} | tentativa {tentativa}/{tentativas} | {type(exc).__name__}: {exc}", flush=True)
+            if isinstance(exc, RedmineWriteError) and "HTTP 5" not in str(exc):
+                break
+            if tentativa >= tentativas:
+                break
+    raise RedmineWriteError(str(ultimo_erro or "Falha desconhecida no upload da evidência."))
 
 def registrar_email_evidencia_e_status_chamado(
     *, chamado_id: int, nota: str, status_nome: str, assigned_to_id: int | None,
-    evidencia: bytes, evidencia_filename: str, evidencia_content_type: str = "message/rfc822",
+    evidencia: bytes, evidencia_filename: str, evidencia_content_type: str = "message/rfc822", tentativas: int = 3,
 ) -> dict:
-    """Registra nota/status e anexa a mensagem original como evidência documental."""
-    upload = upload_arquivo_redmine(
-        conteudo=evidencia, filename=evidencia_filename, content_type=evidencia_content_type
-    )
+    """Faz upload e vincula o mesmo token ao chamado com retry/backoff."""
+    upload = upload_arquivo_redmine(conteudo=evidencia, filename=evidencia_filename, content_type=evidencia_content_type, tentativas=tentativas)
     status_id = obter_status_id_por_nome(status_nome)
-    payload = {
-        "notes": nota,
-        "status_id": status_id,
-        "uploads": [{
-            "token": upload["token"],
-            "filename": upload["filename"],
-            "content_type": upload["content_type"],
-            "description": "Evidência original do retorno da adquirente preservada pela EDNNA",
-        }],
-    }
+    payload = {"notes": nota, "status_id": status_id, "uploads": [{"token": upload["token"], "filename": upload["filename"], "content_type": upload["content_type"], "description": "Evidência original do retorno da adquirente preservada pela EDNNA"}]}
     if assigned_to_id is not None:
         payload["assigned_to_id"] = int(assigned_to_id)
-    resposta = requests.put(
-        f"{REDMINE_URL}/issues/{int(chamado_id)}.json",
-        headers=_headers(), json={"issue": payload}, timeout=(20, 60),
-    )
-    if resposta.status_code not in {200, 204}:
-        raise RedmineWriteError(
-            f"Falha ao registrar retorno/evidência no Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}"
-        )
-    print(
-        f"[EDNNA] Evidência Redmine | anexada | chamado={chamado_id} | arquivo={evidencia_filename}",
-        flush=True,
-    )
-    return {"ok": True, "chamado_id": int(chamado_id), "status_id": status_id, "status_nome": status_nome, "arquivo": evidencia_filename}
+    esperas = [0, 2, 5]
+    ultimo_erro = None
+    for tentativa in range(1, tentativas + 1):
+        if tentativa > 1:
+            espera = esperas[min(tentativa - 1, len(esperas) - 1)]
+            print(f"[EDNNA] Evidência vínculo | nova tentativa em {espera}s | chamado={chamado_id}", flush=True)
+            sleep(espera)
+        try:
+            print(f"[EDNNA] Evidência vínculo | PUT chamado={chamado_id} | tentativa {tentativa}/{tentativas}", flush=True)
+            resposta = requests.put(f"{REDMINE_URL}/issues/{int(chamado_id)}.json", headers=_headers(), json={"issue": payload}, timeout=(20, 60))
+            if resposta.status_code not in {200, 204}:
+                raise RedmineWriteError(f"Falha ao registrar retorno/evidência no Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}")
+            print(f"[EDNNA] Evidência vínculo | OK | chamado={chamado_id} | tentativa={tentativa}", flush=True)
+            print(f"[EDNNA] Evidência Redmine | anexada | chamado={chamado_id} | arquivo={evidencia_filename}", flush=True)
+            return {"ok": True, "chamado_id": int(chamado_id), "status_id": status_id, "status_nome": status_nome, "arquivo": evidencia_filename}
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, RedmineWriteError) as exc:
+            ultimo_erro = exc
+            print(f"[EDNNA] Evidência vínculo | falha | chamado={chamado_id} | tentativa {tentativa}/{tentativas} | {type(exc).__name__}: {exc}", flush=True)
+            if isinstance(exc, RedmineWriteError) and "HTTP 5" not in str(exc):
+                break
+            if tentativa >= tentativas:
+                break
+    raise RedmineWriteError(str(ultimo_erro or "Falha desconhecida ao vincular evidência ao chamado."))
 
 def registrar_email_e_status_chamado(
     *,
