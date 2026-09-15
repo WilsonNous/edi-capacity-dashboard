@@ -106,7 +106,7 @@ def render_ednna_workspace(
     catalogo_operacional_ednna: dict,
 ) -> None:
     """
-    Workspace visual da EDNNA — v3.27 Central de Cancelamentos.
+    Workspace visual da EDNNA — v3.28.1 Operação assistida e carteira EDNNA.
 
     Esta camada não consulta o Redmine nem grava SQLite.
     """
@@ -460,6 +460,48 @@ def render_ednna_workspace(
 
                 st.caption(
                     "Leitura executiva calculada automaticamente sobre o conjunto atual analisado pela EDNNA."
+                )
+
+
+            # v3.28.1 — carteira operacional formalmente atribuída à EDNNA no Redmine.
+            st.markdown("#### Chamados com a EDNNA")
+            st.caption(
+                "Visão dos chamados atualmente atribuídos à automação EDI. "
+                "A lista usa o responsável presente no snapshot do Redmine."
+            )
+            if "Atribuído a" in ednna_analisados.columns:
+                mascara_ednna = (
+                    ednna_analisados["Atribuído a"]
+                    .fillna("")
+                    .astype(str)
+                    .str.casefold()
+                    .str.contains("ednna", regex=False)
+                )
+                carteira_ednna = ednna_analisados[mascara_ednna].copy()
+            else:
+                carteira_ednna = pd.DataFrame()
+
+            ce1, ce2 = st.columns([1, 3])
+            ce1.metric("Sob responsabilidade EDNNA", len(carteira_ednna))
+            with ce2:
+                st.caption(
+                    "Quando a EDNNA assume uma ação homologada, o chamado passa para esta carteira "
+                    "até que o próximo passo exija atuação humana ou encerramento do fluxo."
+                )
+
+            if carteira_ednna.empty:
+                st.info("Nenhum chamado do snapshot atual está atribuído à EDNNA.")
+            else:
+                colunas_carteira = [
+                    c for c in [
+                        "#", "Clientes", "Origem", "Estado", "Prioridade", "Tipo", "Assunto",
+                        "EDNNA - Regra operacional", "EDNNA - Situação",
+                    ] if c in carteira_ednna.columns
+                ]
+                st.dataframe(
+                    carteira_ednna[colunas_carteira],
+                    width="stretch",
+                    hide_index=True,
                 )
 
         # ================================================
@@ -1534,7 +1576,7 @@ def render_ednna_workspace(
                 "A fila nasce da memória local; o histórico detalhado do Redmine é reconstruído somente sob demanda."
             )
 
-            # v3.27 — carteira de cancelamentos. Não consulta o Redmine para montar a fila.
+            # v3.28.1 — carteira de cancelamentos. Não consulta o Redmine para montar a fila.
             cancelamentos_df = ednna_analisados[
                 ednna_analisados.get(
                     "EDNNA - Intenção",
@@ -1712,7 +1754,7 @@ def render_ednna_workspace(
                 st.markdown("#### Plano assistido de cancelamento")
                 st.caption(
                     "A EDNNA prepara rascunhos somente para players com procedimento homologado. "
-                    "Nesta fase nenhum envio é realizado por esta área."
+                    "GETNET pode ser disparado após revisão e aprovação humana explícita."
                 )
                 if st.button("🧭 Preparar plano e rascunhos", key="ednna_btn_preparar_plano_cancelamento_v325"):
                     try:
@@ -1783,7 +1825,98 @@ def render_ednna_workspace(
                                     disabled=True,
                                     key=f"plano_corpo_{contexto_chamado_id}_{item_plano.get('player')}",
                                 )
-                                st.info("Rascunho preparado para revisão. O envio permanece bloqueado nesta área da v3.27.")
+                                regra_plano = str(rascunho_plano.get("regra_id") or "CANCELAMENTO-GETNET-001")
+                                chamado_plano = int(contexto_chamado_id)
+                                acompanhamento_plano = obter_acompanhamento(chamado_plano, regra_plano)
+                                estado_plano_envio = str(acompanhamento_plano.get("estado") or "RASCUNHO")
+
+                                if estado_plano_envio in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA", "ENVIANDO"}:
+                                    st.info(
+                                        "Este procedimento já possui acompanhamento EDNNA: "
+                                        + rotulo_estado(estado_plano_envio)
+                                    )
+                                else:
+                                    # Barreira visual e operacional: GETNET só libera envio com cliente,
+                                    # EC(s), destinatários, assunto e corpo efetivamente preenchidos.
+                                    ecs_validos = [str(x).strip() for x in item_plano.get("identificadores", []) if str(x).strip()]
+                                    validacao_envio = bool(
+                                        str(plano.get("cliente") or "").strip()
+                                        and ecs_validos
+                                        and rascunho_plano.get("destinatarios")
+                                        and str(rascunho_plano.get("assunto") or "").strip()
+                                        and str(rascunho_plano.get("corpo") or "").strip()
+                                        and all(ec in str(rascunho_plano.get("corpo") or "") for ec in ecs_validos)
+                                    )
+                                    if not validacao_envio:
+                                        st.error(
+                                            "Envio bloqueado: Cliente + EC(s) + destinatários + assunto + corpo "
+                                            "precisam estar completos e validados."
+                                        )
+                                    else:
+                                        aprovar_plano = st.checkbox(
+                                            "Aprovo este cancelamento GETNET e confirmo o envio pela EDNNA",
+                                            key=f"aprovar_plano_getnet_{chamado_plano}_{item_plano.get('player')}",
+                                        )
+                                        if st.button(
+                                            "📨 Disparar cancelamento GETNET",
+                                            type="primary",
+                                            disabled=not aprovar_plano,
+                                            key=f"enviar_plano_getnet_{chamado_plano}_{item_plano.get('player')}",
+                                        ):
+                                            adquirido, _ = adquirir_envio(chamado_plano, regra_plano)
+                                            if not adquirido:
+                                                st.warning("Este envio já foi iniciado ou concluído por outra sessão.")
+                                                st.rerun()
+                                            try:
+                                                resultado_email = enviar_email_graph(
+                                                    remetente=rascunho_plano.get("remetente", "edi@netunna.com.br"),
+                                                    para=rascunho_plano.get("destinatarios", []),
+                                                    cc=rascunho_plano.get("cc", []),
+                                                    assunto=rascunho_plano.get("assunto", ""),
+                                                    corpo=rascunho_plano.get("corpo", ""),
+                                                )
+                                                acompanhamento_envio = confirmar_envio_real(
+                                                    chamado_plano,
+                                                    regra_plano,
+                                                    prazo_dias_uteis=rascunho_plano.get("prazo_resposta_dias_uteis", 1),
+                                                    email_assunto=rascunho_plano.get("assunto", ""),
+                                                    graph_message_id=resultado_email.get("message_id", ""),
+                                                    graph_conversation_id=resultado_email.get("conversation_id", ""),
+                                                    graph_internet_message_id=resultado_email.get("internet_message_id", ""),
+                                                )
+                                                responsabilidade = atribuir_chamado_ednna(chamado_id=chamado_plano)
+                                                registrar_responsabilidade_ednna(
+                                                    chamado_plano, regra_plano,
+                                                    responsabilidade.get("responsavel_anterior_id"),
+                                                    responsabilidade.get("responsavel_anterior_nome", ""),
+                                                )
+                                                nota_redmine = montar_nota_email_enviado(
+                                                    remetente=rascunho_plano.get("remetente", "edi@netunna.com.br"),
+                                                    para=rascunho_plano.get("destinatarios", []),
+                                                    cc=rascunho_plano.get("cc", []),
+                                                    assunto=rascunho_plano.get("assunto", ""),
+                                                    corpo=rascunho_plano.get("corpo", ""),
+                                                    enviado_em=acompanhamento_envio.get("enviado_em", ""),
+                                                    prazo_resposta_em=acompanhamento_envio.get("prazo_resposta_em", ""),
+                                                )
+                                                registrar_email_e_status_chamado(
+                                                    chamado_id=chamado_plano,
+                                                    nota=nota_redmine,
+                                                    status_nome="Aguardando Retorno Adquirente",
+                                                    data_inicio=acompanhamento_envio.get("enviado_em", ""),
+                                                    data_fim=acompanhamento_envio.get("prazo_resposta_em", ""),
+                                                    assigned_to_id=int(responsabilidade.get("ednna_user_id") or 166),
+                                                )
+                                                marcar_redmine_atualizado(chamado_plano, regra_plano)
+                                                marcar_status_redmine(chamado_plano, regra_plano, "Aguardando Retorno Adquirente")
+                                                st.success("Cancelamento GETNET enviado. Chamado atribuído à EDNNA e colocado em acompanhamento.")
+                                                st.rerun()
+                                            except Exception as exc_envio_plano:
+                                                registrar_falha_redmine(chamado_plano, regra_plano, str(exc_envio_plano))
+                                                st.error(
+                                                    "O e-mail pode ter sido enviado, mas a finalização operacional apresentou erro. "
+                                                    "A EDNNA não fará reenvio automático. Detalhe: " + str(exc_envio_plano)
+                                                )
 
             st.divider()
 

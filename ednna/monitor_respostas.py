@@ -52,6 +52,43 @@ def _texto_corpo(message: dict[str, Any]) -> str:
     return conteudo.strip()[:12000]
 
 
+def _somente_resposta_nova(conteudo: str) -> str:
+    """Remove a mensagem original citada, preservando somente o retorno novo do remetente."""
+    texto = str(conteudo or "").strip()
+    if not texto:
+        return ""
+
+    # Delimitadores explícitos mais comuns em Outlook/Exchange e clientes de e-mail.
+    delimitadores = [
+        r"(?im)^\s*-{2,}\s*Mensagem original\s*-{2,}\s*$",
+        r"(?im)^\s*-{2,}\s*Original Message\s*-{2,}\s*$",
+        r"(?im)^\s*_{2,}\s*$",
+    ]
+    cortes = []
+    for padrao in delimitadores:
+        m = re.search(padrao, texto)
+        if m:
+            cortes.append(m.start())
+
+    # Outlook às vezes omite o título 'Mensagem original' e inicia o bloco citado por
+    # De/From + Enviado/Sent + Para/To. Só cortamos quando a sequência aparece em bloco.
+    cabecalho_citado = re.search(
+        r"(?ims)^\s*(?:De|From):\s+.+?\n\s*(?:Enviado|Sent):\s+.+?\n\s*(?:Para|To):\s+",
+        texto,
+    )
+    if cabecalho_citado:
+        cortes.append(cabecalho_citado.start())
+
+    if cortes:
+        texto = texto[:min(cortes)].rstrip()
+
+    # Remove apenas linhas de citação que sobraram no final, sem reescrever a resposta.
+    linhas = texto.splitlines()
+    while linhas and (not linhas[-1].strip() or linhas[-1].lstrip().startswith(">")):
+        linhas.pop()
+    return "\n".join(linhas).strip()[:12000]
+
+
 def _remetente(message: dict[str, Any]) -> str:
     return str(
         (((message.get("from") or {}).get("emailAddress") or {}).get("address"))
@@ -199,7 +236,7 @@ def executar_monitoramento_respostas() -> dict:
 
             remetente = _remetente(resposta)
             assunto = str(resposta.get("subject", "") or "").strip()
-            corpo = _texto_corpo(resposta)
+            corpo = _somente_resposta_nova(_texto_corpo(resposta))
             recebida_em = str(resposta.get("receivedDateTime", "") or "")
             nota = _nota_retorno(
                 remetente=remetente, assunto=assunto, corpo=corpo, recebida_em=recebida_em,

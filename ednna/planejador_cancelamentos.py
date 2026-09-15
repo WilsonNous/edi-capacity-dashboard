@@ -135,6 +135,12 @@ def preparar_plano_cancelamento(chamado_id: int, *, force: bool = False) -> dict
             continue
 
         issues = []
+        # Prioridade operacional: o chamado atual vem antes do histórico. Isso evita
+        # perder um EC explicitamente informado na solicitação de cancelamento.
+        try:
+            issues.append(buscar_issue_contexto(int(chamado_id), force=force))
+        except Exception:
+            pass
         for fonte_id in fontes:
             try:
                 issues.append(buscar_issue_contexto(fonte_id, force=force))
