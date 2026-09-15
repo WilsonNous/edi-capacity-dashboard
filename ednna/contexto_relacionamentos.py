@@ -232,6 +232,10 @@ def _tipo_evento(issue: dict) -> str:
         return "ABERTURA"
     if "IMPORTACAO DE ARQUIVOS" in texto or "IMPLANTACAO" in texto:
         return "IMPLANTACAO"
+    if any(x in texto for x in ("FALTA DE ARQUIVO", "FALTA ARQUIVO", "ARQUIVO FALTANTE", "NAO RECEBIMENTO", "NÃO RECEBIMENTO")):
+        return "FALTA_ARQUIVO"
+    if any(x in texto for x in ("ALTERACAO", "ALTERAÇÃO", "DOMICILIO BANCARIO", "DOMICÍLIO BANCÁRIO")):
+        return "ALTERACAO"
     return "OUTRO"
 
 
@@ -358,3 +362,84 @@ def analisar_contexto_cancelamento(chamado_id: int, *, force: bool = False) -> d
 def buscar_issue_contexto(chamado_id: int, *, force: bool = False) -> dict:
     """Expõe a leitura cacheada usada pelo planejador, sem alterar o Redmine."""
     return _buscar_issue(int(chamado_id), force=force)
+
+
+def analisar_contexto_operacional(chamado_id: int, *, force: bool = False) -> dict:
+    """Reconstrói o contexto operacional do chamado usando o BP/Novo Cliente como raiz histórica.
+
+    A fonte continua sendo o Redmine. O contexto é somente leitura e preserva a
+    proveniência de cada evento. BP é a raiz histórica; eventos posteriores
+    determinam o estado conhecido mais recente do relacionamento.
+    """
+    raiz = _buscar_issue(chamado_id, force=force)
+
+    diretos: dict[int, dict] = {}
+    blueprint: dict | None = raiz if _eh_blueprint_raiz(raiz) else None
+    for rid in _ids_relacionados(raiz):
+        try:
+            issue = _buscar_issue(rid, force=force)
+            diretos[rid] = issue
+            if blueprint is None and _eh_blueprint_raiz(issue):
+                blueprint = issue
+        except Exception as exc:
+            print(f"[EDNNA] Contexto operacional | falha relação direta #{rid}: {exc}", flush=True)
+
+    universo: dict[int, dict] = {int(raiz.get("id") or chamado_id): raiz, **diretos}
+    if blueprint:
+        bid = int(blueprint.get("id") or 0)
+        if bid:
+            universo[bid] = blueprint
+        for rid in _ids_relacionados(blueprint):
+            if rid in universo:
+                continue
+            try:
+                universo[rid] = _buscar_issue(rid, force=force)
+            except Exception as exc:
+                print(f"[EDNNA] Contexto operacional | falha relação BP #{rid}: {exc}", flush=True)
+
+    eventos: list[dict] = []
+    eventos_por_player: dict[str, list[dict]] = {}
+    for iid, issue in universo.items():
+        if _eh_blueprint_raiz(issue):
+            continue
+        resumo = _resumo_issue(issue)
+        if resumo["evento"] == "OUTRO" and iid != int(chamado_id):
+            continue
+        eventos.append(resumo)
+        for player in resumo.get("players", []) or []:
+            eventos_por_player.setdefault(player, []).append(resumo)
+
+    relacionamentos: list[dict] = []
+    for player in sorted(eventos_por_player):
+        evs = sorted(eventos_por_player[player], key=lambda x: x.get("data") or "")
+        cancelamentos = [e for e in evs if e["evento"] == "CANCELAMENTO" and _norm(e["estado"]) in {"CONCLUIDO", "FECHADO", "RESOLVIDO"}]
+        positivos = [e for e in evs if e["evento"] in {"ABERTURA", "IMPLANTACAO", "INCLUSAO", "ALTERACAO"}]
+        ultimo_cancel = cancelamentos[-1] if cancelamentos else None
+        posteriores = [e for e in positivos if ultimo_cancel and (e.get("data") or "") > (ultimo_cancel.get("data") or "")]
+        if ultimo_cancel and not posteriores:
+            estado = "CANCELADO_CONFIRMADO"
+        elif positivos:
+            estado = "RELACIONAMENTO_LOCALIZADO"
+        else:
+            estado = "DADOS_INSUFICIENTES"
+        relacionamentos.append({
+            "player": player, "estado": estado,
+            "fontes": sorted({int(e["id"]) for e in evs if e.get("id")}),
+            "eventos": evs,
+            "cancelamento_anterior": int(ultimo_cancel["id"]) if ultimo_cancel else None,
+        })
+
+    linha_raiz = issue_para_linha(raiz)
+    return {
+        "chamado_id": int(chamado_id),
+        "cliente": str(linha_raiz.get("Clientes") or ""),
+        "assunto": str(raiz.get("subject") or ""),
+        "tipo": str((raiz.get("tracker") or {}).get("name") or ""),
+        "estado": str((raiz.get("status") or {}).get("name") or ""),
+        "evento_atual": _tipo_evento(raiz),
+        "blueprint_id": int(blueprint.get("id") or 0) if blueprint else None,
+        "relacionamentos": relacionamentos,
+        "eventos": sorted(eventos, key=lambda x: x.get("data") or ""),
+        "chamados_consultados": len(universo),
+        "modo": "SOMENTE_LEITURA",
+    }
