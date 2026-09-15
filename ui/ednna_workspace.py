@@ -1315,7 +1315,7 @@ def render_ednna_workspace(
                                                         st.rerun()
 
                                                     try:
-                                                        enviar_email_graph(
+                                                        resultado_email = enviar_email_graph(
                                                             remetente=rascunho.get(
                                                                 "remetente",
                                                                 "edi@netunna.com.br",
@@ -1348,6 +1348,10 @@ def render_ednna_workspace(
                                                                         1,
                                                                     )
                                                                 ),
+                                                                email_assunto=rascunho.get("assunto", ""),
+                                                                graph_message_id=resultado_email.get("message_id", ""),
+                                                                graph_conversation_id=resultado_email.get("conversation_id", ""),
+                                                                graph_internet_message_id=resultado_email.get("internet_message_id", ""),
                                                             )
                                                         )
 

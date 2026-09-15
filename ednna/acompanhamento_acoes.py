@@ -63,6 +63,15 @@ def inicializar_acompanhamento() -> None:
                 redmine_erro TEXT,
                 redmine_status_nome TEXT,
                 redmine_status_atualizado_em TEXT,
+                email_assunto TEXT,
+                graph_message_id TEXT,
+                graph_conversation_id TEXT,
+                graph_internet_message_id TEXT,
+                resposta_graph_message_id TEXT,
+                resposta_remetente TEXT,
+                resposta_assunto TEXT,
+                resposta_corpo TEXT,
+                monitorado_em TEXT,
                 PRIMARY KEY (chamado_id, regra_id)
             )
             """
@@ -117,6 +126,24 @@ def inicializar_acompanhamento() -> None:
                 """
             )
 
+        novas_colunas = {
+            "email_assunto": "TEXT",
+            "graph_message_id": "TEXT",
+            "graph_conversation_id": "TEXT",
+            "graph_internet_message_id": "TEXT",
+            "resposta_graph_message_id": "TEXT",
+            "resposta_remetente": "TEXT",
+            "resposta_assunto": "TEXT",
+            "resposta_corpo": "TEXT",
+            "monitorado_em": "TEXT",
+        }
+
+        for nome, tipo in novas_colunas.items():
+            if nome not in colunas:
+                conn.execute(
+                    f"ALTER TABLE acoes_operacionais ADD COLUMN {nome} {tipo}"
+                )
+
 
 def _adicionar_dias_uteis(
     inicio: datetime,
@@ -165,6 +192,15 @@ def obter_acompanhamento(
             "redmine_erro": "",
             "redmine_status_nome": "",
             "redmine_status_atualizado_em": "",
+            "email_assunto": "",
+            "graph_message_id": "",
+            "graph_conversation_id": "",
+            "graph_internet_message_id": "",
+            "resposta_graph_message_id": "",
+            "resposta_remetente": "",
+            "resposta_assunto": "",
+            "resposta_corpo": "",
+            "monitorado_em": "",
         }
 
     dados = dict(row)
@@ -259,6 +295,10 @@ def confirmar_envio_real(
     chamado_id: int,
     regra_id: str,
     prazo_dias_uteis: int = 1,
+    email_assunto: str = "",
+    graph_message_id: str = "",
+    graph_conversation_id: str = "",
+    graph_internet_message_id: str = "",
 ) -> dict:
     agora = _agora()
     prazo = _adicionar_dias_uteis(
@@ -277,7 +317,16 @@ def confirmar_envio_real(
                    atualizado_em = ?,
                    erro_envio = NULL,
                    redmine_atualizado_em = NULL,
-                   redmine_erro = NULL
+                   redmine_erro = NULL,
+                   email_assunto = ?,
+                   graph_message_id = ?,
+                   graph_conversation_id = ?,
+                   graph_internet_message_id = ?,
+                   resposta_graph_message_id = NULL,
+                   resposta_remetente = NULL,
+                   resposta_assunto = NULL,
+                   resposta_corpo = NULL,
+                   monitorado_em = NULL
              WHERE chamado_id = ?
                AND regra_id = ?
             """,
@@ -285,6 +334,10 @@ def confirmar_envio_real(
                 _iso(agora),
                 _iso(prazo),
                 _iso(agora),
+                str(email_assunto or ""),
+                str(graph_message_id or ""),
+                str(graph_conversation_id or ""),
+                str(graph_internet_message_id or ""),
                 int(chamado_id),
                 str(regra_id),
             ),
@@ -454,42 +507,108 @@ def marcar_status_redmine(
     )
 
 
+def listar_acoes_aguardando_resposta() -> list[dict]:
+    inicializar_acompanhamento()
+
+    with _conectar() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+              FROM acoes_operacionais
+             WHERE estado IN ('AGUARDANDO_RESPOSTA', 'PRAZO_VENCIDO')
+               AND enviado_em IS NOT NULL
+             ORDER BY enviado_em ASC
+            """
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def marcar_monitorado(
+    chamado_id: int,
+    regra_id: str,
+    *,
+    graph_message_id: str = "",
+    graph_conversation_id: str = "",
+    graph_internet_message_id: str = "",
+) -> dict:
+    agora = _iso(_agora())
+
+    with _conectar() as conn:
+        conn.execute(
+            """
+            UPDATE acoes_operacionais
+               SET monitorado_em = ?,
+                   graph_message_id = CASE WHEN ? <> '' THEN ? ELSE graph_message_id END,
+                   graph_conversation_id = CASE WHEN ? <> '' THEN ? ELSE graph_conversation_id END,
+                   graph_internet_message_id = CASE WHEN ? <> '' THEN ? ELSE graph_internet_message_id END,
+                   atualizado_em = ?
+             WHERE chamado_id = ?
+               AND regra_id = ?
+            """,
+            (
+                agora,
+                graph_message_id, graph_message_id,
+                graph_conversation_id, graph_conversation_id,
+                graph_internet_message_id, graph_internet_message_id,
+                agora,
+                int(chamado_id),
+                str(regra_id),
+            ),
+        )
+
+    return obter_acompanhamento(chamado_id, regra_id)
+
+
 def registrar_resposta(
     chamado_id: int,
     regra_id: str,
+    *,
+    graph_message_id: str = "",
+    remetente: str = "",
+    assunto: str = "",
+    corpo: str = "",
+    recebida_em: str = "",
 ) -> dict:
     inicializar_acompanhamento()
     agora = _agora()
+
+    try:
+        recebida = datetime.fromisoformat(recebida_em.replace("Z", "+00:00")) if recebida_em else agora
+        if recebida.tzinfo is None:
+            recebida = recebida.replace(tzinfo=TZ_BRASIL)
+        recebida = recebida.astimezone(TZ_BRASIL)
+    except Exception:
+        recebida = agora
 
     with _conectar() as conn:
         conn.execute(
             """
             INSERT INTO acoes_operacionais (
-                chamado_id,
-                regra_id,
-                estado,
-                resposta_recebida_em,
-                atualizado_em
+                chamado_id, regra_id, estado, resposta_recebida_em, atualizado_em,
+                resposta_graph_message_id, resposta_remetente, resposta_assunto,
+                resposta_corpo, monitorado_em
             )
-            VALUES (?, ?, 'RESPOSTA_RECEBIDA', ?, ?)
+            VALUES (?, ?, 'RESPOSTA_RECEBIDA', ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(chamado_id, regra_id)
             DO UPDATE SET
                 estado = 'RESPOSTA_RECEBIDA',
                 resposta_recebida_em = excluded.resposta_recebida_em,
+                resposta_graph_message_id = excluded.resposta_graph_message_id,
+                resposta_remetente = excluded.resposta_remetente,
+                resposta_assunto = excluded.resposta_assunto,
+                resposta_corpo = excluded.resposta_corpo,
+                monitorado_em = excluded.monitorado_em,
                 atualizado_em = excluded.atualizado_em
             """,
             (
-                int(chamado_id),
-                str(regra_id),
-                _iso(agora),
-                _iso(agora),
+                int(chamado_id), str(regra_id), _iso(recebida), _iso(agora),
+                str(graph_message_id or ""), str(remetente or "")[:500],
+                str(assunto or "")[:1000], str(corpo or "")[:12000], _iso(agora),
             ),
         )
 
-    return obter_acompanhamento(
-        chamado_id,
-        regra_id,
-    )
+    return obter_acompanhamento(chamado_id, regra_id)
 
 
 def rotulo_estado(

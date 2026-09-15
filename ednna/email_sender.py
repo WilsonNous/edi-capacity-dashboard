@@ -148,11 +148,103 @@ def enviar_email_graph(
             f"{resposta.text[:800]}"
         )
 
-    return {
+    resultado = {
         "ok": True,
         "status_code": resposta.status_code,
         "remetente": remetente,
         "para": list(para),
         "cc": list(cc),
         "assunto": assunto,
+        "message_id": "",
+        "conversation_id": "",
+        "internet_message_id": "",
     }
+
+    # A leitura de Itens Enviados é apenas enriquecimento.
+    # Se Mail.Read ainda não estiver concedido, o envio continua válido.
+    try:
+        enviado = localizar_email_enviado(
+            remetente=remetente,
+            assunto=assunto,
+        )
+        resultado["message_id"] = str(enviado.get("id", "") or "")
+        resultado["conversation_id"] = str(enviado.get("conversationId", "") or "")
+        resultado["internet_message_id"] = str(enviado.get("internetMessageId", "") or "")
+    except Exception as exc:
+        resultado["metadata_warning"] = str(exc)[:500]
+
+    return resultado
+
+
+def _graph_get(
+    url: str,
+    *,
+    params: dict | None = None,
+    timeout: int = 30,
+) -> dict:
+    token = obter_token_graph()
+    resposta = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+        params=params or {},
+        timeout=timeout,
+    )
+
+    if resposta.status_code != 200:
+        raise EmailSendError(
+            "Falha ao consultar Microsoft Graph: "
+            f"HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+
+    return resposta.json()
+
+
+def localizar_email_enviado(
+    *,
+    remetente: str,
+    assunto: str,
+) -> dict:
+    """Localiza a cópia mais recente do e-mail em Itens Enviados."""
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{remetente}/mailFolders/sentitems/messages",
+        params={
+            "$select": "id,subject,conversationId,internetMessageId,sentDateTime",
+            "$orderby": "sentDateTime desc",
+            "$top": "25",
+        },
+    )
+
+    alvo = str(assunto or "").strip().casefold()
+    for item in dados.get("value", []):
+        if str(item.get("subject", "") or "").strip().casefold() == alvo:
+            return item
+    return {}
+
+
+def listar_mensagens_conversa(
+    *,
+    caixa_postal: str,
+    conversation_id: str,
+    recebidas_apos: str = "",
+) -> list[dict]:
+    """Busca mensagens recebidas de uma conversa na Inbox da caixa EDNNA."""
+    filtros = [f"conversationId eq '{conversation_id.replace(chr(39), chr(39)*2)}'"]
+    if recebidas_apos:
+        filtros.append(f"receivedDateTime ge {recebidas_apos}")
+
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{caixa_postal}/mailFolders/inbox/messages",
+        params={
+            "$select": (
+                "id,subject,conversationId,internetMessageId,receivedDateTime,"
+                "from,body,bodyPreview,isRead"
+            ),
+            "$filter": " and ".join(filtros),
+            "$orderby": "receivedDateTime asc",
+            "$top": "50",
+        },
+    )
+    return list(dados.get("value", []) or [])

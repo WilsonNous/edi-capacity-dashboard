@@ -59,6 +59,10 @@ from ui.ednna_workspace import (
     render_ednna_workspace,
 )
 
+from ednna.monitor_respostas import (
+    iniciar_monitor_respostas_background,
+)
+
 from ui.shell import (
     carregar_shell_css,
     render_sidebar,
@@ -112,6 +116,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Monitor independente das interações do usuário no Streamlit.
+# A função é idempotente por processo e mantém apenas uma thread daemon.
+iniciar_monitor_respostas_background()
 
 
 # ============================================================
