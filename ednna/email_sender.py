@@ -283,7 +283,7 @@ def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebi
         params={
             "$select": "id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview,isRead",
             "$orderby": "receivedDateTime desc",
-            "$top": "100",
+            "$top": "500",
         },
     )
     alvo = f"#{int(chamado_id)}"

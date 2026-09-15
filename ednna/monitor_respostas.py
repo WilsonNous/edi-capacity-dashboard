@@ -270,55 +270,96 @@ def _descobrir_orfaos_getnet_snapshot() -> list[int]:
 
 
 def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
-    """Reconstrói acompanhamento GETNET inclusive para chamados anteriores ao orquestrador.
+    """Reconcilia atuações GETNET usando Redmine/snapshot, SQLite e Sent Items.
 
-    Estratégia:
-      1) etapas conhecidas pelo orquestrador;
-      2) chamados GETNET/cancelamento atribuídos à EDNNA no snapshot;
-      3) confirmação do envio real em Sent Items pelo #chamado;
-      4) reconstrução de etapa + acompanhamento;
-      5) a resposta localizada será processada pelo ciclo normal logo em seguida.
+    v3.28.7.3:
+      * não considera RESPOSTA_RECEBIDA/RESPOSTA_PENDENTE_REDMINE como órfão;
+      * recupera registros presos em ENVIANDO quando o e-mail real existe em Sent Items;
+      * usa o envio real como evidência principal para reconstrução;
+      * registra logs por etapa para diagnosticar correlação Sent Items -> Inbox.
     """
     recuperadas: list[dict] = []
+    regra_id = "CANCELAMENTO-GETNET-001"
+
     etapas = listar_etapas_pendentes_monitoramento("GETNET")
     candidatos = {int(e.get("chamado_id") or 0) for e in etapas if int(e.get("chamado_id") or 0)}
     candidatos.update(_descobrir_orfaos_getnet_snapshot())
 
-    # v3.28.7.2: Sent Items também é fonte de recuperação. Isso permite
-    # reencontrar #48567 mesmo com snapshot Redmine antigo/indisponível.
-    envios_descobertos = listar_envios_cancelamento_getnet(remetente=caixa, top=250)
-    envios_por_chamado = {int(x.get("chamado_id") or 0): x for x in envios_descobertos if int(x.get("chamado_id") or 0)}
+    print("[EDNNA] Reconciliação | consultando Sent Items GETNET", flush=True)
+    envios_descobertos = listar_envios_cancelamento_getnet(remetente=caixa, top=500)
+    envios_por_chamado = {
+        int(x.get("chamado_id") or 0): x
+        for x in envios_descobertos
+        if int(x.get("chamado_id") or 0)
+    }
     candidatos.update(envios_por_chamado.keys())
 
     acoes_atuais = listar_acoes_aguardando_resposta()
     monitorados = {int(a.get("chamado_id") or 0) for a in acoes_atuais if int(a.get("chamado_id") or 0)}
-    orfaos = sorted(candidatos - monitorados)
+
+    processados: set[int] = set()
+    pendentes_redmine: set[int] = set()
+    presos_enviando: set[int] = set()
+    orfaos_reais: list[int] = []
+
+    for chamado_id in sorted(candidatos):
+        atual = obter_acompanhamento(chamado_id, regra_id)
+        estado = str(atual.get("estado") or "RASCUNHO").strip().upper()
+        if estado == "RESPOSTA_RECEBIDA":
+            processados.add(chamado_id)
+            continue
+        if estado == "RESPOSTA_PENDENTE_REDMINE":
+            pendentes_redmine.add(chamado_id)
+            continue
+        if chamado_id in monitorados:
+            continue
+        if estado == "ENVIANDO":
+            presos_enviando.add(chamado_id)
+        orfaos_reais.append(chamado_id)
+
     print(
         f"[EDNNA] Reconciliação | enviados_descobertos={len(envios_por_chamado)} | "
-        f"candidatos={len(candidatos)} | já_monitorados={len(candidatos & monitorados)} | órfãos={len(orfaos)}",
+        f"candidatos={len(candidatos)} | monitorando={len(candidatos & monitorados)} | "
+        f"processados={len(processados)} | pendentes_redmine={len(pendentes_redmine)} | "
+        f"presos_enviando={len(presos_enviando)} | órfãos_reais={len(orfaos_reais)}",
         flush=True,
     )
 
-    for chamado_id in orfaos:
-        regra_id = "CANCELAMENTO-GETNET-001"
-        print(f"[EDNNA] Reconciliação | avaliando chamado={chamado_id}", flush=True)
-
+    for chamado_id in orfaos_reais:
         atual = obter_acompanhamento(chamado_id, regra_id)
-        if str(atual.get("estado") or "") in {"RESPOSTA_RECEBIDA", "RESPOSTA_PENDENTE_REDMINE", "ENVIANDO"}:
-            continue
+        estado_anterior = str(atual.get("estado") or "RASCUNHO").strip().upper()
+        print(
+            f"[EDNNA] Reconciliação | avaliando chamado={chamado_id} | estado_sqlite={estado_anterior}",
+            flush=True,
+        )
 
-        enviado = envios_por_chamado.get(chamado_id) or localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
+        enviado = envios_por_chamado.get(chamado_id)
+        if enviado:
+            print(
+                f"[EDNNA] Reconciliação | Sent Items HIT | chamado={chamado_id} | "
+                f"sent={str(enviado.get('sentDateTime','') or '')} | "
+                f"conversation={str(enviado.get('conversationId','') or '')[:24]}",
+                flush=True,
+            )
+        else:
+            print(f"[EDNNA] Reconciliação | Sent Items cache MISS | chamado={chamado_id} | busca direta", flush=True)
+            enviado = localizar_email_enviado_por_chamado(remetente=caixa, chamado_id=chamado_id)
+
         if not enviado:
             print(f"[EDNNA] Reconciliação | enviado não localizado | chamado={chamado_id}", flush=True)
             continue
 
         print(f"[EDNNA] Reconciliação | enviado localizado | chamado={chamado_id}", flush=True)
-        # O e-mail real é evidência suficiente para reconstruir o legado, mesmo que a
-        # cancelamento_etapas ainda não existisse quando o disparo ocorreu.
-        marcar_etapa(chamado_id, "GETNET", "AGUARDANDO_RESPOSTA", "Acompanhamento reconstruído a partir de Sent Items.")
+        marcar_etapa(
+            chamado_id,
+            "GETNET",
+            "AGUARDANDO_RESPOSTA",
+            "Acompanhamento reconstruído a partir de Sent Items.",
+        )
 
-        adquirido, _ = adquirir_envio(chamado_id, regra_id)
-        if adquirido:
+        # ENVIANDO pode ter ficado gravado por uma execução interrompida. Se o envio
+        # existe de fato em Sent Items, ele é a fonte de verdade e podemos confirmá-lo.
+        if estado_anterior == "ENVIANDO":
             confirmar_envio_real(
                 chamado_id,
                 regra_id,
@@ -329,17 +370,44 @@ def _reconciliar_cancelamentos_getnet_orfaos(caixa: str) -> list[dict]:
                 graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
                 enviado_em_real=str(enviado.get("sentDateTime", "") or ""),
             )
-            recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
-            print(f"[EDNNA] Reconciliação | acompanhamento reconstruído | chamado={chamado_id}", flush=True)
+            recuperadas.append({"chamado": chamado_id, "situacao": "ENVIANDO_RECUPERADO"})
+            print(f"[EDNNA] Reconciliação | ENVIANDO recuperado pelo Sent Items | chamado={chamado_id}", flush=True)
+        else:
+            adquirido, _ = adquirir_envio(chamado_id, regra_id)
+            if adquirido:
+                confirmar_envio_real(
+                    chamado_id,
+                    regra_id,
+                    prazo_dias_uteis=1,
+                    email_assunto=str(enviado.get("subject", "") or ""),
+                    graph_message_id=str(enviado.get("id", "") or ""),
+                    graph_conversation_id=str(enviado.get("conversationId", "") or ""),
+                    graph_internet_message_id=str(enviado.get("internetMessageId", "") or ""),
+                    enviado_em_real=str(enviado.get("sentDateTime", "") or ""),
+                )
+                recuperadas.append({"chamado": chamado_id, "situacao": "ACOMPANHAMENTO_RECONSTRUIDO"})
+                print(f"[EDNNA] Reconciliação | acompanhamento reconstruído | chamado={chamado_id}", flush=True)
 
+        enviado_em = str(enviado.get("sentDateTime", "") or "")
+        print(
+            f"[EDNNA] Reconciliação | buscando Inbox | chamado={chamado_id} | após={enviado_em}",
+            flush=True,
+        )
         resposta = localizar_resposta_por_chamado(
             caixa_postal=caixa,
             chamado_id=chamado_id,
-            recebidas_apos=str(enviado.get("sentDateTime", "") or ""),
+            recebidas_apos=enviado_em,
         )
         if resposta:
             recuperadas.append({"chamado": chamado_id, "situacao": "RESPOSTA_LOCALIZADA"})
-            print(f"[EDNNA] Reconciliação | resposta localizada | chamado={chamado_id}", flush=True)
+            print(
+                f"[EDNNA] Reconciliação | resposta localizada | chamado={chamado_id} | "
+                f"received={str(resposta.get('receivedDateTime','') or '')} | "
+                f"message={str(resposta.get('id','') or '')[:24]}",
+                flush=True,
+            )
+        else:
+            print(f"[EDNNA] Reconciliação | resposta ainda não localizada | chamado={chamado_id}", flush=True)
 
     return recuperadas
 
