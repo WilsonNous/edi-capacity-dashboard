@@ -1,5 +1,16 @@
 # EDNNA / EDI Capacity Dashboard — Histórico da linha 3.28
 
+## 3.28.20 — Investigação e Aprendizado em Um Clique
+
+- `Investigar inclusão` agora executa o ciclo completo de descoberta técnica: reconstrução de contexto, montagem do corpus, aprendizado e diagnóstico da regra candidata.
+- Removido o botão separado `Aprender procedimento` da Central de Descoberta.
+- Novo botão `Testar todos` avalia um caso representativo de cada player descoberto e usa o histórico elegível para aprender sua regra.
+- Resultado em lote apresenta players testados, regras prontas para revisão, aprendizados incompletos e erros, com detalhamento por player.
+- O teste em lote não homologa regras, não envia e-mails e não altera o Redmine.
+- O antigo laboratório manual de inclusão passa a orientar o operador para a Central de Descoberta, evitando dois fluxos concorrentes de aprendizado.
+- Mantida a barreira humana: `PRONTA_PARA_REVISAO` continua sendo apenas candidata; homologação e execução permanecem bloqueadas nesta versão.
+- Documentação da v3.28.7.1 consolidada neste changelog; removido o README de versão isolado do diretório `ednna/`.
+
 ## 3.28.19 — Corpus Operacional Unificado
 
 - Unifica a leitura de threads do caso atual, históricos e fontes complementares em um corpus operacional auditável.
@@ -685,3 +696,13 @@ REDMINE_EDNNA_USERNAME=ednna.ia
 Observação de segurança:
 CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo automático em lote.
 
+
+
+## 3.28.7.1 — Reconciliação de Órfãos
+
+- Recupera acompanhamentos GETNET enviados antes do orquestrador ou sem ação local elegível.
+- Usa snapshot persistido para localizar cancelamentos GETNET atribuídos à EDNNA e compara com a fila local.
+- Para órfãos, procura o e-mail real em Sent Items pelo ID do chamado e reconstrói a etapa `AGUARDANDO_RESPOSTA`.
+- O monitor procura resposta posterior na Inbox e o ciclo normal atualiza o Redmine.
+- Inclui logs explícitos do funil de reconciliação.
+- Caso de homologação histórico: #48567 MAIS CAMPUS.

@@ -1639,15 +1639,21 @@ def render_ednna_workspace(
                     format_func=lambda x: rot_descoberta.get(int(x), f"#{x}"),
                     key="ednna_descoberta_inclusao_v3289",
                 )
-                dc1, dc2 = st.columns([1, 3])
+                dc1, dc2, dc3 = st.columns([1, 1, 2])
                 with dc1:
                     investigar_descoberta = st.button(
                         "🔎 Investigar inclusão",
-                        key="ednna_investigar_inclusao_v3289",
+                        key="ednna_investigar_inclusao_v32820",
                         width="stretch",
                     )
                 with dc2:
-                    st.caption("A investigação consulta BP, relações, AR e inclusões anteriores somente quando você solicitar.")
+                    testar_todos = st.button(
+                        "🧪 Testar todos",
+                        key="ednna_testar_todos_v32820",
+                        width="stretch",
+                    )
+                with dc3:
+                    st.caption("Investigar já inclui o aprendizado do procedimento. Testar todos avalia um caso representativo de cada player, sem homologar nem executar ações externas.")
                 with st.expander(f"Ver candidatos ({len(candidatos_inc)})", expanded=False):
                     tab_inc = candidatos_inc.rename(columns={"id": "#", "cliente": "Clientes", "player": "Player", "estado": "Estado", "tipo": "Tipo", "assunto": "Assunto"})
                     cols_inc = [c for c in ["#", "Clientes", "Player", "Estado", "Tipo", "Assunto"] if c in tab_inc.columns]
@@ -1656,12 +1662,78 @@ def render_ednna_workspace(
 
                 if investigar_descoberta:
                     try:
-                        with st.spinner("EDNNA reconstruindo BP, AR e histórico da inclusão..."):
+                        with st.spinner("EDNNA investigando e aprendendo o procedimento da inclusão..."):
                             aprendizado_desc = preparar_aprendizado_inclusao(int(selecao_descoberta), force=False)
-                        st.session_state["ednna_aprendizado_descoberta_v3289"] = aprendizado_desc
+                            resultados_auto = {}
+                            for regra_auto in aprendizado_desc.get("regras", []) or []:
+                                rid_auto = str(regra_auto.get("regra_sugerida") or "")
+                                if rid_auto:
+                                    resultados_auto[rid_auto] = aprender_procedimento_inclusao(
+                                        aprendizado_desc, regra_auto, force=False
+                                    )
+                            aprendizado_desc["resultados_aprendizado"] = resultados_auto
+                        st.session_state["ednna_aprendizado_descoberta_v32820"] = aprendizado_desc
                     except Exception as exc_desc:
                         st.error(f"Não foi possível investigar a inclusão: {exc_desc}")
-                aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v3289")
+
+                if testar_todos:
+                    # Um caso representativo por player evita repetir a mesma regra para
+                    # várias inclusões abertas. O aprendizado continua usando todo o
+                    # histórico elegível reconstruído pelo planejador.
+                    representantes = []
+                    for grupo in inventario_inc.get("players", []) or []:
+                        player_lote = str(grupo.get("player") or "")
+                        ids_lote = [int(x) for x in (grupo.get("chamados") or [])]
+                        if not player_lote or player_lote == "NÃO IDENTIFICADO" or not ids_lote:
+                            continue
+                        representantes.append((player_lote, max(ids_lote)))
+                    progresso = st.progress(0, text="Preparando teste das regras de inclusão...")
+                    resumo_lote = []
+                    for idx_lote, (player_lote, chamado_lote) in enumerate(representantes, start=1):
+                        try:
+                            progresso.progress(
+                                int(((idx_lote - 1) / max(len(representantes), 1)) * 100),
+                                text=f"{player_lote}: investigando #{chamado_lote}...",
+                            )
+                            prep_lote = preparar_aprendizado_inclusao(chamado_lote, force=False)
+                            regras_lote = [
+                                r for r in (prep_lote.get("regras", []) or [])
+                                if str(r.get("player") or "") == player_lote
+                            ]
+                            if not regras_lote:
+                                resumo_lote.append({"Player": player_lote, "Chamado": chamado_lote, "Estado": "SEM_REGRA", "Completude": 0, "Bloqueios": "Regra não construída"})
+                                continue
+                            proc_lote = aprender_procedimento_inclusao(prep_lote, regras_lote[0], force=False)
+                            resumo_lote.append({
+                                "Player": player_lote,
+                                "Chamado": chamado_lote,
+                                "Estado": proc_lote.get("estado") or "—",
+                                "Completude": int(proc_lote.get("completude") or 0),
+                                "Bloqueios": ", ".join(proc_lote.get("bloqueios") or []) or "—",
+                            })
+                        except Exception as exc_lote:
+                            resumo_lote.append({"Player": player_lote, "Chamado": chamado_lote, "Estado": "ERRO", "Completude": 0, "Bloqueios": str(exc_lote)[:180]})
+                    progresso.progress(100, text="Teste concluído.")
+                    st.session_state["ednna_teste_todos_v32820"] = resumo_lote
+
+                resumo_lote = st.session_state.get("ednna_teste_todos_v32820")
+                if resumo_lote:
+                    lote_df = pd.DataFrame(resumo_lote)
+                    prontas_lote = int((lote_df["Estado"] == "PRONTA_PARA_REVISAO").sum())
+                    incompletas_lote = int((lote_df["Estado"] == "APRENDIZADO_INCOMPLETO").sum())
+                    erros_lote = int((lote_df["Estado"] == "ERRO").sum())
+                    lt1, lt2, lt3, lt4 = st.columns(4)
+                    lt1.metric("Players testados", len(lote_df))
+                    lt2.metric("Prontos para revisão", prontas_lote)
+                    lt3.metric("Aprendizado incompleto", incompletas_lote)
+                    lt4.metric("Erros", erros_lote)
+                    with st.expander("Ver resultado do teste de todos os players", expanded=True):
+                        lote_view = lote_df.copy()
+                        lote_view["Chamado"] = lote_view["Chamado"].apply(lambda x: f"#{int(x)}")
+                        lote_view["Completude"] = lote_view["Completude"].apply(lambda x: f"{int(x)}%")
+                        st.dataframe(lote_view, width="stretch", hide_index=True)
+
+                aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):
                     cid_desc = int(aprendizado_desc.get("chamado_id", 0) or 0)
                     if cid_desc == int(selecao_descoberta):
@@ -1736,20 +1808,9 @@ def render_ednna_workspace(
                                                 st.markdown(f"- [#{fid}]({redmine_web_url}/issues/{fid}) · {evento}")
 
                                 regra_id = str(regra_desc.get("regra_sugerida") or "")
-                                aprendido = obter_aprendizado(regra_id) if regra_id else None
-                                ac1, ac2 = st.columns([1, 3])
-                                with ac1:
-                                    aprender_agora = st.button("🧠 Aprender procedimento", key=f"ednna_aprender_{cid_desc}_{player}", width="stretch")
-                                with ac2:
-                                    st.caption("Compara AR, inclusões anteriores e chamado atual. Apenas aprende; não envia e-mail nem altera o Redmine.")
-                                if aprender_agora:
-                                    try:
-                                        with st.spinner(f"EDNNA comparando o procedimento de {player}..."):
-                                            aprendido = aprender_procedimento_inclusao(aprendizado_desc, regra_desc, force=False)
-                                        st.session_state[f"ednna_proc_{regra_id}"] = aprendido
-                                    except Exception as exc_proc:
-                                        st.error(f"Não foi possível aprender o procedimento: {exc_proc}")
-                                aprendido = st.session_state.get(f"ednna_proc_{regra_id}", aprendido)
+                                resultados_auto = aprendizado_desc.get("resultados_aprendizado") or {}
+                                aprendido = resultados_auto.get(regra_id) or (obter_aprendizado(regra_id) if regra_id else None)
+                                st.caption("Aprendizado executado automaticamente durante a investigação. Nenhuma homologação ou ação externa é realizada nesta etapa.")
                                 if aprendido:
                                     st.markdown(f"#### Procedimento aprendido — {player}")
                                     p1, p2, p3 = st.columns(3)
@@ -2008,15 +2069,8 @@ def render_ednna_workspace(
                 if eh_inclusao_contexto:
                     st.markdown("#### Laboratório de inclusão")
                     st.caption("A EDNNA reconstrói BP, Abertura de Relacionamento e inclusões anteriores para propor uma regra candidata. Nenhuma ação externa é executada nesta etapa.")
-                    if st.button("🧠 Aprender procedimento de inclusão", key="ednna_btn_aprender_inclusao_v3288"):
-                        try:
-                            with st.spinner("EDNNA reconstruindo o procedimento histórico de inclusão..."):
-                                aprendizado = preparar_aprendizado_inclusao(int(contexto_chamado_id), force=False)
-                            st.session_state["ednna_aprendizado_inclusao_v3288"] = aprendizado
-                        except Exception as exc_inc:
-                            st.error(f"Não foi possível preparar o aprendizado de inclusão: {exc_inc}")
-
-                    aprendizado = st.session_state.get("ednna_aprendizado_inclusao_v3288")
+                    st.info("O aprendizado manual foi removido. Use a Central de Descoberta: ao investigar uma inclusão, a EDNNA já reconstrói e aprende o procedimento automaticamente.")
+                    aprendizado = None
                     if isinstance(aprendizado, dict) and int(aprendizado.get("chamado_id", 0) or 0) == int(contexto_chamado_id):
                         if aprendizado.get("blueprint_id"):
                             st.success(f"BP/Novo Cliente localizado: #{aprendizado.get('blueprint_id')}")
