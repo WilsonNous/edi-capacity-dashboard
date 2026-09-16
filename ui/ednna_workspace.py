@@ -1763,6 +1763,94 @@ def render_ednna_workspace(
                     st.dataframe(pd.DataFrame(fila_rows), width="stretch", hide_index=True)
                     st.caption("🟢 Homologada = patrimônio operacional · 🟡 pronta para revisão · 🟠 aprendizado incompleto. Regras homologadas são preservadas e não voltam ao aprendizado em lote.")
 
+                    # v3.28.23 — a fila deixa de ser somente informativa e vira uma mesa de revisão/homologação.
+                    regras_revisaveis = [
+                        rr for rr in regras_fila
+                        if (rr.get("estado_operacional") or rr.get("estado")) == "PRONTA_PARA_REVISAO"
+                        or rr.get("estado_revisao") == "REVISADA"
+                    ]
+                    if regras_revisaveis:
+                        st.markdown("##### ✅ Revisão e homologação")
+                        st.caption(
+                            "Revise somente o que falta, confirme o destinatário e homologue. "
+                            "Esta ação registra a regra como patrimônio da EDNNA, sem enviar e-mail e sem alterar o Redmine."
+                        )
+                        for rr in regras_revisaveis:
+                            regra_id_fila = str(rr.get("regra_id") or "")
+                            player_fila = str(rr.get("player") or "Player")
+                            aprendido_fila = rr.get("payload") or obter_aprendizado(regra_id_fila) or {}
+                            revisao_fila = obter_revisao(regra_id_fila)
+                            completude_fila = int(rr.get("completude") or aprendido_fila.get("completude") or 0)
+                            recorrentes_fila = list(dict.fromkeys(aprendido_fila.get("destinatarios_recorrentes") or []))
+                            atual_fila = str(revisao_fila.get("destinatario_confirmado") or "")
+                            sugerido_fila = atual_fila or (recorrentes_fila[0] if recorrentes_fila else "")
+                            fontes_fila = aprendido_fila.get("fontes") or {}
+                            constantes_fila = aprendido_fila.get("constantes") or []
+                            variaveis_fila = aprendido_fila.get("variaveis") or []
+                            bloqueios_fila = aprendido_fila.get("bloqueios") or []
+
+                            with st.expander(
+                                f"{player_fila} · {regra_id_fila} · {completude_fila}% · "
+                                + ("Revisada" if revisao_fila.get("estado") == "REVISADA" else "Pronta para revisão"),
+                                expanded=False,
+                            ):
+                                q1, q2, q3 = st.columns(3)
+                                q1.metric("Completude", f"{completude_fila}%")
+                                q2.metric("Destinatários aprendidos", len(recorrentes_fila))
+                                q3.metric("Constantes", len(constantes_fila))
+
+                                if recorrentes_fila:
+                                    st.markdown("**Destinatário(s) sugerido(s) pela EDNNA:** " + " · ".join(recorrentes_fila))
+                                if variaveis_fila:
+                                    st.markdown("**Dados variáveis identificados:** " + " · ".join(map(str, variaveis_fila)))
+                                if constantes_fila:
+                                    with st.expander("Ver procedimento aprendido", expanded=False):
+                                        for item in constantes_fila:
+                                            st.markdown(f"- {item}")
+                                if fontes_fila:
+                                    with st.expander("Ver fontes da aprendizagem", expanded=False):
+                                        st.write(fontes_fila)
+                                if bloqueios_fila:
+                                    st.info("Pendências técnicas registradas: " + " · ".join(str(x).replace("_", " ") for x in bloqueios_fila))
+
+                                dest_fila = st.text_input(
+                                    "Destinatário confirmado",
+                                    value=sugerido_fila,
+                                    key=f"fila_rev_dest_{regra_id_fila}",
+                                    placeholder="contato@player.com.br",
+                                )
+                                obs_fila = st.text_area(
+                                    "Observação da homologação",
+                                    value=str(revisao_fila.get("observacoes") or ""),
+                                    key=f"fila_rev_obs_{regra_id_fila}",
+                                    height=80,
+                                    placeholder="Opcional: ajuste ou justificativa validada pelo operador.",
+                                )
+                                h1, h2 = st.columns([1, 2])
+                                with h1:
+                                    if st.button(
+                                        "✅ Revisar e homologar",
+                                        key=f"fila_rev_hom_{regra_id_fila}",
+                                        type="primary",
+                                        width="stretch",
+                                    ):
+                                        try:
+                                            salvar_revisao_assistida(
+                                                regra_id_fila,
+                                                destinatario_confirmado=dest_fila,
+                                                observacoes=obs_fila,
+                                                revisado_por="OPERADOR_EDNNA",
+                                            )
+                                            homologar_regra_assistida(
+                                                regra_id_fila, revisado_por="OPERADOR_EDNNA"
+                                            )
+                                            st.success(f"{player_fila}: regra homologada e incorporada ao patrimônio operacional.")
+                                            st.rerun()
+                                        except Exception as exc_fila:
+                                            st.error(f"Não foi possível homologar {player_fila}: {exc_fila}")
+                                with h2:
+                                    st.info("Homologação não executa ação externa. A liberação para execução continua sendo uma etapa separada.")
+
                 aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):
                     cid_desc = int(aprendizado_desc.get("chamado_id", 0) or 0)

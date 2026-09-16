@@ -1,3 +1,15 @@
+## 3.28.23 — Fila Acionável de Revisão e Homologação
+
+- A fila persistente de regras deixa de ser apenas informativa e passa a oferecer revisão operacional diretamente no ponto de trabalho.
+- Regras `PRONTA_PARA_REVISAO` e `REVISADA` ganham painel individual com completude, destinatários aprendidos, constantes, variáveis e fontes.
+- Novo botão **Revisar e homologar** executa em sequência a confirmação humana e a homologação da regra.
+- O operador pode corrigir/completar o destinatário antes da homologação, permitindo fechar regras cujo único bloqueio seja informação objetiva ausente.
+- Regras homologadas saem automaticamente da fila de revisão e permanecem no patrimônio operacional.
+- A homologação continua segura: não envia e-mail, não altera Redmine e não libera execução externa automaticamente.
+- Mantida a tela detalhada de investigação como camada técnica para aprofundamento e auditoria.
+
+Objetivo: fechar o ciclo descobrir → aprender → revisar → homologar com uma ação operacional simples, preparando a futura camada de UX executivo da EDNNA.
+
 
 
 ## 3.28.22 — Patrimônio de Regras e Homologação em Lote
