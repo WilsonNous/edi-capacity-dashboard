@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ednna.contexto_relacionamentos import analisar_contexto_operacional, buscar_issue_contexto
+from ednna.contexto_relacionamentos import analisar_contexto_operacional, buscar_issue_contexto, PLAYER_ALIASES
 
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _CNPJ_RE = re.compile(r"(?<!\d)(\d{2}[.\s]?\d{3}[.\s]?\d{3}[\s/.-]?\d{4}[-.\s]?\d{2})(?!\d)")
@@ -54,6 +54,61 @@ def _eh_inclusao(evento: dict) -> bool:
     return str(evento.get("evento") or "").upper() == "INCLUSAO"
 
 
+def _norm_player_texto(valor: Any) -> str:
+    import unicodedata
+    texto = str(valor or "").upper().strip()
+    texto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in texto if not unicodedata.combining(c))
+
+
+def _players_explicitos_assunto(assunto: str) -> list[str]:
+    """Extrai o player-alvo do assunto sem deixar aliases genéricos vencerem.
+
+    O alias histórico REDE de REDECARD é útil na reconstrução ampla, mas não pode
+    transformar nomes de cliente como REDE SANTA LUCIA em REDECARD.
+    """
+    texto = _norm_player_texto(assunto)
+    encontrados: list[str] = []
+    for player, aliases in PLAYER_ALIASES.items():
+        aliases_ordenados = sorted(aliases, key=lambda x: len(_norm_player_texto(x)), reverse=True)
+        for alias in aliases_ordenados:
+            alias_n = _norm_player_texto(alias)
+            if player == "REDECARD" and alias_n == "REDE":
+                # REDE só vale como adquirente quando aparece delimitada como bloco
+                # do assunto (ex.: CLIENTE - REDE - Inclusão), nunca em REDE SANTA LUCIA.
+                if not re.search(r"(?:^|[-–—|])\s*REDE\s*(?:[-–—|]|$)", texto):
+                    continue
+            if re.search(rf"(?<![A-Z0-9]){re.escape(alias_n)}(?![A-Z0-9])", texto):
+                encontrados.append(player)
+                break
+    return _unicos(encontrados)
+
+
+def _selecionar_player_alvo(chamado_id: int, contexto: dict, eventos: list[dict], *, force: bool = False) -> tuple[list[str], str]:
+    """Define PLAYER_ALVO. O chamado atual é soberano sobre BP/histórico."""
+    assunto = str(contexto.get("assunto") or "")
+    explicitos = _players_explicitos_assunto(assunto)
+    if explicitos:
+        return explicitos, "CHAMADO_ATUAL_ASSUNTO"
+
+    # Se o contexto não trouxe o assunto completo, consulta o próprio chamado.
+    try:
+        issue_atual = buscar_issue_contexto(chamado_id, force=force)
+        explicitos = _players_explicitos_assunto(str(issue_atual.get("subject") or ""))
+        if explicitos:
+            return explicitos, "CHAMADO_ATUAL_ASSUNTO"
+    except Exception:
+        pass
+
+    # Fallback compatível com versões anteriores: somente players do evento atual.
+    for evento in eventos:
+        if int(evento.get("id") or 0) == chamado_id:
+            atuais = [str(x) for x in (evento.get("players") or []) if x]
+            if atuais:
+                return _unicos(atuais), "EVENTO_ATUAL_FALLBACK"
+    return [], "NAO_IDENTIFICADO"
+
+
 def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> dict:
     """Monta uma regra candidata de inclusão, sem enviar e-mail ou alterar Redmine.
 
@@ -71,14 +126,17 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         }
 
     eventos = list(contexto.get("eventos") or [])
-    players_atuais: list[str] = []
-    for evento in eventos:
-        if int(evento.get("id") or 0) == chamado_id:
-            players_atuais = list(evento.get("players") or [])
-            break
+    players_atuais, origem_player_alvo = _selecionar_player_alvo(chamado_id, contexto, eventos, force=force)
     if not players_atuais:
-        # fallback: relacionamentos reconstruídos para o contexto
+        # Último fallback: relacionamentos reconstruídos. Só é usado quando o
+        # chamado atual realmente não identifica um player.
         players_atuais = [str(x.get("player")) for x in contexto.get("relacionamentos", []) if x.get("player")]
+        origem_player_alvo = "CONTEXTO_HISTORICO_FALLBACK"
+
+    print(f"[EDNNA] Inclusão | chamado={chamado_id}", flush=True)
+    print(f"[EDNNA] Player alvo | {','.join(players_atuais) if players_atuais else 'NAO_IDENTIFICADO'} | origem={origem_player_alvo}", flush=True)
+    if contexto.get("blueprint_id"):
+        print(f"[EDNNA] BP confirmado | chamado={int(contexto['blueprint_id'])} | player={','.join(players_atuais)}", flush=True)
 
     aberturas = [e for e in eventos if _eh_abertura(e)]
     inclusoes = [e for e in eventos if _eh_inclusao(e)]
@@ -120,14 +178,25 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
             agregados[chave] = _unicos(agregados[chave])
 
         evidencia_historica = bool(aberturas_player or anteriores)
+        ar_ids = [int(e["id"]) for e in aberturas_player if e.get("id")]
+        ant_ids = [int(e["id"]) for e in anteriores if e.get("id")]
+        if ar_ids:
+            print(f"[EDNNA] AR selecionada | chamado={ar_ids[0]} | player={player}", flush=True)
+        print(f"[EDNNA] Histórico filtrado | player={player} | inclusoes={ant_ids}", flush=True)
+        secundarios = sorted({str(p) for e in eventos for p in (e.get("players") or []) if p and str(p) not in players_atuais})
+        if secundarios:
+            print(f"[EDNNA] Players secundários ignorados | {', '.join(secundarios)}", flush=True)
+        print(f"[EDNNA] Regra candidata | INCLUSAO-{player.replace(' ', '-')}-001 | estado=CANDIDATA_NAO_HOMOLOGADA", flush=True)
         regras.append({
             "player": player,
             "regra_sugerida": f"INCLUSAO-{player.replace(' ', '-')}-001",
             "status_regra": "CANDIDATA_NAO_HOMOLOGADA",
             "canal_sugerido": "EMAIL" if agregados["emails"] else "NAO_IDENTIFICADO",
             "dados_identificados": agregados,
-            "aberturas_relacionamento": [int(e["id"]) for e in aberturas_player if e.get("id")],
-            "inclusoes_anteriores": [int(e["id"]) for e in anteriores if e.get("id")],
+            "player_alvo": player,
+            "origem_player_alvo": origem_player_alvo,
+            "aberturas_relacionamento": ar_ids,
+            "inclusoes_anteriores": ant_ids,
             "fontes": fontes_detalhadas,
             "confianca": "MEDIA" if evidencia_historica else "BAIXA",
             "pode_executar": False,
