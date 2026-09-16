@@ -60,6 +60,8 @@ from ednna.aprendizado_operacional import (
     obter_revisao,
     salvar_revisao_assistida,
     homologar_regra_assistida,
+    listar_regras_operacionais,
+    obter_regra_homologada,
 )
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
@@ -1617,7 +1619,10 @@ def render_ednna_workspace(
             di1, di2, di3 = st.columns(3)
             di1.metric("Inclusões descobertas", inventario_inc.get("total", 0))
             di2.metric("Players identificados", len([x for x in inventario_inc.get("players", []) if x.get("player") != "NÃO IDENTIFICADO"]))
-            di3.metric("A homologar", len(inventario_inc.get("players", [])))
+            regras_persistidas = listar_regras_operacionais()
+            players_homologados = {str(r.get("player") or "") for r in regras_persistidas if r.get("estado_revisao") == "HOMOLOGADA"}
+            total_a_homologar = len([x for x in inventario_inc.get("players", []) if x.get("player") not in players_homologados and x.get("player") != "NÃO IDENTIFICADO"])
+            di3.metric("A homologar", total_a_homologar)
 
             if candidatos_inc.empty:
                 st.info("Nenhum chamado de inclusão foi localizado no snapshot atual.")
@@ -1684,14 +1689,18 @@ def render_ednna_workspace(
                     # várias inclusões abertas. O aprendizado continua usando todo o
                     # histórico elegível reconstruído pelo planejador.
                     representantes = []
+                    resumo_lote = []
                     for grupo in inventario_inc.get("players", []) or []:
                         player_lote = str(grupo.get("player") or "")
                         ids_lote = [int(x) for x in (grupo.get("chamados") or [])]
                         if not player_lote or player_lote == "NÃO IDENTIFICADO" or not ids_lote:
                             continue
+                        homologada = obter_regra_homologada(player_lote)
+                        if homologada:
+                            resumo_lote.append({"Player": player_lote, "Chamado": max(ids_lote), "Estado": "HOMOLOGADA", "Completude": int(homologada.get("completude") or 0), "Bloqueios": "—"})
+                            continue
                         representantes.append((player_lote, max(ids_lote)))
                     progresso = st.progress(0, text="Preparando teste das regras de inclusão...")
-                    resumo_lote = []
                     for idx_lote, (player_lote, chamado_lote) in enumerate(representantes, start=1):
                         try:
                             progresso.progress(
@@ -1722,19 +1731,37 @@ def render_ednna_workspace(
                 resumo_lote = st.session_state.get("ednna_teste_todos_v32820")
                 if resumo_lote:
                     lote_df = pd.DataFrame(resumo_lote)
+                    homologadas_lote = int((lote_df["Estado"] == "HOMOLOGADA").sum())
                     prontas_lote = int((lote_df["Estado"] == "PRONTA_PARA_REVISAO").sum())
                     incompletas_lote = int((lote_df["Estado"] == "APRENDIZADO_INCOMPLETO").sum())
-                    erros_lote = int((lote_df["Estado"] == "ERRO").sum())
+                    nao_investigadas_lote = int(lote_df["Estado"].isin(["SEM_REGRA", "ERRO"]).sum())
                     lt1, lt2, lt3, lt4 = st.columns(4)
-                    lt1.metric("Players testados", len(lote_df))
-                    lt2.metric("Prontos para revisão", prontas_lote)
+                    lt1.metric("Homologadas", homologadas_lote)
+                    lt2.metric("Prontas para revisão", prontas_lote)
                     lt3.metric("Aprendizado incompleto", incompletas_lote)
-                    lt4.metric("Erros", erros_lote)
+                    lt4.metric("Não investigadas/erro", nao_investigadas_lote)
                     with st.expander("Ver resultado do teste de todos os players", expanded=True):
                         lote_view = lote_df.copy()
                         lote_view["Chamado"] = lote_view["Chamado"].apply(lambda x: f"#{int(x)}")
                         lote_view["Completude"] = lote_view["Completude"].apply(lambda x: f"{int(x)}%")
                         st.dataframe(lote_view, width="stretch", hide_index=True)
+
+                # v3.28.22 — fila operacional persistente: conhecimento homologado não reaprende do zero.
+                regras_fila = listar_regras_operacionais()
+                if regras_fila:
+                    st.markdown("#### 📚 Regras de inclusão — fila operacional")
+                    fila_rows=[]
+                    for rr in regras_fila:
+                        estado = rr.get("estado_operacional") or rr.get("estado") or "NÃO INVESTIGADA"
+                        fila_rows.append({
+                            "Player": rr.get("player") or "—",
+                            "Regra": rr.get("regra_id") or "—",
+                            "Estado": estado,
+                            "Completude": f"{int(rr.get('completude') or 0)}%",
+                            "Destinatário": rr.get("destinatario_confirmado") or "—",
+                        })
+                    st.dataframe(pd.DataFrame(fila_rows), width="stretch", hide_index=True)
+                    st.caption("🟢 Homologada = patrimônio operacional · 🟡 pronta para revisão · 🟠 aprendizado incompleto. Regras homologadas são preservadas e não voltam ao aprendizado em lote.")
 
                 aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):

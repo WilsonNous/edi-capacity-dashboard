@@ -474,3 +474,48 @@ def homologar_regra_assistida(regra_id: str, *, revisado_por: str = "OPERADOR") 
             WHERE regra_id=?""", (revisado_por, agora, agora, regra_id))
     print(f"[EDNNA] Homologação humana | regra={regra_id} | execução_externa=False", flush=True)
     return obter_revisao(regra_id)
+
+
+# ============================================================
+# v3.28.22 — PATRIMÔNIO DE REGRAS HOMOLOGADAS
+# ============================================================
+
+def listar_regras_operacionais() -> list[dict]:
+    """Inventário persistente do conhecimento de inclusão da EDNNA.
+
+    A homologação humana prevalece sobre o estado de aprendizado: uma regra
+    homologada deixa de voltar à fila de descoberta e passa a ser patrimônio
+    operacional consultável. Nenhuma execução externa é feita aqui.
+    """
+    _garantir_tabela_revisoes()
+    with conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
+            regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
+            estado TEXT NOT NULL, completude INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
+        rows = conn.execute("""
+            SELECT a.regra_id,a.player,a.operacao,a.estado,a.completude,a.payload_json,a.atualizado_em,
+                   r.estado AS estado_revisao,r.destinatario_confirmado,r.observacoes,
+                   r.revisado_em,r.homologado_em
+              FROM aprendizados_operacionais a
+              LEFT JOIN revisoes_regras_operacionais r ON r.regra_id=a.regra_id
+             WHERE a.operacao='INCLUSAO'
+             ORDER BY a.player,a.regra_id
+        """).fetchall()
+    saida=[]
+    for row in rows:
+        d=dict(row)
+        try: payload=json.loads(d.pop('payload_json') or '{}')
+        except Exception: payload={}
+        d['payload']=payload
+        d['estado_operacional']='HOMOLOGADA' if d.get('estado_revisao')=='HOMOLOGADA' else d.get('estado')
+        saida.append(d)
+    return saida
+
+
+def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | None:
+    alvo=str(player or '').strip().upper()
+    for regra in listar_regras_operacionais():
+        if str(regra.get('player') or '').strip().upper()==alvo and str(regra.get('operacao') or '').upper()==str(operacao).upper() and regra.get('estado_revisao')=='HOMOLOGADA':
+            return regra
+    return None

@@ -1,3 +1,15 @@
+
+
+## 3.28.22 — Patrimônio de Regras e Homologação em Lote
+
+- Testar todos passa a preservar players que já possuem regra homologada, sem reaprender do zero.
+- Nova fila operacional persistente de regras de inclusão: HOMOLOGADA, PRONTA_PARA_REVISAO e APRENDIZADO_INCOMPLETO.
+- Métrica A homologar desconta players já homologados.
+- Regras homologadas tornam-se patrimônio operacional consultável da EDNNA.
+- Mantida a separação de segurança: homologar não envia e-mail e não altera o Redmine.
+- A execução externa das regras de inclusão permanece bloqueada nesta versão.
+
+Objetivo: permitir homologação progressiva durante a operação, deixando a EDNNA testar em lote apenas o que ainda precisa aprender/revisar.
 # EDNNA / EDI Capacity Dashboard — Histórico da linha 3.28
 
 ## 3.28.21 — Memória Local e Revisão Assistida
