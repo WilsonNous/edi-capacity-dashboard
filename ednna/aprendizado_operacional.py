@@ -384,3 +384,93 @@ def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = Non
     if reprocessadas:
         print(f"[EDNNA] Aprendizado automático | reprocessadas={reprocessadas}", flush=True)
     return {"reprocessadas": reprocessadas, "erros": erros}
+
+
+# ============================================================
+# v3.28.21 — REVISÃO ASSISTIDA E HOMOLOGAÇÃO HUMANA
+# ============================================================
+
+def _garantir_tabela_revisoes() -> None:
+    with conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS revisoes_regras_operacionais (
+            regra_id TEXT PRIMARY KEY,
+            estado TEXT NOT NULL DEFAULT 'PENDENTE_REVISAO',
+            destinatario_confirmado TEXT,
+            observacoes TEXT,
+            revisado_por TEXT,
+            revisado_em TEXT,
+            homologado_em TEXT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            atualizado_em TEXT NOT NULL
+        )""")
+
+
+def obter_revisao(regra_id: str) -> dict:
+    _garantir_tabela_revisoes()
+    with conectar() as conn:
+        row = conn.execute(
+            "SELECT * FROM revisoes_regras_operacionais WHERE regra_id=?",
+            (str(regra_id),),
+        ).fetchone()
+    if not row:
+        return {"regra_id": str(regra_id), "estado": "PENDENTE_REVISAO"}
+    d = dict(row)
+    try:
+        d["payload"] = json.loads(d.get("payload_json") or "{}")
+    except Exception:
+        d["payload"] = {}
+    return d
+
+
+def salvar_revisao_assistida(
+    regra_id: str, *, destinatario_confirmado: str = "", observacoes: str = "",
+    revisado_por: str = "OPERADOR"
+) -> dict:
+    """Registra confirmação humana sem homologar e sem executar a regra."""
+    _garantir_tabela_revisoes()
+    aprendido = obter_aprendizado(regra_id) or {}
+    email = str(destinatario_confirmado or "").strip().lower()
+    if email and not _EMAIL_RE.fullmatch(email):
+        raise ValueError("Destinatário informado não possui formato de e-mail válido.")
+    payload = {
+        "regra_id": regra_id,
+        "player": aprendido.get("player"),
+        "operacao": aprendido.get("operacao"),
+        "completude_aprendizado": aprendido.get("completude"),
+        "destinatario_confirmado": email,
+        "observacoes": str(observacoes or "").strip(),
+        "evidencias": aprendido.get("fontes") or {},
+        "variaveis": aprendido.get("variaveis") or [],
+        "constantes": aprendido.get("constantes") or [],
+    }
+    agora = agora_brasil_iso()
+    with conectar() as conn:
+        conn.execute("""INSERT INTO revisoes_regras_operacionais
+        (regra_id,estado,destinatario_confirmado,observacoes,revisado_por,revisado_em,payload_json,atualizado_em)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(regra_id) DO UPDATE SET
+          estado='REVISADA', destinatario_confirmado=excluded.destinatario_confirmado,
+          observacoes=excluded.observacoes, revisado_por=excluded.revisado_por,
+          revisado_em=excluded.revisado_em, payload_json=excluded.payload_json,
+          atualizado_em=excluded.atualizado_em""",
+        (regra_id,"REVISADA",email,str(observacoes or "").strip(),revisado_por,agora,
+         json.dumps(payload,ensure_ascii=False),agora))
+    return obter_revisao(regra_id)
+
+
+def homologar_regra_assistida(regra_id: str, *, revisado_por: str = "OPERADOR") -> dict:
+    """Homologa somente após revisão humana explícita. Não dispara ação externa."""
+    revisao = obter_revisao(regra_id)
+    if revisao.get("estado") not in {"REVISADA", "HOMOLOGADA"}:
+        raise ValueError("A regra precisa ser revisada antes da homologação.")
+    aprendido = obter_aprendizado(regra_id) or {}
+    destinatario = str(revisao.get("destinatario_confirmado") or "").strip()
+    if not destinatario and not (aprendido.get("destinatarios_recorrentes") or []):
+        raise ValueError("Confirme ao menos um destinatário antes da homologação.")
+    agora = agora_brasil_iso()
+    with conectar() as conn:
+        conn.execute("""UPDATE revisoes_regras_operacionais
+            SET estado='HOMOLOGADA', revisado_por=?, homologado_em=?, atualizado_em=?
+            WHERE regra_id=?""", (revisado_por, agora, agora, regra_id))
+    print(f"[EDNNA] Homologação humana | regra={regra_id} | execução_externa=False", flush=True)
+    return obter_revisao(regra_id)

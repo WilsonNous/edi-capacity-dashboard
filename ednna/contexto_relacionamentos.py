@@ -217,6 +217,20 @@ def _buscar_issue(chamado_id: int, *, force: bool = False) -> dict:
         if cached:
             return cached
 
+        # v3.28.21 — LOCAL-FIRST:
+        # se já existe uma cópia persistida, mesmo vencida, a interface usa essa
+        # memória imediatamente e agenda o enriquecimento. O Redmine deixa de ser
+        # dependência síncrona para navegação/aprendizado.
+        stale = _cache_obter_stale(chamado_id)
+        if stale:
+            _enfileirar_enriquecimento(chamado_id, "CACHE_EXPIRADO_LOCAL_FIRST")
+            print(
+                f"[EDNNA] Contexto local-first | #{chamado_id} | cache vencido utilizado; enriquecimento agendado",
+                flush=True,
+            )
+            return stale
+
+    # Sem memória local (ou force=True), consulta o Redmine.
     # Lock compartilhado por chamado: duas sessões não consultam o mesmo histórico.
     chave_lock = f"ednna:issue_contexto:{chamado_id}"
     dono = f"ctx:{chamado_id}:{id(object())}"

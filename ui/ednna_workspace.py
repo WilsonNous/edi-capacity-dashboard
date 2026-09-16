@@ -57,6 +57,9 @@ from ednna.planejador_inclusoes import (
 from ednna.aprendizado_operacional import (
     aprender_procedimento_inclusao,
     obter_aprendizado,
+    obter_revisao,
+    salvar_revisao_assistida,
+    homologar_regra_assistida,
 )
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
@@ -1877,6 +1880,60 @@ def render_ednna_workspace(
                                         if bloqueios:
                                             with st.expander("Ver pendências do aprendizado", expanded=False):
                                                 for b in bloqueios: st.markdown(f"- {str(b).replace('_', ' ').title()}")
+
+                                # v3.28.21 — revisão humana persistente, separada da execução.
+                                if aprendido:
+                                    revisao = obter_revisao(regra_id) if regra_id else {}
+                                    st.markdown("#### 👤 Revisão assistida")
+                                    st.caption(
+                                        "Confirme os elementos operacionais aprendidos antes da homologação. "
+                                        "Homologar registra a decisão humana, mas não envia e-mail nem altera o Redmine."
+                                    )
+                                    candidatos_dest = list(dict.fromkeys(
+                                        (aprendido.get("destinatarios_recorrentes") or [])
+                                        + (aprendido.get("destinatarios_operacionais") or [])
+                                        + ([revisao.get("destinatario_confirmado")] if revisao.get("destinatario_confirmado") else [])
+                                    ))
+                                    dest_padrao = str(revisao.get("destinatario_confirmado") or (candidatos_dest[0] if candidatos_dest else ""))
+                                    dest_revisao = st.text_input(
+                                        "Destinatário confirmado pelo operador",
+                                        value=dest_padrao,
+                                        key=f"ednna_rev_dest_{regra_id}",
+                                        placeholder="contato@player.com.br",
+                                    )
+                                    obs_revisao = st.text_area(
+                                        "Observações da revisão",
+                                        value=str(revisao.get("observacoes") or ""),
+                                        key=f"ednna_rev_obs_{regra_id}",
+                                        height=90,
+                                    )
+                                    rv1, rv2, rv3 = st.columns([1, 1, 2])
+                                    with rv1:
+                                        if st.button("💾 Confirmar revisão", key=f"ednna_rev_salvar_{regra_id}", width="stretch"):
+                                            try:
+                                                salvar_revisao_assistida(
+                                                    regra_id, destinatario_confirmado=dest_revisao,
+                                                    observacoes=obs_revisao, revisado_por="OPERADOR_EDNNA",
+                                                )
+                                                st.success("Revisão humana registrada.")
+                                                st.rerun()
+                                            except Exception as exc_rev:
+                                                st.error(f"Não foi possível registrar a revisão: {exc_rev}")
+                                    with rv2:
+                                        pode_homologar_ui = revisao.get("estado") in {"REVISADA", "HOMOLOGADA"}
+                                        if st.button(
+                                            "✅ Homologar regra", key=f"ednna_rev_homologar_{regra_id}",
+                                            width="stretch", disabled=not pode_homologar_ui,
+                                        ):
+                                            try:
+                                                homologar_regra_assistida(regra_id, revisado_por="OPERADOR_EDNNA")
+                                                st.success("Regra homologada. Execução externa continua bloqueada.")
+                                                st.rerun()
+                                            except Exception as exc_hom:
+                                                st.error(f"Não foi possível homologar a regra: {exc_hom}")
+                                    with rv3:
+                                        estado_rev = str(revisao.get("estado") or "PENDENTE_REVISAO").replace("_", " ").title()
+                                        st.info(f"Estado da revisão: **{estado_rev}**")
 
                                 with st.expander("Ver diagnóstico técnico da regra candidata", expanded=False):
                                     st.write(f"Regra sugerida: {regra_desc.get('regra_sugerida')}")

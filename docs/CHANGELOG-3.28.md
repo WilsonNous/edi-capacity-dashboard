@@ -1,5 +1,17 @@
 # EDNNA / EDI Capacity Dashboard — Histórico da linha 3.28
 
+## 3.28.21 — Memória Local e Revisão Assistida
+
+- Contexto histórico passa a operar em estratégia **local-first**: cache persistido válido é usado imediatamente e cache vencido também pode atender a interface sem bloquear a navegação.
+- Quando a cópia local está vencida, a EDNNA agenda enriquecimento assíncrono em `contexto_enriquecimento_pendente`; o Redmine deixa de ser dependência síncrona quando já existe memória local.
+- A consulta direta ao Redmine permanece para primeiro carregamento sem memória e para atualização explícita (`force=True`).
+- Mantido o reprocessamento automático de aprendizados incompletos depois que o worker enriquece as fontes pendentes.
+- Nova persistência `revisoes_regras_operacionais` separa aprendizado, revisão humana e homologação.
+- Central de Descoberta ganha **Revisão assistida**, permitindo confirmar destinatário e registrar observações do operador.
+- Nova ação **Homologar regra** só é habilitada depois da revisão humana registrada.
+- Homologação não envia e-mail, não altera Redmine e não torna a nova regra executável automaticamente nesta versão.
+- Fluxo formal da inclusão passa a ser: descobrir → aprender → revisar → homologar → futura liberação de execução.
+
 ## 3.28.20 — Investigação e Aprendizado em Um Clique
 
 - `Investigar inclusão` agora executa o ciclo completo de descoberta técnica: reconstrução de contexto, montagem do corpus, aprendizado e diagnóstico da regra candidata.
