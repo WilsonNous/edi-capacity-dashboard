@@ -477,6 +477,8 @@ def buscar_detalhes_chamado(
     incluir_relacoes: bool = False,
     *,
     consulta_pontual: bool = False,
+    timeout: int | tuple | None = None,
+    tentativas: int | None = None,
 ) -> dict:
     """Busca um chamado individual.
 
@@ -493,6 +495,8 @@ def buscar_detalhes_chamado(
     return _get(
         f"issues/{chamado_id}.json",
         params,
+        timeout=timeout if timeout is not None else (20, 60),
+        tentativas=tentativas if tentativas is not None else 3,
         ignorar_circuit_breaker_global=consulta_pontual,
         alterar_circuit_breaker_global=not consulta_pontual,
     ).get("issue", {})

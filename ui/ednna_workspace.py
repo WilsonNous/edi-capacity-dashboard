@@ -1665,6 +1665,18 @@ def render_ednna_workspace(
                         if aprendizado_desc.get("blueprint_id"):
                             bid = int(aprendizado_desc["blueprint_id"])
                             st.success(f"BP/Novo Cliente localizado: [#{bid}]({redmine_web_url}/issues/{bid})")
+                        qualidade = (aprendizado_desc.get("contexto") or {}).get("qualidade_contexto") or {}
+                        if qualidade:
+                            fonte_ctx = qualidade.get("fonte") or "—"
+                            atualizado_ctx = qualidade.get("atualizado_em") or "—"
+                            if qualidade.get("parcial"):
+                                st.warning(
+                                    f"Contexto parcial — Redmine indisponível em parte da investigação. "
+                                    f"Fonte: {fonte_ctx} · última referência: {atualizado_ctx}. "
+                                    "A EDNNA colocou os dados pendentes na fila de enriquecimento automático."
+                                )
+                            else:
+                                st.caption(f"Contexto: {fonte_ctx} · última referência: {atualizado_ctx}")
                         for regra_desc in aprendizado_desc.get("regras", []) or []:
                             st.markdown(f"**{regra_desc.get('regra_sugerida')} — {regra_desc.get('player')}**")
                             q1, q2, q3 = st.columns(3)

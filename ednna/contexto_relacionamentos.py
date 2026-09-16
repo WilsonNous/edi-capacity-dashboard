@@ -75,6 +75,76 @@ def _inicializar_cache() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS contexto_enriquecimento_pendente (
+                chamado_id INTEGER PRIMARY KEY,
+                motivo TEXT,
+                solicitado_em TEXT NOT NULL,
+                ultima_tentativa_em TEXT,
+                tentativas INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
+
+def _meta_contexto(issue: dict, *, fonte: str, atualizado_em: str | None = None, parcial: bool = False) -> dict:
+    copia = dict(issue or {})
+    copia["_ednna_contexto"] = {
+        "fonte": fonte,
+        "atualizado_em": atualizado_em or _agora_utc().isoformat(timespec="seconds"),
+        "parcial": bool(parcial),
+    }
+    return copia
+
+
+def _enfileirar_enriquecimento(chamado_id: int, motivo: str) -> None:
+    _inicializar_cache()
+    with conectar() as conn:
+        conn.execute(
+            """
+            INSERT INTO contexto_enriquecimento_pendente(chamado_id, motivo, solicitado_em)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chamado_id) DO UPDATE SET motivo=excluded.motivo
+            """,
+            (int(chamado_id), str(motivo or "Redmine indisponível")[:1000], _agora_utc().isoformat(timespec="seconds")),
+        )
+
+
+def listar_enriquecimentos_pendentes(limite: int = 20) -> list[int]:
+    _inicializar_cache()
+    with conectar() as conn:
+        rows = conn.execute(
+            "SELECT chamado_id FROM contexto_enriquecimento_pendente ORDER BY solicitado_em LIMIT ?",
+            (max(1, int(limite)),),
+        ).fetchall()
+    return [int(r["chamado_id"]) for r in rows]
+
+
+def processar_enriquecimentos_pendentes(limite: int = 5) -> dict:
+    ids = listar_enriquecimentos_pendentes(limite)
+    ok, erros = [], []
+    for chamado_id in ids:
+        try:
+            issue = buscar_detalhes_chamado(
+                chamado_id, incluir_journals=True, incluir_relacoes=True,
+                consulta_pontual=True, timeout=(8, 20), tentativas=2,
+            )
+            _cache_salvar(chamado_id, issue)
+            with conectar() as conn:
+                conn.execute("DELETE FROM contexto_enriquecimento_pendente WHERE chamado_id = ?", (chamado_id,))
+            ok.append(chamado_id)
+        except Exception as exc:
+            with conectar() as conn:
+                conn.execute(
+                    "UPDATE contexto_enriquecimento_pendente SET tentativas=tentativas+1, ultima_tentativa_em=? WHERE chamado_id=?",
+                    (_agora_utc().isoformat(timespec="seconds"), chamado_id),
+                )
+            erros.append(chamado_id)
+            print(f"[EDNNA] Enriquecimento assíncrono | pendente #{chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+    if ids:
+        print(f"[EDNNA] Enriquecimento assíncrono | consultados={len(ids)} | atualizados={ok} | pendentes={erros}", flush=True)
+    return {"consultados": len(ids), "atualizados": ok, "pendentes": erros}
 
 
 def _cache_obter(chamado_id: int) -> dict | None:
@@ -98,7 +168,7 @@ def _cache_obter(chamado_id: int) -> dict | None:
         )
         if _agora_utc() - atualizado > ttl:
             return None
-        return json.loads(row["payload_json"])
+        return _meta_contexto(json.loads(row["payload_json"]), fonte="CACHE", atualizado_em=str(row["atualizado_em"]), parcial=False)
     except Exception:
         return None
 
@@ -108,13 +178,13 @@ def _cache_obter_stale(chamado_id: int) -> dict | None:
     _inicializar_cache()
     with conectar() as conn:
         row = conn.execute(
-            "SELECT payload_json FROM contexto_relacionamentos_cache WHERE chamado_id = ?",
+            "SELECT payload_json, atualizado_em FROM contexto_relacionamentos_cache WHERE chamado_id = ?",
             (int(chamado_id),),
         ).fetchone()
     if not row:
         return None
     try:
-        return json.loads(row["payload_json"])
+        return _meta_contexto(json.loads(row["payload_json"]), fonte="CACHE_STALE", atualizado_em=str(row["atualizado_em"]), parcial=True)
     except Exception:
         return None
 
@@ -133,7 +203,7 @@ def _cache_salvar(chamado_id: int, issue: dict) -> None:
             """,
             (
                 int(chamado_id),
-                json.dumps(issue, ensure_ascii=False, default=str),
+                json.dumps({k: v for k, v in issue.items() if k != "_ednna_contexto"}, ensure_ascii=False, default=str),
                 estado,
                 _agora_utc().isoformat(timespec="seconds"),
             ),
@@ -170,15 +240,20 @@ def _buscar_issue(chamado_id: int, *, force: bool = False) -> dict:
                 incluir_journals=True,
                 incluir_relacoes=True,
                 consulta_pontual=True,
+                timeout=(4, 8),
+                tentativas=1,
             )
             _cache_salvar(chamado_id, issue)
-            return issue
-        except Exception:
+            return _meta_contexto(issue, fonte="REDMINE", parcial=False)
+        except Exception as exc:
+            _enfileirar_enriquecimento(chamado_id, f"{type(exc).__name__}: {exc}")
             stale = _cache_obter_stale(chamado_id)
             if stale:
-                print(f"[EDNNA] Contexto histórico | Redmine indisponível para #{chamado_id} | usando cache anterior", flush=True)
+                print(f"[EDNNA] Contexto histórico | Redmine indisponível para #{chamado_id} | usando cache anterior; enriquecimento pendente", flush=True)
                 return stale
-            raise
+            raise RuntimeError(
+                f"Redmine indisponível para #{chamado_id}. A EDNNA colocou o contexto na fila de enriquecimento e não bloqueará a interface."
+            ) from exc
     finally:
         painel_liberar_lock(chave_lock, dono)
 
@@ -369,6 +444,7 @@ def analisar_contexto_cancelamento(chamado_id: int, *, force: bool = False) -> d
         "players_alvo": players_alvo,
         "relacionamentos": relacionamentos,
         "chamados_consultados": len(universo),
+        "qualidade_contexto": _qualidade_contexto(universo),
         "modo": "SOMENTE_LEITURA",
     }
 
@@ -376,6 +452,25 @@ def analisar_contexto_cancelamento(chamado_id: int, *, force: bool = False) -> d
 def buscar_issue_contexto(chamado_id: int, *, force: bool = False) -> dict:
     """Expõe a leitura cacheada usada pelo planejador, sem alterar o Redmine."""
     return _buscar_issue(int(chamado_id), force=force)
+
+
+def _qualidade_contexto(universo: dict[int, dict]) -> dict:
+    fontes = []
+    parcial = False
+    atualizado = []
+    for issue in universo.values():
+        meta = issue.get("_ednna_contexto") or {}
+        fonte = str(meta.get("fonte") or "REDMINE")
+        fontes.append(fonte)
+        parcial = parcial or bool(meta.get("parcial"))
+        if meta.get("atualizado_em"):
+            atualizado.append(str(meta["atualizado_em"]))
+    return {
+        "fonte": "REDMINE" if fontes and all(f == "REDMINE" for f in fontes) else "MISTA/CACHE",
+        "parcial": parcial,
+        "atualizado_em": max(atualizado) if atualizado else None,
+        "fontes": sorted(set(fontes)),
+    }
 
 
 def analisar_contexto_operacional(chamado_id: int, *, force: bool = False) -> dict:
@@ -455,5 +550,6 @@ def analisar_contexto_operacional(chamado_id: int, *, force: bool = False) -> di
         "relacionamentos": relacionamentos,
         "eventos": sorted(eventos, key=lambda x: x.get("data") or ""),
         "chamados_consultados": len(universo),
+        "qualidade_contexto": _qualidade_contexto(universo),
         "modo": "SOMENTE_LEITURA",
     }

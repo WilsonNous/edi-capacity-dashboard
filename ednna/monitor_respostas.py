@@ -36,7 +36,7 @@ from ednna.redmine_writer import (
     registrar_email_e_status_chamado, atribuir_chamado_responsavel,
     registrar_email_evidencia_e_status_chamado,
 )
-from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento
+from ednna.contexto_relacionamentos import buscar_issue_contexto, analisar_contexto_cancelamento, processar_enriquecimentos_pendentes
 from ednna.planejador_cancelamentos import extrair_dados_getnet, preparar_plano_cancelamento
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, listar_etapas_pendentes_monitoramento,
@@ -638,6 +638,16 @@ def executar_monitoramento_respostas() -> dict:
     }
     if not resumo["habilitado"]:
         return resumo
+
+    # v3.28.11 — enriquece em background os contextos que falharam na UI.
+    # Mantém a experiência interativa rápida e desloca retries mais tolerantes
+    # para o ciclo já existente do monitor.
+    try:
+        enriquecimento = processar_enriquecimentos_pendentes(limite=3)
+        if enriquecimento.get("consultados"):
+            resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
+    except Exception as exc:
+        print(f"[EDNNA] Enriquecimento assíncrono | falha geral | {type(exc).__name__}: {exc}", flush=True)
 
     caixa = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
     try:
