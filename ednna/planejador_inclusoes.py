@@ -7,6 +7,21 @@ from ednna.contexto_relacionamentos import analisar_contexto_operacional, buscar
 
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _CNPJ_RE = re.compile(r"(?<!\d)(\d{2}[.\s]?\d{3}[.\s]?\d{3}[\s/.-]?\d{4}[-.\s]?\d{2})(?!\d)")
+
+# v3.28.17 — matriz de contexto por intenção.
+# A intenção define quais famílias de chamados podem ensinar a regra.
+CONTEXT_TYPES = {
+    "INCLUSAO": {
+        "principais": {"ABERTURA", "INCLUSAO"},
+        "complementares": {"FALTA_ARQUIVO", "FALTA_REGISTROS"},
+    }
+}
+
+def _evento_permitido_inclusao(evento: dict) -> bool:
+    return str(evento.get("evento") or "").upper() in (
+        CONTEXT_TYPES["INCLUSAO"]["principais"] | CONTEXT_TYPES["INCLUSAO"]["complementares"]
+    )
+
 _EC_ROTULADO_RE = re.compile(
     r"(?im)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\s*(?:/\s*(?:CONVENIO|CONVÊNIO))?\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{2,30})"
 )
@@ -125,7 +140,9 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
             "contexto": contexto,
         }
 
-    eventos = list(contexto.get("eventos") or [])
+    eventos_brutos = list(contexto.get("eventos") or [])
+    eventos = [e for e in eventos_brutos if _evento_permitido_inclusao(e)]
+    ignorados_tipo = [e for e in eventos_brutos if not _evento_permitido_inclusao(e)]
     players_atuais, origem_player_alvo = _selecionar_player_alvo(chamado_id, contexto, eventos, force=force)
     if not players_atuais:
         # Último fallback: relacionamentos reconstruídos. Só é usado quando o
@@ -140,6 +157,7 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
 
     aberturas = [e for e in eventos if _eh_abertura(e)]
     inclusoes = [e for e in eventos if _eh_inclusao(e)]
+    complementares = [e for e in eventos if str(e.get("evento") or "").upper() in CONTEXT_TYPES["INCLUSAO"]["complementares"]]
 
     regras: list[dict[str, Any]] = []
     for player in sorted(set(players_atuais)):
@@ -149,7 +167,8 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         aberturas_player = [e for e in aberturas if player in (e.get("players") or [])]
         inclusoes_player = [e for e in inclusoes if player in (e.get("players") or [])]
         anteriores = [e for e in inclusoes_player if int(e.get("id") or 0) != chamado_id]
-        fontes_prioritarias = aberturas_player + anteriores
+        complementares_player = [e for e in complementares if player in (e.get("players") or [])]
+        fontes_prioritarias = aberturas_player + anteriores + complementares_player
         atual = [e for e in inclusoes_player if int(e.get("id") or 0) == chamado_id]
         fontes_prioritarias += atual
 
@@ -182,7 +201,8 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         ant_ids = [int(e["id"]) for e in anteriores if e.get("id")]
         if ar_ids:
             print(f"[EDNNA] AR selecionada | chamado={ar_ids[0]} | player={player}", flush=True)
-        print(f"[EDNNA] Histórico filtrado | player={player} | inclusoes={ant_ids}", flush=True)
+        comp_ids = [int(e["id"]) for e in complementares_player if e.get("id")]
+        print(f"[EDNNA] Corpus inclusão | player={player} | principais={{'abertura':{ar_ids},'inclusoes':{ant_ids}}} | complementares={comp_ids} | tipos_ignorados={len(ignorados_tipo)}", flush=True)
         secundarios = sorted({str(p) for e in eventos for p in (e.get("players") or []) if p and str(p) not in players_atuais})
         if secundarios:
             print(f"[EDNNA] Players secundários ignorados | {', '.join(secundarios)}", flush=True)
@@ -197,6 +217,9 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
             "origem_player_alvo": origem_player_alvo,
             "aberturas_relacionamento": ar_ids,
             "inclusoes_anteriores": ant_ids,
+            "fontes_complementares": comp_ids,
+            "tipos_contexto": {"principais": sorted(CONTEXT_TYPES["INCLUSAO"]["principais"]), "complementares": sorted(CONTEXT_TYPES["INCLUSAO"]["complementares"])},
+            "tipos_ignorados": len(ignorados_tipo),
             "fontes": fontes_detalhadas,
             "confianca": "MEDIA" if evidencia_historica else "BAIXA",
             "pode_executar": False,

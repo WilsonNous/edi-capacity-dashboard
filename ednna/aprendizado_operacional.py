@@ -51,13 +51,31 @@ def _eventos_operacionais(issue: dict) -> dict:
     return {"para": sorted(set(para)), "cc": sorted(set(cc)), "assuntos": list(dict.fromkeys(assuntos)),
             "acoes": acoes[:30], "sucessos": sucessos[:20]}
 
+def _linha_tempo_operacional(issue: dict) -> list[dict]:
+    """Classifica evidências em solicitação externa, retorno do player e ação interna."""
+    eventos=[]
+    blocos=[("descricao", str(issue.get("description") or ""))]
+    blocos += [(f"journal_{i}", str(j.get("notes") or "")) for i,j in enumerate(issue.get("journals",[]) or [],1) if j.get("notes")]
+    for origem,texto in blocos:
+        low=texto.lower()
+        emails=[e.lower() for e in _EMAIL_RE.findall(texto)]
+        externos=[e for e in emails if not e.endswith("@netunna.com.br")]
+        if externos and re.search(r"(?i)\b(solicit|pedimos|favor|inclus|habilit|ativ)\w*", texto):
+            eventos.append({"tipo":"SOLICITACAO_EXTERNA","origem":origem,"emails_externos":sorted(set(externos)),"resumo":_normalizar_template(texto)[:500]})
+        if externos and _SUCCESS_RE.search(texto) and re.search(r"(?i)\b(conclu|confirm|ativad|inclu|habilitad|realizad)\w*", texto):
+            eventos.append({"tipo":"RETORNO_PLAYER","origem":origem,"emails_externos":sorted(set(externos)),"resumo":_normalizar_template(texto)[:500]})
+        if not externos and (_ACTION_RE.search(texto) or _SUCCESS_RE.search(texto)):
+            eventos.append({"tipo":"ACAO_INTERNA","origem":origem,"emails_externos":[],"resumo":_normalizar_template(texto)[:500]})
+    return eventos[:30]
+
 def _recorrencia_eventos(hist: list[dict]) -> dict:
     eventos = {int(i.get("id") or 0): _eventos_operacionais(i) for i in hist}
+    linhas_tempo = {int(i.get("id") or 0): _linha_tempo_operacional(i) for i in hist}
     def recorrentes(campo):
         c=Counter(v for ev in eventos.values() for v in set(ev.get(campo) or []))
         return [{"valor":v,"ocorrencias":n,"confirmado":n>=2} for v,n in c.most_common()]
     ac=Counter(x["texto"] for ev in eventos.values() for x in ev["acoes"]); sc=Counter(x["texto"] for ev in eventos.values() for x in ev["sucessos"]); subj=Counter(v for ev in eventos.values() for v in set(ev["assuntos"]))
-    return {"por_chamado": eventos, "destinatarios": recorrentes("para"), "cc": recorrentes("cc"),
+    return {"por_chamado": eventos, "linha_tempo": linhas_tempo, "destinatarios": recorrentes("para"), "cc": recorrentes("cc"),
             "assuntos": [{"valor":v,"ocorrencias":n,"confirmado":n>=2} for v,n in subj.most_common()],
             "acoes_recorrentes": [{"valor":v,"ocorrencias":n} for v,n in ac.most_common() if n>=2][:12],
             "evidencias_sucesso": [{"valor":v,"ocorrencias":n} for v,n in sc.most_common() if n>=1][:12]}
@@ -125,7 +143,8 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     atual_id = int(aprendizado.get("chamado_id") or 0)
     ars = [int(x) for x in regra.get("aberturas_relacionamento", []) or []]
     anteriores = [int(x) for x in regra.get("inclusoes_anteriores", []) or []]
-    ids = list(dict.fromkeys(ars + anteriores + ([atual_id] if atual_id else [])))
+    complementares = [int(x) for x in regra.get("fontes_complementares", []) or []]
+    ids = list(dict.fromkeys(ars + anteriores + complementares + ([atual_id] if atual_id else [])))
 
     fontes, erros = [], []
     for iid in ids:
@@ -134,6 +153,8 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
         except Exception as exc:
             erros.append({"id": iid, "erro": str(exc)})
 
+    # Apenas inclusões históricas votam na recorrência do procedimento.
+    # AR e faltas enriquecem contexto; o chamado atual fornece variáveis, mas não vota.
     hist = [i for i in fontes if int(i.get("id") or 0) in anteriores]
     extracao = _recorrencia_eventos(hist)
     recorrentes = [x["valor"] for x in extracao["destinatarios"] if x.get("confirmado")]
@@ -165,7 +186,7 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     resultado = {
         "regra_id": regra_id, "player": player, "operacao": "INCLUSAO", "estado": estado,
         "completude": min(completude, 100), "canal": "EMAIL" if todos_emails else "NAO_IDENTIFICADO",
-        "fontes": {"bp": aprendizado.get("blueprint_id"), "ar": ars, "historicos": anteriores, "atual": atual_id},
+        "fontes": {"bp": aprendizado.get("blueprint_id"), "ar": ars, "historicos": anteriores, "complementares": complementares, "atual": atual_id},
         "destinatarios_recorrentes": recorrentes, "emails_encontrados": todos_emails,
         "constantes": constantes, "variaveis": variaveis, "sinais_semanticos": sinais,
         "extracao_operacional": extracao,
@@ -174,6 +195,7 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     }
     salvar_aprendizado(resultado)
     print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
+    print(f"[EDNNA] Linha do tempo operacional | historicos={anteriores} | solicitacoes={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='SOLICITACAO_EXTERNA')} | retornos={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='RETORNO_PLAYER')} | acoes_internas={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='ACAO_INTERNA')}", flush=True)
     print(f"[EDNNA] Extrator operacional | destinatarios_confirmados={len(recorrentes)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
     print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
     print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)

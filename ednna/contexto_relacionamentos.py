@@ -321,6 +321,8 @@ def _tipo_evento(issue: dict) -> str:
         return "ABERTURA"
     if "IMPORTACAO DE ARQUIVOS" in texto or "IMPLANTACAO" in texto:
         return "IMPLANTACAO"
+    if any(x in texto for x in ("FALTA DE REGISTROS", "FALTA REGISTROS", "REGISTROS FALTANTES")):
+        return "FALTA_REGISTROS"
     if any(x in texto for x in ("FALTA DE ARQUIVO", "FALTA ARQUIVO", "ARQUIVO FALTANTE", "NAO RECEBIMENTO", "NÃO RECEBIMENTO")):
         return "FALTA_ARQUIVO"
     if any(x in texto for x in ("ALTERACAO", "ALTERAÇÃO", "DOMICILIO BANCARIO", "DOMICÍLIO BANCÁRIO")):
