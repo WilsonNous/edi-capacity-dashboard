@@ -169,6 +169,7 @@ def _buscar_issue(chamado_id: int, *, force: bool = False) -> dict:
                 chamado_id,
                 incluir_journals=True,
                 incluir_relacoes=True,
+                consulta_pontual=True,
             )
             _cache_salvar(chamado_id, issue)
             return issue

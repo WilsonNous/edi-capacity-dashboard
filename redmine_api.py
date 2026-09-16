@@ -79,6 +79,9 @@ def _get(
     params: dict | None = None,
     timeout: int | tuple = (20, 60),
     tentativas: int = 3,
+    *,
+    ignorar_circuit_breaker_global: bool = False,
+    alterar_circuit_breaker_global: bool = True,
 ) -> dict:
     """
     Executa GET no Redmine com tentativas controladas para falhas transitórias.
@@ -89,9 +92,11 @@ def _get(
     - Erros HTTP (401, 403, 404, 500...) não são mascarados nem repetidos aqui.
     - O HTTPAdapter continua com max_retries=0 para evitar tentativas ocultas.
     """
-    if painel_circuit_breaker_ativo():
+    if painel_circuit_breaker_ativo() and not ignorar_circuit_breaker_global:
         print(f"[REDMINE] Circuit breaker global ativo | {path} não consultado", flush=True)
         raise ConnectionError("Circuit breaker global do Redmine ativo.")
+    if painel_circuit_breaker_ativo() and ignorar_circuit_breaker_global:
+        print(f"[REDMINE] Consulta pontual autorizada apesar do circuit breaker | {path}", flush=True)
 
     url = f"{REDMINE_URL}/{path.lstrip('/')}"
     esperas = [0, 2, 5]
@@ -127,7 +132,8 @@ def _get(
                 f"{duracao:.2f}s",
                 flush=True,
             )
-            painel_fechar_circuit_breaker()
+            if alterar_circuit_breaker_global:
+                painel_fechar_circuit_breaker()
             return response.json()
 
         except (
@@ -141,10 +147,11 @@ def _get(
                 flush=True,
             )
             if tentativa >= tentativas:
-                painel_abrir_circuit_breaker(
-                    cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
-                    detalhes=f"{type(exc).__name__}: {exc}",
-                )
+                if alterar_circuit_breaker_global:
+                    painel_abrir_circuit_breaker(
+                        cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
+                        detalhes=f"{type(exc).__name__}: {exc}",
+                    )
                 raise
 
         except requests.exceptions.HTTPError as exc:
@@ -468,14 +475,27 @@ def buscar_detalhes_chamado(
     chamado_id: int,
     incluir_journals: bool = False,
     incluir_relacoes: bool = False,
+    *,
+    consulta_pontual: bool = False,
 ) -> dict:
+    """Busca um chamado individual.
+
+    consulta_pontual=True é usada por ações humanas explícitas (ex.: Investigar
+    inclusão). Essa leitura não fica bloqueada pelo breaker da listagem massiva e
+    também não abre/fecha o breaker global se a consulta individual falhar.
+    """
     includes = []
     if incluir_journals:
         includes.append("journals")
     if incluir_relacoes:
         includes.append("relations")
     params = {"include": ",".join(includes)} if includes else None
-    return _get(f"issues/{chamado_id}.json", params).get("issue", {})
+    return _get(
+        f"issues/{chamado_id}.json",
+        params,
+        ignorar_circuit_breaker_global=consulta_pontual,
+        alterar_circuit_breaker_global=not consulta_pontual,
+    ).get("issue", {})
 
 
 def pegar_custom_field(chamado: dict, field_id: int):

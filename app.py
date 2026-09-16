@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from version import APP_VERSION, APP_RELEASE
+
 import io
 import os
 import time
@@ -4856,7 +4858,7 @@ with main_col:
     st.divider()
 
     st.caption(
-        "Versão 3.28.8 — EDNNA Laboratório de Inclusões e Memória Operacional · interface responsiva e operação orientada à atenção "
+        f"Versão {APP_VERSION} — {APP_RELEASE} · interface responsiva e operação orientada à atenção "
         "e EDNNA em modo híbrido. Regras homologadas podem executar ações automáticas; "
         "demais cenários permanecem em análise, observação ou modo assistido."
     )
