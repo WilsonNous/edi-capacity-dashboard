@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 
 from ednna.armazenamento import conectar, agora_brasil_iso
 from ednna.contexto_relacionamentos import buscar_issue_contexto
@@ -10,6 +10,58 @@ from ednna.contexto_relacionamentos import buscar_issue_contexto
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _CNPJ_RE = re.compile(r"(?<!\d)\d{2}[.\s]?\d{3}[.\s]?\d{3}[\s/.-]?\d{4}[-.\s]?\d{2}(?!\d)")
 _NUM_RE = re.compile(r"\b\d{4,}\b")
+_FIELD_PATTERNS = {
+    "para": re.compile(r"(?i)^\s*(?:para|to)\s*[:：]\s*(.+)$"),
+    "cc": re.compile(r"(?i)^\s*(?:cc|c\.c\.)\s*[:：]\s*(.+)$"),
+    "assunto": re.compile(r"(?i)^\s*(?:assunto|subject)\s*[:：]\s*(.+)$"),
+}
+_SUCCESS_RE = re.compile(r"(?i)\b(?:conclu[ií]d[oa]s?|confirmad[oa]s?|ativad[oa]s?|inclu[ií]d[oa]s?|cadastrad[oa]s?|processad[oa]s?|realizad[oa]s?|liberad[oa]s?|habilitad[oa]s?)\b")
+_ACTION_RE = re.compile(r"(?i)\b(?:solicit|pedimos|providenciar|incluir|inclus[aã]o|cadastr|habilit|ativ|tr[aá]fego|estabelecimento|conv[eê]nio|filia[cç][aã]o)\w*\b")
+
+def _normalizar_template(texto: str) -> str:
+    s = " ".join(str(texto or "").strip().split())
+    s = _EMAIL_RE.sub("<EMAIL>", s)
+    s = _CNPJ_RE.sub("<CNPJ>", s)
+    s = re.sub(r"#?\b\d{4,}\b", "<NUM>", s)
+    return s[:700]
+
+def _eventos_operacionais(issue: dict) -> dict:
+    """Extrai sinais auditáveis de solicitação, resposta e movimentação do chamado."""
+    textos = [("descricao", str(issue.get("description") or ""))]
+    for idx, j in enumerate(issue.get("journals", []) or [], 1):
+        if j.get("notes"):
+            textos.append((f"journal_{idx}", str(j.get("notes") or "")))
+    para, cc, assuntos, acoes, sucessos = [], [], [], [], []
+    for origem, texto in textos:
+        for linha in texto.splitlines():
+            limpa = " ".join(linha.strip().split())
+            if not limpa: continue
+            for nome, pat in _FIELD_PATTERNS.items():
+                m = pat.match(limpa)
+                if m:
+                    vals = _EMAIL_RE.findall(m.group(1))
+                    if nome == "para": para.extend(e.lower() for e in vals)
+                    elif nome == "cc": cc.extend(e.lower() for e in vals)
+                    elif nome == "assunto": assuntos.append(_normalizar_template(m.group(1)))
+            if _ACTION_RE.search(limpa) and len(limpa) >= 15:
+                acoes.append({"origem": origem, "texto": _normalizar_template(limpa)})
+            if _SUCCESS_RE.search(limpa) and len(limpa) >= 12:
+                sucessos.append({"origem": origem, "texto": _normalizar_template(limpa)})
+    # fallback: e-mails presentes em textos de solicitação são evidência, mas não confirmação de destinatário
+    return {"para": sorted(set(para)), "cc": sorted(set(cc)), "assuntos": list(dict.fromkeys(assuntos)),
+            "acoes": acoes[:30], "sucessos": sucessos[:20]}
+
+def _recorrencia_eventos(hist: list[dict]) -> dict:
+    eventos = {int(i.get("id") or 0): _eventos_operacionais(i) for i in hist}
+    def recorrentes(campo):
+        c=Counter(v for ev in eventos.values() for v in set(ev.get(campo) or []))
+        return [{"valor":v,"ocorrencias":n,"confirmado":n>=2} for v,n in c.most_common()]
+    ac=Counter(x["texto"] for ev in eventos.values() for x in ev["acoes"]); sc=Counter(x["texto"] for ev in eventos.values() for x in ev["sucessos"]); subj=Counter(v for ev in eventos.values() for v in set(ev["assuntos"]))
+    return {"por_chamado": eventos, "destinatarios": recorrentes("para"), "cc": recorrentes("cc"),
+            "assuntos": [{"valor":v,"ocorrencias":n,"confirmado":n>=2} for v,n in subj.most_common()],
+            "acoes_recorrentes": [{"valor":v,"ocorrencias":n} for v,n in ac.most_common() if n>=2][:12],
+            "evidencias_sucesso": [{"valor":v,"ocorrencias":n} for v,n in sc.most_common() if n>=1][:12]}
+
 
 
 def _texto_issue(issue: dict) -> str:
@@ -83,13 +135,19 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
             erros.append({"id": iid, "erro": str(exc)})
 
     hist = [i for i in fontes if int(i.get("id") or 0) in anteriores]
-    email_counts = Counter(e.lower() for i in hist for e in _emails(i))
-    recorrentes = [e for e, n in email_counts.most_common() if n >= 2]
+    extracao = _recorrencia_eventos(hist)
+    recorrentes = [x["valor"] for x in extracao["destinatarios"] if x.get("confirmado")]
     todos_emails = sorted(set(e for i in fontes for e in _emails(i)), key=str.lower)
     constantes = _inferir_constantes(hist)
+    # v3.28.16: recorrência semântica de ações complementa a comparação literal de linhas.
+    for x in extracao["acoes_recorrentes"]:
+        if x["valor"] not in constantes: constantes.append(x["valor"])
+    constantes = constantes[:12]
     variaveis = _inferir_variaveis(fontes)
     fontes_parciais = sorted(int(i.get("id") or 0) for i in fontes if _fonte_parcial(i) and i.get("id"))
     sinais = _sinais_semanticos(hist, recorrentes, constantes)
+    sinais["padrao_assunto"] = any(x.get("confirmado") for x in extracao["assuntos"]) or sinais["padrao_assunto"]
+    sinais["evidencia_conclusao"] = bool(extracao["evidencias_sucesso"])
 
     # v3.28.15: completude mede procedimento operacional, não apenas quantidade de fontes.
     pesos = {"destinatario_recorrente": 25, "padrao_assunto": 15, "estrutura_mensagem": 25,
@@ -110,11 +168,13 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
         "fontes": {"bp": aprendizado.get("blueprint_id"), "ar": ars, "historicos": anteriores, "atual": atual_id},
         "destinatarios_recorrentes": recorrentes, "emails_encontrados": todos_emails,
         "constantes": constantes, "variaveis": variaveis, "sinais_semanticos": sinais,
+        "extracao_operacional": extracao,
         "fontes_parciais": fontes_parciais, "bloqueios": bloqueios, "erros": erros,
         "pode_homologar": pronto, "pode_executar": False, "aprendido_em": agora_brasil_iso(),
     }
     salvar_aprendizado(resultado)
     print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
+    print(f"[EDNNA] Extrator operacional | destinatarios_confirmados={len(recorrentes)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
     print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
     print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
     return resultado

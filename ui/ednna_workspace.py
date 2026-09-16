@@ -1765,6 +1765,23 @@ def render_ednna_workspace(
                                             for item in constantes: st.markdown(f"- {item}")
                                         else:
                                             st.info("Ainda não houve recorrência suficiente para extrair constantes com segurança.")
+                                        extracao = aprendido.get("extracao_operacional") or {}
+                                        st.markdown("**Evidências operacionais**")
+                                        dests = extracao.get("destinatarios") or []
+                                        st.markdown("Destinatários: " + (" · ".join(f"{x.get('valor')} ({x.get('ocorrencias')} histórico(s))" for x in dests) if dests else "não identificados em campos Para/To"))
+                                        assuntos = extracao.get("assuntos") or []
+                                        if assuntos:
+                                            st.markdown("**Padrões de assunto encontrados:**")
+                                            for x in assuntos[:5]: st.markdown(f"- {x.get('valor')} · {x.get('ocorrencias')} ocorrência(s)")
+                                        sucessos = extracao.get("evidencias_sucesso") or []
+                                        if sucessos:
+                                            st.markdown("**Evidências de conclusão:**")
+                                            for x in sucessos[:5]: st.markdown(f"- {x.get('valor')}")
+                                        with st.expander("🔎 Ver como a EDNNA chegou a esta conclusão", expanded=False):
+                                            por = extracao.get("por_chamado") or {}
+                                            for iid, ev in por.items():
+                                                st.markdown(f"**[#{iid}]({redmine_web_url}/issues/{iid})**")
+                                                st.write({"Para": ev.get("para"), "CC": ev.get("cc"), "Assuntos": ev.get("assuntos"), "Ações": [a.get("texto") for a in ev.get("acoes", [])[:8]], "Conclusões": [a.get("texto") for a in ev.get("sucessos", [])[:5]]})
                                         if aprendido.get("erros"):
                                             st.warning("Parte das fontes ficou pendente por indisponibilidade do Redmine; o aprendizado pode ser repetido depois.")
                                     if aprendido.get("pode_homologar"):
