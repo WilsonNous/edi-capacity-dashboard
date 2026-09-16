@@ -85,9 +85,13 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
 
     regras: list[dict[str, Any]] = []
     for player in sorted(set(players_atuais)):
+        # v3.28.12 — a investigação é orientada ao player do chamado atual.
+        # Relações de outros adquirentes permanecem no contexto bruto, mas não
+        # concorrem com o player investigado nem poluem a síntese operacional.
+        aberturas_player = [e for e in aberturas if player in (e.get("players") or [])]
         inclusoes_player = [e for e in inclusoes if player in (e.get("players") or [])]
         anteriores = [e for e in inclusoes_player if int(e.get("id") or 0) != chamado_id]
-        fontes_prioritarias = aberturas + anteriores
+        fontes_prioritarias = aberturas_player + anteriores
         atual = [e for e in inclusoes_player if int(e.get("id") or 0) == chamado_id]
         fontes_prioritarias += atual
 
@@ -115,14 +119,14 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         for chave in agregados:
             agregados[chave] = _unicos(agregados[chave])
 
-        evidencia_historica = bool(aberturas or anteriores)
+        evidencia_historica = bool(aberturas_player or anteriores)
         regras.append({
             "player": player,
             "regra_sugerida": f"INCLUSAO-{player.replace(' ', '-')}-001",
             "status_regra": "CANDIDATA_NAO_HOMOLOGADA",
             "canal_sugerido": "EMAIL" if agregados["emails"] else "NAO_IDENTIFICADO",
             "dados_identificados": agregados,
-            "aberturas_relacionamento": [int(e["id"]) for e in aberturas if e.get("id")],
+            "aberturas_relacionamento": [int(e["id"]) for e in aberturas_player if e.get("id")],
             "inclusoes_anteriores": [int(e["id"]) for e in anteriores if e.get("id")],
             "fontes": fontes_detalhadas,
             "confianca": "MEDIA" if evidencia_historica else "BAIXA",

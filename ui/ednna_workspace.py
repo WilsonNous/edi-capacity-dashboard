@@ -1677,17 +1677,68 @@ def render_ednna_workspace(
                                 )
                             else:
                                 st.caption(f"Contexto: {fonte_ctx} · última referência: {atualizado_ctx}")
-                        for regra_desc in aprendizado_desc.get("regras", []) or []:
-                            st.markdown(f"**{regra_desc.get('regra_sugerida')} — {regra_desc.get('player')}**")
-                            q1, q2, q3 = st.columns(3)
-                            q1.metric("Canal", regra_desc.get("canal_sugerido") or "—")
-                            q2.metric("Confiança", regra_desc.get("confianca") or "—")
-                            q3.metric("Estado", "Candidata")
-                            ars = regra_desc.get("aberturas_relacionamento", []) or []
-                            ants = regra_desc.get("inclusoes_anteriores", []) or []
-                            st.markdown("AR: " + (" · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ars) if ars else "não localizada"))
-                            st.markdown("Inclusões anteriores: " + (" · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ants) if ants else "não localizadas"))
-                            st.info("Somente descoberta. Esta regra não executa ações até homologação explícita.")
+                        regras_desc = aprendizado_desc.get("regras", []) or []
+                        if regras_desc:
+                            # v3.28.12 — síntese primeiro; detalhes históricos ficam recolhidos.
+                            for regra_desc in regras_desc:
+                                player = regra_desc.get("player") or "Player não identificado"
+                                ars = regra_desc.get("aberturas_relacionamento", []) or []
+                                ants = regra_desc.get("inclusoes_anteriores", []) or []
+                                fontes = regra_desc.get("fontes", []) or []
+                                dados = regra_desc.get("dados_identificados", {}) or {}
+
+                                st.markdown(f"### 🎯 Investigação orientada — {player}")
+                                s1, s2, s3 = st.columns(3)
+                                s1.metric("Canal provável", regra_desc.get("canal_sugerido") or "—")
+                                s2.metric("Confiança", regra_desc.get("confianca") or "—")
+                                s3.metric("Histórico do player", f"{len(ants)} inclusão(ões)")
+
+                                if ars:
+                                    st.success(
+                                        "Abertura de relacionamento específica localizada: "
+                                        + " · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ars)
+                                    )
+                                else:
+                                    st.warning(f"Abertura de relacionamento específica de {player} ainda não localizada.")
+
+                                if ants:
+                                    st.markdown(
+                                        "**Inclusões anteriores relevantes:** "
+                                        + " · ".join(f"[#{x}]({redmine_web_url}/issues/{x})" for x in ants)
+                                    )
+                                    st.info(
+                                        "A EDNNA encontrou histórico do mesmo adquirente. O próximo passo é comparar "
+                                        "essas ocorrências para extrair o procedimento anterior antes da homologação."
+                                    )
+                                else:
+                                    st.info(
+                                        "Ainda não há inclusão anterior do mesmo adquirente no contexto reconstruído. "
+                                        "A investigação permanece em descoberta."
+                                    )
+
+                                with st.expander("Ver dados e evidências encontrados", expanded=False):
+                                    emails = dados.get("emails", []) or []
+                                    cnpjs = dados.get("cnpjs", []) or []
+                                    ecs = dados.get("ecs", []) or []
+                                    st.markdown("**E-mails identificados:** " + (" · ".join(emails) if emails else "nenhum"))
+                                    st.markdown("**CNPJs identificados:** " + (" · ".join(cnpjs) if cnpjs else "nenhum"))
+                                    st.markdown("**ECs/Convênios identificados:** " + (" · ".join(ecs) if ecs else "nenhum"))
+                                    if fontes:
+                                        st.markdown("**Fontes consultadas:**")
+                                        for fonte in fontes:
+                                            fid = fonte.get("id")
+                                            evento = fonte.get("evento") or "contexto"
+                                            if fid:
+                                                st.markdown(f"- [#{fid}]({redmine_web_url}/issues/{fid}) · {evento}")
+
+                                with st.expander("Ver diagnóstico técnico da regra candidata", expanded=False):
+                                    st.write(f"Regra sugerida: {regra_desc.get('regra_sugerida')}")
+                                    st.write(f"Estado: {regra_desc.get('status_regra')}")
+                                    st.write(regra_desc.get("motivo_bloqueio") or "Regra ainda não homologada.")
+
+                                st.caption("Somente investigação. Nenhuma ação é executada sem homologação explícita.")
+                        else:
+                            st.warning("A EDNNA ainda não conseguiu formar uma regra candidata para esta inclusão.")
 
             st.divider()
             st.markdown("### 🧠 Central de Atuação EDNNA")
