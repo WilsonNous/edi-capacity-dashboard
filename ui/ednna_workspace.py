@@ -1770,7 +1770,15 @@ def render_ednna_workspace(
                                     if aprendido.get("pode_homologar"):
                                         st.success("Procedimento pronto para revisão humana. A homologação será habilitada na próxima etapa, sem execução automática nesta versão.")
                                     else:
-                                        st.info("Procedimento ainda em aprendizado. Revise as evidências ou repita quando o Redmine estiver integralmente disponível.")
+                                        parciais = aprendido.get("fontes_parciais", []) or []
+                                        bloqueios = aprendido.get("bloqueios", []) or []
+                                        if parciais:
+                                            st.info("Aprendizado parcial — aguardando enriquecimento das fontes: " + ", ".join(f"#{x}" for x in parciais) + ". A EDNNA reavaliará a regra automaticamente após o worker atualizar o contexto.")
+                                        else:
+                                            st.info("Procedimento ainda em aprendizado. Ainda faltam elementos operacionais recorrentes para homologação.")
+                                        if bloqueios:
+                                            with st.expander("Ver pendências do aprendizado", expanded=False):
+                                                for b in bloqueios: st.markdown(f"- {str(b).replace('_', ' ').title()}")
 
                                 with st.expander("Ver diagnóstico técnico da regra candidata", expanded=False):
                                     st.write(f"Regra sugerida: {regra_desc.get('regra_sugerida')}")

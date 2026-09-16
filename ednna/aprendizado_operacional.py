@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
-from typing import Any
 
 from ednna.armazenamento import conectar, agora_brasil_iso
 from ednna.contexto_relacionamentos import buscar_issue_contexto
@@ -28,7 +28,6 @@ def _linhas_procedimento(issue: dict) -> list[str]:
         s = " ".join(linha.strip().split())
         if len(s) < 12:
             continue
-        # normaliza elementos naturalmente variáveis para comparar procedimentos.
         n = _EMAIL_RE.sub("<EMAIL>", s)
         n = _CNPJ_RE.sub("<CNPJ>", n)
         n = _NUM_RE.sub("<NUM>", n)
@@ -53,6 +52,21 @@ def _inferir_variaveis(issues: list[dict]) -> list[str]:
     return list(dict.fromkeys(vars_))
 
 
+def _fonte_parcial(issue: dict) -> bool:
+    return bool((issue.get("_ednna_contexto") or {}).get("parcial"))
+
+
+def _sinais_semanticos(hist: list[dict], recorrentes: list[str], constantes: list[str]) -> dict:
+    texto = "\n".join(_texto_issue(i) for i in hist)
+    return {
+        "destinatario_recorrente": bool(recorrentes),
+        "padrao_assunto": len(hist) >= 2 and all(str(i.get("subject") or "").strip() for i in hist),
+        "estrutura_mensagem": bool(constantes),
+        "campos_operacionais": bool(re.search(r"(?i)\b(?:EC|estabelecimento|conv[eê]nio|filia[cç][aã]o|CNPJ)\b", texto)),
+        "evidencia_conclusao": bool(re.search(r"(?i)\b(?:conclu[ií]d|confirm|ativad|inclu[ií]d|cadastrad|processad|realizad)\w*\b", texto)),
+    }
+
+
 def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: bool = False) -> dict:
     regra_id = str(regra.get("regra_sugerida") or "").strip()
     player = str(regra.get("player") or "").strip()
@@ -69,47 +83,49 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
             erros.append({"id": iid, "erro": str(exc)})
 
     hist = [i for i in fontes if int(i.get("id") or 0) in anteriores]
-    emails_hist = [_emails(i) for i in hist]
-    email_counts = Counter(e.lower() for grupo in emails_hist for e in grupo)
+    email_counts = Counter(e.lower() for i in hist for e in _emails(i))
     recorrentes = [e for e, n in email_counts.most_common() if n >= 2]
     todos_emails = sorted(set(e for i in fontes for e in _emails(i)), key=str.lower)
     constantes = _inferir_constantes(hist)
     variaveis = _inferir_variaveis(fontes)
+    fontes_parciais = sorted(int(i.get("id") or 0) for i in fontes if _fonte_parcial(i) and i.get("id"))
+    sinais = _sinais_semanticos(hist, recorrentes, constantes)
 
-    completude = 0
-    completude += 25 if ars else 0
-    completude += 25 if len(anteriores) >= 2 else (12 if anteriores else 0)
-    completude += 20 if todos_emails else 0
-    completude += 20 if constantes else 0
-    completude += 10 if not erros else 0
-    estado = "PRONTA_PARA_REVISAO" if completude >= 70 and len(anteriores) >= 2 else "APRENDENDO"
+    # v3.28.15: completude mede procedimento operacional, não apenas quantidade de fontes.
+    pesos = {"destinatario_recorrente": 25, "padrao_assunto": 15, "estrutura_mensagem": 25,
+             "campos_operacionais": 15, "evidencia_conclusao": 20}
+    completude = sum(pesos[k] for k, ok in sinais.items() if ok)
+    bloqueios = []
+    if len(anteriores) < 2: bloqueios.append("HISTORICO_INSUFICIENTE")
+    if not constantes: bloqueios.append("SEM_PROCEDIMENTO_RECORRENTE")
+    if fontes_parciais or erros: bloqueios.append("FONTES_PENDENTES_ENRIQUECIMENTO")
+    if not recorrentes: bloqueios.append("DESTINATARIO_NAO_CONFIRMADO")
+    if not sinais["evidencia_conclusao"]: bloqueios.append("EVIDENCIA_CONCLUSAO_NAO_CONFIRMADA")
 
+    pronto = completude >= 70 and len(anteriores) >= 2 and bool(constantes) and not fontes_parciais and not erros
+    estado = "PRONTA_PARA_REVISAO" if pronto else "APRENDIZADO_INCOMPLETO"
     resultado = {
-        "regra_id": regra_id, "player": player, "operacao": "INCLUSAO",
-        "estado": estado, "completude": min(completude, 100), "canal": "EMAIL" if todos_emails else "NAO_IDENTIFICADO",
+        "regra_id": regra_id, "player": player, "operacao": "INCLUSAO", "estado": estado,
+        "completude": min(completude, 100), "canal": "EMAIL" if todos_emails else "NAO_IDENTIFICADO",
         "fontes": {"bp": aprendizado.get("blueprint_id"), "ar": ars, "historicos": anteriores, "atual": atual_id},
         "destinatarios_recorrentes": recorrentes, "emails_encontrados": todos_emails,
-        "constantes": constantes, "variaveis": variaveis, "erros": erros,
-        "pode_homologar": estado == "PRONTA_PARA_REVISAO",
-        "pode_executar": False,
-        "aprendido_em": agora_brasil_iso(),
+        "constantes": constantes, "variaveis": variaveis, "sinais_semanticos": sinais,
+        "fontes_parciais": fontes_parciais, "bloqueios": bloqueios, "erros": erros,
+        "pode_homologar": pronto, "pode_executar": False, "aprendido_em": agora_brasil_iso(),
     }
     salvar_aprendizado(resultado)
     print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
-    print(f"[EDNNA] Procedimento | constantes={len(constantes)} | variaveis={','.join(variaveis)} | completude={resultado['completude']}%", flush=True)
-    print(f"[EDNNA] Regra | {regra_id} | {estado}", flush=True)
+    print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
+    print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
     return resultado
 
 
 def salvar_aprendizado(resultado: dict) -> None:
-    import json
     with conectar() as conn:
-        conn.execute("""
-        CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
+        conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
             estado TEXT NOT NULL, completude INTEGER NOT NULL DEFAULT 0,
-            payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL
-        )""")
+            payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
         conn.execute("""INSERT INTO aprendizados_operacionais
         (regra_id,player,operacao,estado,completude,payload_json,atualizado_em)
         VALUES (?,?,?,?,?,?,?) ON CONFLICT(regra_id) DO UPDATE SET
@@ -119,7 +135,6 @@ def salvar_aprendizado(resultado: dict) -> None:
 
 
 def obter_aprendizado(regra_id: str) -> dict | None:
-    import json
     with conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
@@ -127,3 +142,28 @@ def obter_aprendizado(regra_id: str) -> dict | None:
             payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
         row = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE regra_id=?", (regra_id,)).fetchone()
     return json.loads(row["payload_json"]) if row else None
+
+
+def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = None) -> dict:
+    """Reavalia regras incompletas após o worker enriquecer suas fontes."""
+    atualizados = {int(x) for x in (ids_atualizados or [])}
+    with conectar() as conn:
+        rows = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE estado='APRENDIZADO_INCOMPLETO'").fetchall()
+    reprocessadas, erros = [], []
+    for row in rows:
+        try:
+            antigo = json.loads(row["payload_json"])
+            f = antigo.get("fontes") or {}
+            ids_regra = set(int(x) for x in ((f.get("ar") or []) + (f.get("historicos") or []) + ([f.get("atual")] if f.get("atual") else [])))
+            if atualizados and not (ids_regra & atualizados):
+                continue
+            aprendizado = {"chamado_id": f.get("atual"), "blueprint_id": f.get("bp")}
+            regra = {"regra_sugerida": antigo.get("regra_id"), "player": antigo.get("player"),
+                     "aberturas_relacionamento": f.get("ar") or [], "inclusoes_anteriores": f.get("historicos") or []}
+            novo = aprender_procedimento_inclusao(aprendizado, regra, force=False)
+            reprocessadas.append({"regra": novo.get("regra_id"), "estado": novo.get("estado")})
+        except Exception as exc:
+            erros.append(str(exc))
+    if reprocessadas:
+        print(f"[EDNNA] Aprendizado automático | reprocessadas={reprocessadas}", flush=True)
+    return {"reprocessadas": reprocessadas, "erros": erros}

@@ -42,6 +42,7 @@ from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, listar_etapas_pendentes_monitoramento,
 )
 from ednna.armazenamento import carregar_snapshot_chamados
+from ednna.aprendizado_operacional import reprocessar_aprendizados_incompletos
 
 
 _THREAD: threading.Thread | None = None
@@ -646,6 +647,10 @@ def executar_monitoramento_respostas() -> dict:
         enriquecimento = processar_enriquecimentos_pendentes(limite=3)
         if enriquecimento.get("consultados"):
             resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
+        if enriquecimento.get("atualizados"):
+            reaprendizado = reprocessar_aprendizados_incompletos(enriquecimento.get("atualizados"))
+            if reaprendizado.get("reprocessadas"):
+                resumo["detalhes"].append({"reaprendizado": reaprendizado})
     except Exception as exc:
         print(f"[EDNNA] Enriquecimento assíncrono | falha geral | {type(exc).__name__}: {exc}", flush=True)
 

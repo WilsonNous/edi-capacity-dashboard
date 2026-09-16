@@ -46,6 +46,9 @@ _ADAPTER = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=0)
 _SESSION.mount("https://", _ADAPTER)
 _SESSION.mount("http://", _ADAPTER)
 
+_PAINEL_REFRESH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="painel-refresh")
+_PAINEL_REFRESH_FUTURES: dict[str, object] = {}
+
 _LAST_DIAGNOSTICO = {
     "tempo_listagem_s": 0.0,
     "tempo_detalhes_s": 0.0,
@@ -635,6 +638,35 @@ def _chave_snapshot_painel(
     )
 
 
+def _refresh_snapshot_background(chave: str, ids: list[int], status_id: str, completar_custom_fields: bool) -> None:
+    """Atualiza snapshot fora do caminho de renderização (stale-while-revalidate)."""
+    dono_lock = f"bg:{os.getenv('WEBSITE_INSTANCE_ID', 'local')}:{uuid.uuid4().hex[:8]}"
+    chave_lock = f"refresh:{chave}"
+    if not painel_adquirir_lock(chave_lock, dono_lock, ttl_seconds=180):
+        print("[PAINEL] Refresh background já em andamento | usando SQLite", flush=True)
+        return
+    try:
+        print("[PAINEL] Refresh background | iniciando Redmine", flush=True)
+        chamados = _buscar_chamados_projetos_remoto(ids, status_id, completar_custom_fields)
+        painel_salvar_snapshot(chave, chamados)
+        print(f"[PAINEL] Refresh background | snapshot atualizado | chamados={len(chamados)}", flush=True)
+    except Exception as exc:
+        print(f"[PAINEL] Refresh background | Redmine indisponível | {type(exc).__name__}: {exc}", flush=True)
+    finally:
+        painel_liberar_lock(chave_lock, dono_lock)
+        _PAINEL_REFRESH_FUTURES.pop(chave, None)
+
+
+def _agendar_refresh_snapshot(chave: str, ids: list[int], status_id: str, completar_custom_fields: bool) -> bool:
+    atual = _PAINEL_REFRESH_FUTURES.get(chave)
+    if atual is not None and not getattr(atual, "done", lambda: True)():
+        return False
+    _PAINEL_REFRESH_FUTURES[chave] = _PAINEL_REFRESH_EXECUTOR.submit(
+        _refresh_snapshot_background, chave, list(ids), status_id, completar_custom_fields
+    )
+    return True
+
+
 def buscar_chamados_projetos(
     project_ids: Iterable[int] | None = None,
     status_id: str = "open",
@@ -698,12 +730,28 @@ def buscar_chamados_projetos(
         )
         return chamados
 
-    if snapshot:
+    if snapshot and not force_refresh:
+        chamados = snapshot.get("payload") or []
+        idade = float(snapshot.get("idade_s") or 0)
+        agendado = _agendar_refresh_snapshot(chave, ids, status_id, completar_custom_fields)
+        _LAST_DIAGNOSTICO = {
+            "tempo_listagem_s": 0.0, "tempo_detalhes_s": 0.0, "tempo_total_s": 0.0,
+            "chamados_encontrados": len(chamados),
+            "com_custom_fields": sum(1 for c in chamados if "custom_fields" in c),
+            "detalhes_consultados": 0, "projetos_consultados": len(ids), "paginas_consultadas": 0,
+            "fonte_dados": "painel_sqlite_stale_revalidate",
+            "cache_idade_s": round(idade, 1), "cache_ttl_s": PAINEL_CACHE_TTL_SECONDS,
+            "refresh_background": True,
+        }
         print(
-            "[PAINEL] Snapshot expirado | "
-            f"idade={float(snapshot.get('idade_s') or 0):.0f}s | "
-            "atualizando pelo Redmine",
-            flush=True,
+            "[PAINEL] Snapshot SQLite STALE | servindo imediatamente | "
+            f"chamados={len(chamados)} | idade={idade:.0f}s | "
+            f"refresh_background={'agendado' if agendado else 'em_andamento'}", flush=True,
+        )
+        return chamados
+    elif snapshot:
+        print(
+            "[PAINEL] Snapshot expirado | force_refresh=True | atualizando pelo Redmine", flush=True
         )
     else:
         print(
