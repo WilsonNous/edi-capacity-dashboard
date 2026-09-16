@@ -1,5 +1,17 @@
 # EDNNA / EDI Capacity Dashboard — Histórico da linha 3.28
 
+## 3.28.19 — Corpus Operacional Unificado
+
+- Unifica a leitura de threads do caso atual, históricos e fontes complementares em um corpus operacional auditável.
+- Marca explicitamente o chamado atual como `CASO_ANCORA`, preservando históricos como `HISTORICO` e demais fontes como `CONTEXTO_COMPLEMENTAR`.
+- Classifica participantes de e-mail entre `INTERNO_NETUNNA` e `EXTERNO_PLAYER`.
+- Separa destinatários externos confirmados do player dos participantes internos, evitando tratar `@netunna.com.br` como canal do player.
+- Mantém métricas distintas para evidência histórica e evidência do caso-âncora.
+- O caso-âncora pode completar a compreensão operacional, mas continua sem substituir a recorrência histórica exigida para homologação.
+- Central de Descoberta passa a exibir evidência histórica, caso-âncora, participantes e destinatários do corpus.
+- Novos logs `Corpus operacional` e `Evidência separada` facilitam validação de players como VALECARD e SENFF.
+- Nenhuma nova regra é automaticamente homologada ou executada por esta versão.
+
 Este documento consolida as notas de versão que antes ficavam espalhadas no diretório raiz. A partir da v3.28.18, novas notas da família 3.28 devem ser adicionadas aqui.
 
 ## 3.28.18 — Thread Operacional e Caso-Âncora

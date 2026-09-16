@@ -1759,6 +1759,26 @@ def render_ednna_workspace(
                                     recorrentes = aprendido.get("destinatarios_recorrentes", []) or []
                                     st.markdown("**Destinatários recorrentes:** " + (" · ".join(recorrentes) if recorrentes else "a confirmar"))
                                     st.markdown("**Dados variáveis da solicitação:** " + " · ".join(aprendido.get("variaveis", []) or ["a confirmar"]))
+                                    corpus = aprendido.get("corpus_operacional") or {}
+                                    if corpus:
+                                        ev_hist = corpus.get("evidencia_historica") or {}
+                                        ev_anc = corpus.get("evidencia_caso_ancora") or {}
+                                        c_hist, c_anc, c_ext = st.columns(3)
+                                        c_hist.metric("Evidência histórica", f"{int(ev_hist.get('casos') or 0)} caso(s)", f"{int(ev_hist.get('ciclos_completos') or 0)} ciclo(s) completo(s)")
+                                        c_anc.metric("Caso-âncora", f"{int(ev_anc.get('casos') or 0)} caso(s)", f"{int(ev_anc.get('ciclos_completos') or 0)} ciclo(s) completo(s)")
+                                        c_ext.metric("Participantes externos", len(corpus.get("participantes_externos") or []))
+                                        with st.expander("🧩 Ver corpus operacional unificado", expanded=False):
+                                            st.caption("O caso-âncora enriquece a leitura, mas não substitui recorrência histórica para homologação.")
+                                            hist_dest = corpus.get("destinatarios_player_historico") or []
+                                            anc_dest = corpus.get("destinatarios_player_ancora") or []
+                                            st.markdown("**Destinatários do player — histórico:** " + (" · ".join(f"{x.get('email')} ({x.get('ocorrencias')} caso(s))" for x in hist_dest) if hist_dest else "não confirmados"))
+                                            st.markdown("**Destinatários do player — caso-âncora:** " + (" · ".join(f"{x.get('email')}" for x in anc_dest) if anc_dest else "não confirmados"))
+                                            st.markdown("**Participantes externos:** " + (" · ".join(corpus.get("participantes_externos") or []) or "nenhum"))
+                                            st.markdown("**Participantes internos Netunna:** " + (" · ".join(corpus.get("participantes_internos") or []) or "nenhum"))
+                                            if corpus.get("protocolos"):
+                                                st.markdown("**Protocolos identificados:** " + " · ".join(map(str, corpus.get("protocolos") or [])))
+                                            if corpus.get("prazos_horas"):
+                                                st.markdown("**Prazos identificados:** " + " · ".join(f"{x}h" for x in corpus.get("prazos_horas") or []))
                                     with st.expander("Ver padrão operacional extraído", expanded=False):
                                         constantes = aprendido.get("constantes", []) or []
                                         if constantes:

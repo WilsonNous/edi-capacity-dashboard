@@ -83,6 +83,60 @@ def _extrair_thread(issue: dict) -> dict:
     estados=[m['estado'] for m in mensagens if m['estado']!='INDEFINIDO']
     return {'mensagens':mensagens,'destinatarios_confirmados_thread':confirmados,'protocolos':sorted(set(m['protocolo'] for m in mensagens if m['protocolo'])),'prazos_horas':sorted(set(m['prazo_horas'] for m in mensagens if m['prazo_horas'])),'estados':estados,'ciclo_completo':all(x in estados for x in ('SOLICITADO','EM_TRATATIVA','CONCLUIDO'))}
 
+# v3.28.19 — corpus operacional unificado.
+def _papel_email(email: str) -> str:
+    e = str(email or "").strip().lower()
+    if not e:
+        return "NAO_IDENTIFICADO"
+    return "INTERNO_NETUNNA" if e.endswith("@netunna.com.br") else "EXTERNO_PLAYER"
+
+def _corpus_operacional(fontes: list[dict], atual_id: int, historicos_ids: list[int]) -> dict:
+    """Unifica caso-âncora e histórico sem misturar seus pesos de evidência.
+
+    O corpus serve para leitura/aprendizado. A homologação continua dependendo
+    de recorrência histórica; um caso-âncora completo enriquece, mas não vota
+    sozinho como recorrência.
+    """
+    hist_ids = {int(x) for x in (historicos_ids or [])}
+    casos=[]; participantes={}; externos=set(); internos=set()
+    ciclos_hist=0; ciclos_ancora=0
+    estados_hist=Counter(); estados_ancora=Counter()
+    destinos_hist=Counter(); destinos_ancora=Counter()
+    protocolos=set(); prazos=set()
+    for issue in fontes:
+        iid=int(issue.get("id") or 0)
+        thread=_extrair_thread(issue)
+        papel_caso = "CASO_ANCORA" if iid == int(atual_id or 0) else ("HISTORICO" if iid in hist_ids else "CONTEXTO_COMPLEMENTAR")
+        if thread.get("ciclo_completo"):
+            if papel_caso == "CASO_ANCORA": ciclos_ancora += 1
+            elif papel_caso == "HISTORICO": ciclos_hist += 1
+        for estado in thread.get("estados", []) or []:
+            (estados_ancora if papel_caso == "CASO_ANCORA" else estados_hist)[estado] += 1
+        for e in thread.get("destinatarios_confirmados_thread", []) or []:
+            (destinos_ancora if papel_caso == "CASO_ANCORA" else destinos_hist)[e] += 1
+        protocolos.update(thread.get("protocolos", []) or [])
+        prazos.update(thread.get("prazos_horas", []) or [])
+        for m in thread.get("mensagens", []) or []:
+            emails=[]
+            if m.get("remetente"): emails.append(m["remetente"])
+            emails += list(m.get("para") or []) + list(m.get("cc") or [])
+            for e in emails:
+                e=str(e).lower(); papel=_papel_email(e)
+                participantes[e]=papel
+                (internos if papel == "INTERNO_NETUNNA" else externos).add(e)
+        casos.append({"chamado_id":iid,"papel":papel_caso,"thread":thread})
+    return {
+        "casos":casos,
+        "participantes":participantes,
+        "participantes_internos":sorted(internos),
+        "participantes_externos":sorted(externos),
+        "destinatarios_player_historico":[{"email":e,"ocorrencias":n} for e,n in destinos_hist.most_common()],
+        "destinatarios_player_ancora":[{"email":e,"ocorrencias":n} for e,n in destinos_ancora.most_common()],
+        "evidencia_historica":{"casos":len([c for c in casos if c["papel"]=="HISTORICO"]),"ciclos_completos":ciclos_hist,"estados":dict(estados_hist)},
+        "evidencia_caso_ancora":{"casos":len([c for c in casos if c["papel"]=="CASO_ANCORA"]),"ciclos_completos":ciclos_ancora,"estados":dict(estados_ancora)},
+        "protocolos":sorted(protocolos),"prazos_horas":sorted(prazos),
+    }
+
 def _normalizar_template(texto: str) -> str:
     s = " ".join(str(texto or "").strip().split())
     s = _EMAIL_RE.sub("<EMAIL>", s)
@@ -227,6 +281,7 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     # homologação automática da regra.
     threads = {int(i.get("id") or 0): _extrair_thread(i) for i in fontes}
     thread_atual = threads.get(atual_id, {})
+    corpus = _corpus_operacional(fontes, atual_id, anteriores)
     recorrentes = [x["valor"] for x in extracao["destinatarios"] if x.get("confirmado")]
     confirmados_thread = list(thread_atual.get("destinatarios_confirmados_thread") or [])
     destinatarios_operacionais = list(dict.fromkeys(recorrentes + confirmados_thread))
@@ -266,6 +321,7 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
         "destinatarios_recorrentes": recorrentes, "destinatarios_operacionais": destinatarios_operacionais, "emails_encontrados": todos_emails,
         "constantes": constantes, "variaveis": variaveis, "sinais_semanticos": sinais,
         "extracao_operacional": extracao, "threads_operacionais": threads, "thread_ancora": thread_atual,
+        "corpus_operacional": corpus,
         "fontes_parciais": fontes_parciais, "bloqueios": bloqueios, "erros": erros,
         "pode_homologar": pronto, "pode_executar": False, "aprendido_em": agora_brasil_iso(),
     }
@@ -273,6 +329,8 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
     print(f"[EDNNA] Linha do tempo operacional | historicos={anteriores} | solicitacoes={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='SOLICITACAO_EXTERNA')} | retornos={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='RETORNO_PLAYER')} | acoes_internas={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='ACAO_INTERNA')}", flush=True)
     print(f"[EDNNA] Thread operacional | chamado={atual_id} | estados={thread_atual.get('estados', [])} | protocolos={thread_atual.get('protocolos', [])} | prazo_horas={thread_atual.get('prazos_horas', [])} | destinatarios={confirmados_thread} | ciclo_completo={bool(thread_atual.get('ciclo_completo'))}", flush=True)
+    print(f"[EDNNA] Corpus operacional | casos={len(corpus.get('casos', []))} | historicos={corpus.get('evidencia_historica', {}).get('casos', 0)} | ancora={corpus.get('evidencia_caso_ancora', {}).get('casos', 0)} | externos={len(corpus.get('participantes_externos', []))} | internos={len(corpus.get('participantes_internos', []))}", flush=True)
+    print(f"[EDNNA] Evidência separada | historico_ciclos={corpus.get('evidencia_historica', {}).get('ciclos_completos', 0)} | ancora_ciclos={corpus.get('evidencia_caso_ancora', {}).get('ciclos_completos', 0)} | destinatarios_hist={corpus.get('destinatarios_player_historico', [])} | destinatarios_ancora={corpus.get('destinatarios_player_ancora', [])}", flush=True)
     print(f"[EDNNA] Extrator operacional | destinatarios_recorrentes={len(recorrentes)} | destinatarios_ancora={len(confirmados_thread)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
     print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
     print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
