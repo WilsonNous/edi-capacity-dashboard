@@ -188,3 +188,15 @@ Principais evoluções:
 
 **Netunna — EDI**  
 Painel de Capacidade e Atendimento
+
+---
+
+## Documentação e histórico de versões
+
+A raiz do projeto mantém apenas este `README.md`. Notas de releases são consolidadas por família para evitar poluição do repositório:
+
+- `docs/CHANGELOG-3.28.md` — evolução completa da linha 3.28.
+- `docs/historico/` — documentos históricos de linhas anteriores.
+- `ednna/README_EDNNA.md` — documentação técnica do módulo EDNNA.
+
+Versão atual: **3.28.18 — Thread Operacional e Caso-Âncora**.

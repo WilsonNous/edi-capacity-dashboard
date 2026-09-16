@@ -18,6 +18,71 @@ _FIELD_PATTERNS = {
 _SUCCESS_RE = re.compile(r"(?i)\b(?:conclu[ií]d[oa]s?|confirmad[oa]s?|ativad[oa]s?|inclu[ií]d[oa]s?|cadastrad[oa]s?|processad[oa]s?|realizad[oa]s?|liberad[oa]s?|habilitad[oa]s?)\b")
 _ACTION_RE = re.compile(r"(?i)\b(?:solicit|pedimos|providenciar|incluir|inclus[aã]o|cadastr|habilit|ativ|tr[aá]fego|estabelecimento|conv[eê]nio|filia[cç][aã]o)\w*\b")
 
+
+# v3.28.18 — leitura de threads reais de e-mail.
+_PROTOCOL_RE = re.compile(r"(?i)\bprotocolo\s*(?:n[º°o.]*)?\s*[:#-]?\s*(\d{4,})\b")
+_DEADLINE_RE = re.compile(r"(?i)\b(?:em|at[eé])\s*(\d{1,3})\s*horas?\b")
+_FROM_RE = re.compile(r"(?im)^\s*(?:de|from)\s*:\s*(.+)$")
+_TO_RE = re.compile(r"(?im)^\s*(?:para|to)\s*:\s*(.+)$")
+_CC_RE = re.compile(r"(?im)^\s*(?:cc|c\.c\.)\s*:\s*(.+)$")
+_SUBJECT_RE = re.compile(r"(?im)^\s*(?:assunto|subject)\s*:\s*(.+)$")
+_IN_PROGRESS_RE = re.compile(r"(?i)\b(?:recebemos sua solicita[cç][aã]o|em acompanhamento|iniciamos? as valida[cç][oõ]es|em tratativa|protocolo)\b")
+_COMPLETED_RE = re.compile(r"(?i)\b(?:inclus[aã]o.{0,80}(?:com sucesso|conclu[ií]d)|realizamos? a inclus[aã]o|regulariza[cç][aã]o.{0,50}conclu[ií]d|j[aá] estar[aá] dispon[ií]vel)\b")
+_REQUEST_RE = re.compile(r"(?i)\b(?:solicitamos?.{0,120}inclus[aã]o|inclus[aã]o no tr[aá]fego|inclus[aã]o de estabelecimento)\b")
+
+def _blocos_email(texto: str) -> list[str]:
+    # Journals do Redmine normalmente preservam mensagens encadeadas. Cada novo
+    # cabeçalho De:/From: inicia uma mensagem; se não houver cabeçalho, o texto
+    # inteiro continua sendo analisado como um bloco.
+    marcas=list(re.finditer(r"(?im)^\s*(?:de|from)\s*:", texto or ""))
+    if not marcas:
+        return [texto] if str(texto or '').strip() else []
+    out=[]
+    for i,m in enumerate(marcas):
+        fim=marcas[i+1].start() if i+1 < len(marcas) else len(texto)
+        out.append(texto[m.start():fim])
+    prefixo=texto[:marcas[0].start()].strip()
+    if prefixo: out.insert(0,prefixo)
+    return out
+
+def _primeiro_email(pat, bloco: str) -> str:
+    m=pat.search(bloco or '')
+    if not m: return ''
+    vals=_EMAIL_RE.findall(m.group(1))
+    return vals[0].lower() if vals else ''
+
+def _emails_cabecalho(pat, bloco: str) -> list[str]:
+    m=pat.search(bloco or '')
+    return sorted(set(e.lower() for e in _EMAIL_RE.findall(m.group(1)))) if m else []
+
+def _extrair_thread(issue: dict) -> dict:
+    mensagens=[]
+    blocos=[('descricao', str(issue.get('description') or ''))]
+    blocos += [(f"journal_{i}", str(j.get('notes') or '')) for i,j in enumerate(issue.get('journals',[]) or [],1) if j.get('notes')]
+    for origem,texto in blocos:
+        for bloco in _blocos_email(texto):
+            remetente=_primeiro_email(_FROM_RE, bloco)
+            para=_emails_cabecalho(_TO_RE, bloco); cc=_emails_cabecalho(_CC_RE, bloco)
+            sm=_SUBJECT_RE.search(bloco); assunto=_normalizar_template(sm.group(1)) if sm else ''
+            externo=bool(remetente and not remetente.endswith('@netunna.com.br'))
+            interno=bool(remetente and remetente.endswith('@netunna.com.br'))
+            estado='INDEFINIDO'
+            if externo and _COMPLETED_RE.search(bloco): estado='CONCLUIDO'
+            elif externo and _IN_PROGRESS_RE.search(bloco): estado='EM_TRATATIVA'
+            elif interno and _REQUEST_RE.search(bloco): estado='SOLICITADO'
+            elif _REQUEST_RE.search(bloco) and any(not e.endswith('@netunna.com.br') for e in para): estado='SOLICITADO'
+            protocolo=(_PROTOCOL_RE.search(bloco).group(1) if _PROTOCOL_RE.search(bloco) else None)
+            prazo=(_DEADLINE_RE.search(bloco).group(1) if _DEADLINE_RE.search(bloco) else None)
+            if estado!='INDEFINIDO' or remetente or para:
+                mensagens.append({'origem':origem,'estado':estado,'remetente':remetente,'para':para,'cc':cc,'assunto':assunto,'protocolo':protocolo,'prazo_horas':int(prazo) if prazo else None,'resumo':_normalizar_template(bloco)[:700]})
+    # Uma thread completa confirma operacionalmente o endereço do player quando
+    # a Netunna envia para ele e o mesmo endereço aparece como remetente externo.
+    enviados=set(e for m in mensagens if m['estado']=='SOLICITADO' for e in m['para'] if not e.endswith('@netunna.com.br'))
+    remetentes=set(m['remetente'] for m in mensagens if m['remetente'] and not m['remetente'].endswith('@netunna.com.br'))
+    confirmados=sorted(enviados & remetentes)
+    estados=[m['estado'] for m in mensagens if m['estado']!='INDEFINIDO']
+    return {'mensagens':mensagens,'destinatarios_confirmados_thread':confirmados,'protocolos':sorted(set(m['protocolo'] for m in mensagens if m['protocolo'])),'prazos_horas':sorted(set(m['prazo_horas'] for m in mensagens if m['prazo_horas'])),'estados':estados,'ciclo_completo':all(x in estados for x in ('SOLICITADO','EM_TRATATIVA','CONCLUIDO'))}
+
 def _normalizar_template(texto: str) -> str:
     s = " ".join(str(texto or "").strip().split())
     s = _EMAIL_RE.sub("<EMAIL>", s)
@@ -157,7 +222,14 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     # AR e faltas enriquecem contexto; o chamado atual fornece variáveis, mas não vota.
     hist = [i for i in fontes if int(i.get("id") or 0) in anteriores]
     extracao = _recorrencia_eventos(hist)
+    # A thread do chamado atual pode ser um caso-âncora completo. Ela confirma
+    # operacionalmente o canal, mas não substitui a recorrência histórica para
+    # homologação automática da regra.
+    threads = {int(i.get("id") or 0): _extrair_thread(i) for i in fontes}
+    thread_atual = threads.get(atual_id, {})
     recorrentes = [x["valor"] for x in extracao["destinatarios"] if x.get("confirmado")]
+    confirmados_thread = list(thread_atual.get("destinatarios_confirmados_thread") or [])
+    destinatarios_operacionais = list(dict.fromkeys(recorrentes + confirmados_thread))
     todos_emails = sorted(set(e for i in fontes for e in _emails(i)), key=str.lower)
     constantes = _inferir_constantes(hist)
     # v3.28.16: recorrência semântica de ações complementa a comparação literal de linhas.
@@ -166,9 +238,12 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     constantes = constantes[:12]
     variaveis = _inferir_variaveis(fontes)
     fontes_parciais = sorted(int(i.get("id") or 0) for i in fontes if _fonte_parcial(i) and i.get("id"))
-    sinais = _sinais_semanticos(hist, recorrentes, constantes)
+    sinais = _sinais_semanticos(hist, destinatarios_operacionais, constantes)
     sinais["padrao_assunto"] = any(x.get("confirmado") for x in extracao["assuntos"]) or sinais["padrao_assunto"]
-    sinais["evidencia_conclusao"] = bool(extracao["evidencias_sucesso"])
+    sinais["evidencia_conclusao"] = bool(extracao["evidencias_sucesso"]) or bool(thread_atual.get("ciclo_completo"))
+    if thread_atual.get("ciclo_completo"):
+        sinais["estrutura_mensagem"] = True
+        sinais["padrao_assunto"] = sinais["padrao_assunto"] or any(m.get("assunto") for m in thread_atual.get("mensagens",[]) if m.get("estado") == "SOLICITADO")
 
     # v3.28.15: completude mede procedimento operacional, não apenas quantidade de fontes.
     pesos = {"destinatario_recorrente": 25, "padrao_assunto": 15, "estrutura_mensagem": 25,
@@ -178,25 +253,27 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     if len(anteriores) < 2: bloqueios.append("HISTORICO_INSUFICIENTE")
     if not constantes: bloqueios.append("SEM_PROCEDIMENTO_RECORRENTE")
     if fontes_parciais or erros: bloqueios.append("FONTES_PENDENTES_ENRIQUECIMENTO")
-    if not recorrentes: bloqueios.append("DESTINATARIO_NAO_CONFIRMADO")
+    if not destinatarios_operacionais: bloqueios.append("DESTINATARIO_NAO_CONFIRMADO")
+    elif not recorrentes: bloqueios.append("DESTINATARIO_CONFIRMADO_APENAS_NO_CASO_ANCORA")
     if not sinais["evidencia_conclusao"]: bloqueios.append("EVIDENCIA_CONCLUSAO_NAO_CONFIRMADA")
 
-    pronto = completude >= 70 and len(anteriores) >= 2 and bool(constantes) and not fontes_parciais and not erros
+    pronto = completude >= 70 and len(anteriores) >= 2 and bool(constantes) and bool(recorrentes) and not fontes_parciais and not erros
     estado = "PRONTA_PARA_REVISAO" if pronto else "APRENDIZADO_INCOMPLETO"
     resultado = {
         "regra_id": regra_id, "player": player, "operacao": "INCLUSAO", "estado": estado,
         "completude": min(completude, 100), "canal": "EMAIL" if todos_emails else "NAO_IDENTIFICADO",
         "fontes": {"bp": aprendizado.get("blueprint_id"), "ar": ars, "historicos": anteriores, "complementares": complementares, "atual": atual_id},
-        "destinatarios_recorrentes": recorrentes, "emails_encontrados": todos_emails,
+        "destinatarios_recorrentes": recorrentes, "destinatarios_operacionais": destinatarios_operacionais, "emails_encontrados": todos_emails,
         "constantes": constantes, "variaveis": variaveis, "sinais_semanticos": sinais,
-        "extracao_operacional": extracao,
+        "extracao_operacional": extracao, "threads_operacionais": threads, "thread_ancora": thread_atual,
         "fontes_parciais": fontes_parciais, "bloqueios": bloqueios, "erros": erros,
         "pode_homologar": pronto, "pode_executar": False, "aprendido_em": agora_brasil_iso(),
     }
     salvar_aprendizado(resultado)
     print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
     print(f"[EDNNA] Linha do tempo operacional | historicos={anteriores} | solicitacoes={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='SOLICITACAO_EXTERNA')} | retornos={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='RETORNO_PLAYER')} | acoes_internas={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='ACAO_INTERNA')}", flush=True)
-    print(f"[EDNNA] Extrator operacional | destinatarios_confirmados={len(recorrentes)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
+    print(f"[EDNNA] Thread operacional | chamado={atual_id} | estados={thread_atual.get('estados', [])} | protocolos={thread_atual.get('protocolos', [])} | prazo_horas={thread_atual.get('prazos_horas', [])} | destinatarios={confirmados_thread} | ciclo_completo={bool(thread_atual.get('ciclo_completo'))}", flush=True)
+    print(f"[EDNNA] Extrator operacional | destinatarios_recorrentes={len(recorrentes)} | destinatarios_ancora={len(confirmados_thread)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
     print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
     print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
     return resultado
@@ -241,7 +318,7 @@ def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = Non
                 continue
             aprendizado = {"chamado_id": f.get("atual"), "blueprint_id": f.get("bp")}
             regra = {"regra_sugerida": antigo.get("regra_id"), "player": antigo.get("player"),
-                     "aberturas_relacionamento": f.get("ar") or [], "inclusoes_anteriores": f.get("historicos") or []}
+                     "aberturas_relacionamento": f.get("ar") or [], "inclusoes_anteriores": f.get("historicos") or [], "fontes_complementares": f.get("complementares") or []}
             novo = aprender_procedimento_inclusao(aprendizado, regra, force=False)
             reprocessadas.append({"regra": novo.get("regra_id"), "estado": novo.get("estado")})
         except Exception as exc:
