@@ -54,6 +54,10 @@ from ednna.planejador_inclusoes import (
     preparar_aprendizado_inclusao,
     descobrir_candidatos_inclusao,
 )
+from ednna.aprendizado_operacional import (
+    aprender_procedimento_inclusao,
+    obter_aprendizado,
+)
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
 )
@@ -1731,12 +1735,49 @@ def render_ednna_workspace(
                                             if fid:
                                                 st.markdown(f"- [#{fid}]({redmine_web_url}/issues/{fid}) · {evento}")
 
+                                regra_id = str(regra_desc.get("regra_sugerida") or "")
+                                aprendido = obter_aprendizado(regra_id) if regra_id else None
+                                ac1, ac2 = st.columns([1, 3])
+                                with ac1:
+                                    aprender_agora = st.button("🧠 Aprender procedimento", key=f"ednna_aprender_{cid_desc}_{player}", width="stretch")
+                                with ac2:
+                                    st.caption("Compara AR, inclusões anteriores e chamado atual. Apenas aprende; não envia e-mail nem altera o Redmine.")
+                                if aprender_agora:
+                                    try:
+                                        with st.spinner(f"EDNNA comparando o procedimento de {player}..."):
+                                            aprendido = aprender_procedimento_inclusao(aprendizado_desc, regra_desc, force=False)
+                                        st.session_state[f"ednna_proc_{regra_id}"] = aprendido
+                                    except Exception as exc_proc:
+                                        st.error(f"Não foi possível aprender o procedimento: {exc_proc}")
+                                aprendido = st.session_state.get(f"ednna_proc_{regra_id}", aprendido)
+                                if aprendido:
+                                    st.markdown(f"#### Procedimento aprendido — {player}")
+                                    p1, p2, p3 = st.columns(3)
+                                    p1.metric("Estado", str(aprendido.get("estado") or "—").replace("_", " "))
+                                    p2.metric("Completude", f"{int(aprendido.get('completude') or 0)}%")
+                                    p3.metric("Canal", aprendido.get("canal") or "—")
+                                    recorrentes = aprendido.get("destinatarios_recorrentes", []) or []
+                                    st.markdown("**Destinatários recorrentes:** " + (" · ".join(recorrentes) if recorrentes else "a confirmar"))
+                                    st.markdown("**Dados variáveis da solicitação:** " + " · ".join(aprendido.get("variaveis", []) or ["a confirmar"]))
+                                    with st.expander("Ver padrão operacional extraído", expanded=False):
+                                        constantes = aprendido.get("constantes", []) or []
+                                        if constantes:
+                                            for item in constantes: st.markdown(f"- {item}")
+                                        else:
+                                            st.info("Ainda não houve recorrência suficiente para extrair constantes com segurança.")
+                                        if aprendido.get("erros"):
+                                            st.warning("Parte das fontes ficou pendente por indisponibilidade do Redmine; o aprendizado pode ser repetido depois.")
+                                    if aprendido.get("pode_homologar"):
+                                        st.success("Procedimento pronto para revisão humana. A homologação será habilitada na próxima etapa, sem execução automática nesta versão.")
+                                    else:
+                                        st.info("Procedimento ainda em aprendizado. Revise as evidências ou repita quando o Redmine estiver integralmente disponível.")
+
                                 with st.expander("Ver diagnóstico técnico da regra candidata", expanded=False):
                                     st.write(f"Regra sugerida: {regra_desc.get('regra_sugerida')}")
                                     st.write(f"Estado: {regra_desc.get('status_regra')}")
                                     st.write(regra_desc.get("motivo_bloqueio") or "Regra ainda não homologada.")
 
-                                st.caption("Somente investigação. Nenhuma ação é executada sem homologação explícita.")
+                                st.caption("Somente investigação e aprendizado. Nenhuma ação é executada sem homologação explícita.")
                         else:
                             st.warning("A EDNNA ainda não conseguiu formar uma regra candidata para esta inclusão.")
 
