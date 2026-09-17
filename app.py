@@ -4,7 +4,7 @@ from version import APP_VERSION, APP_RELEASE
 from ui.operational_data import resumo, chamados_df
 
 st.set_page_config(page_title='EDNNA — Inteligência Operacional EDI',page_icon='🤖',layout='wide',initial_sidebar_state='collapsed')
-st.markdown('''<style>[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}.stApp{background:linear-gradient(135deg,#f3f7ff,#f8fafc 48%,#eef4ff);color:#172b4d}.block-container{max-width:1280px;padding:1.25rem 2rem 2rem}.top{display:flex;justify-content:space-between;align-items:center}.brand{font-size:1.15rem;font-weight:900;letter-spacing:.08em;color:#1877f2}.online{background:#e8f7ee;color:#16803d;border-radius:999px;padding:7px 12px;font-weight:800}.hero{background:#fff;border:1px solid #dce6f4;border-radius:26px;padding:26px 32px;box-shadow:0 12px 34px rgba(24,119,242,.08);min-height:260px;display:flex;align-items:center}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.14em;color:#1877f2;text-transform:uppercase}.title{font-size:2.15rem;font-weight:900;line-height:1.08;margin:8px 0 12px}.copy{font-size:1rem;color:#5b6f88;line-height:1.5}.avatar{animation:float 3.2s ease-in-out infinite;filter:drop-shadow(0 14px 18px rgba(24,119,242,.18))}@keyframes float{50%{transform:translateY(-8px)}}.kpi{background:#fff;border:1px solid #e0e7f0;border-radius:17px;padding:14px 16px;min-height:86px}.klabel{font-size:.72rem;font-weight:850;color:#718096;text-transform:uppercase}.knum{font-size:1.7rem;font-weight:900}.knote{font-size:.74rem;color:#8796aa}.section{font-size:1.05rem;font-weight:900;margin:22px 0 8px}.sub{font-size:.84rem;color:#7b8ca5;margin-top:-5px;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:50px!important;font-weight:800!important;border:1px solid #d5dfed!important;background:#fff!important}div.stButton>button:hover{border-color:#1877f2!important;color:#1877f2!important}.person{background:#fff;border:1px solid #e0e7f0;border-radius:15px;padding:12px 14px}.pname{font-weight:850}.pnum{font-size:1.25rem;font-weight:900;color:#1877f2}.foot{text-align:center;color:#91a0b4;font-size:.72rem;margin-top:22px}</style>''',unsafe_allow_html=True)
+st.markdown('''<style>[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}.stApp{background:linear-gradient(135deg,#f3f7ff,#f8fafc 48%,#eef4ff);color:#172b4d}.block-container{max-width:1280px;padding:1.25rem 2rem 2rem}.top{display:flex;justify-content:space-between;align-items:center}.brand{font-size:1.15rem;font-weight:900;letter-spacing:.08em;color:#1877f2}.online{background:#e8f7ee;color:#16803d;border-radius:999px;padding:7px 12px;font-weight:800}.hero{background:#fff;border:1px solid #dce6f4;border-radius:26px;padding:26px 32px;box-shadow:0 12px 34px rgba(24,119,242,.08);min-height:260px;display:flex;align-items:center}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.14em;color:#1877f2;text-transform:uppercase}.title{font-size:2.15rem;font-weight:900;line-height:1.08;margin:8px 0 12px}.copy{font-size:1rem;color:#5b6f88;line-height:1.5}.avatar{animation:float 3.2s ease-in-out infinite;filter:drop-shadow(0 14px 18px rgba(24,119,242,.18))}@keyframes float{50%{transform:translateY(-8px)}}.kpi{background:#fff;border:1px solid #e0e7f0;border-radius:17px;padding:14px 16px;min-height:86px}.klabel{font-size:.72rem;font-weight:850;color:#718096;text-transform:uppercase}.knum{font-size:1.7rem;font-weight:900}.knote{font-size:.74rem;color:#8796aa}.section{font-size:1.05rem;font-weight:900;margin:22px 0 8px}.sub{font-size:.84rem;color:#7b8ca5;margin-top:-5px;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:50px!important;font-weight:800!important;border:1px solid #d5dfed!important;background:#fff!important}div.stButton>button:hover{border-color:#1877f2!important;color:#1877f2!important}.person{background:#fff;border:1px solid #e0e7f0;border-radius:15px;padding:12px 14px}.pname{font-weight:850}.pnum{font-size:1.25rem;font-weight:900;color:#1877f2}.insight-wrap{background:#fff;border:1px solid #e0e7f0;border-radius:16px;padding:10px 14px;margin:6px 0 14px}.insight-row{display:flex;gap:8px;align-items:flex-start;padding:7px 2px;border-bottom:1px solid #edf2f7;font-size:.86rem;line-height:1.35;color:#40556f}.insight-row:last-child{border-bottom:none}.insight-icon{font-size:.9rem;line-height:1.3}.insight-row b{color:#075eb8}.foot{text-align:center;color:#91a0b4;font-size:.72rem;margin-top:22px}</style>''',unsafe_allow_html=True)
 
 r=resumo(); df=chamados_df(); cobertura=round(r['homologadas']/r['regras']*100) if r['regras'] else 0
 if r['revisao']==1: title='Tenho 1 decisão para você.'
@@ -40,8 +40,13 @@ if not df.empty and 'responsavel' in df.columns:
 if r['revisao']:
     ins.append(f'**{r["revisao"]} procedimento' + (' está' if r['revisao']==1 else 's estão') + ' pronto' + ('' if r['revisao']==1 else 's') + ' para decisão.** Sua homologação é o ponto de maior impacto agora.')
 if ins:
-    st.markdown('<div class="section">💡 Leitura da EDNNA</div><div class="sub">Apontamentos derivados da fotografia atual da operação.</div>',unsafe_allow_html=True)
-    for x in ins[:3]: st.info(x)
+    st.markdown('<div class="section">💡 Leitura da EDNNA</div><div class="sub">O que merece atenção agora.</div>',unsafe_allow_html=True)
+    import re
+    rows=[]
+    for x in ins[:3]:
+        html=re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', x)
+        rows.append(f'<div class="insight-row"><span class="insight-icon">•</span><span>{html}</span></div>')
+    st.markdown('<div class="insight-wrap">'+''.join(rows)+'</div>',unsafe_allow_html=True)
 
 st.markdown('<div class="section">Quem está com o quê?</div><div class="sub">Distribuição atual dos chamados por responsável. A EDNNA aparece separadamente como camada de inteligência.</div>',unsafe_allow_html=True)
 if not df.empty and 'responsavel' in df:
@@ -55,14 +60,14 @@ else: st.caption('A distribuição da equipe aparecerá assim que o snapshot loc
 st.markdown('<div class="section">O que você quer fazer?</div><div class="sub">Cada botão abre somente o módulo escolhido. O painel completo fica isolado em Painel EDI.</div>',unsafe_allow_html=True)
 a,b,c=st.columns(3)
 with a:
-    if st.button('📊  Painel EDI',use_container_width=True): st.session_state['shell_main_navigation']='Visão Geral'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('📊  Painel EDI',width="stretch"): st.session_state['shell_main_navigation']='Visão Geral'; st.switch_page('pages/Painel_EDI.py')
 with b:
-    if st.button('🧠  Aprendizado e homologação',use_container_width=True): st.switch_page('pages/Aprendizado.py')
+    if st.button('🧠  Aprendizado e homologação',width="stretch"): st.switch_page('pages/Aprendizado.py')
 with c:
-    if st.button('📥  Atendimentos da EDNNA',use_container_width=True): st.switch_page('pages/Atendimentos.py')
+    if st.button('📥  Atendimentos da EDNNA',width="stretch"): st.switch_page('pages/Atendimentos.py')
 d,e=st.columns(2)
 with d:
-    if st.button('⚡  Automações',use_container_width=True): st.switch_page('pages/Automacoes.py')
+    if st.button('⚡  Automações',width="stretch"): st.switch_page('pages/Automacoes.py')
 with e:
-    if st.button('👥  Equipe e capacidade',use_container_width=True): st.switch_page('pages/Equipe.py')
+    if st.button('👥  Equipe e capacidade',width="stretch"): st.switch_page('pages/Equipe.py')
 st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · cockpit operacional</div>',unsafe_allow_html=True)

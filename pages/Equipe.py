@@ -8,10 +8,10 @@ else:
     s=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts().reset_index(); s.columns=['Responsável','Chamados']
     st.markdown(f'<div class="op-card"><div class="op-k">Chamados distribuídos</div><div class="op-n">{len(df)}</div><div class="op-note">visão por responsável atual</div></div>',unsafe_allow_html=True)
     st.subheader('Quem está com o quê?')
-    st.dataframe(s,use_container_width=True,hide_index=True)
+    st.dataframe(s,width="stretch",hide_index=True)
     nome=st.selectbox('Ver chamados de',s['Responsável'].tolist())
     base=df[df.responsavel.fillna('Sem responsável').replace('','Sem responsável').eq(nome)]
     base=com_links_redmine(base)
     cols=[x for x in ['Chamado','cliente','tipo','estado','prioridade','assunto','tempo_aberto_dias'] if x in base.columns]
-    st.dataframe(base[cols],use_container_width=True,hide_index=True,column_config={'Chamado':st.column_config.LinkColumn('Chamado',display_text=r'/issues/(\d+)$')})
+    st.dataframe(base[cols],width="stretch",hide_index=True,column_config={'Chamado':st.column_config.LinkColumn('Chamado',display_text=r'/issues/(\d+)$')})
 footer()

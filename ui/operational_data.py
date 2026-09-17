@@ -2,6 +2,7 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 import pandas as pd
+from painel_cache import obter_metadado_json
 
 ROOT=Path(__file__).resolve().parent.parent
 
@@ -9,11 +10,49 @@ def _db(name):
     prod=Path('/home/data')/name
     return prod if prod.exists() else ROOT/'data'/name
 
+def _mapa_clientes_persistido():
+    """Resolve IDs de Cliente sem depender do Redmine online."""
+    campos = obter_metadado_json('redmine_catalogos_custom_fields', []) or []
+    if not isinstance(campos, list):
+        return {}
+    for campo in campos:
+        try:
+            if int(campo.get('id', -1)) != 1:
+                continue
+        except Exception:
+            continue
+        mapa = {}
+        for item in campo.get('possible_values', []) or []:
+            valor = str(item.get('value') or '').strip()
+            label = str(item.get('label') or '').strip()
+            if valor:
+                mapa[valor] = label or valor
+        return mapa
+    return {}
+
+def _resolver_cliente(valor, mapa):
+    if valor is None:
+        return valor
+    texto = str(valor).strip()
+    if not texto or not mapa:
+        return texto
+    partes = [p.strip() for p in texto.split('/') if p.strip()]
+    if not partes:
+        return texto
+    return ' / '.join(mapa.get(p, p) for p in partes)
+
 def chamados_df():
     p=_db('ednna.db')
     if not p.exists(): return pd.DataFrame()
     try:
-        con=sqlite3.connect(str(p)); df=pd.read_sql_query('select * from chamados',con); con.close(); return df
+        con=sqlite3.connect(str(p)); df=pd.read_sql_query('select * from chamados',con); con.close()
+        # Compatibilidade com snapshots antigos: IDs numéricos já gravados no
+        # ednna.db são traduzidos pelo catálogo persistido do painel.db.
+        if not df.empty and 'cliente' in df.columns:
+            mapa = _mapa_clientes_persistido()
+            if mapa:
+                df['cliente'] = df['cliente'].apply(lambda v: _resolver_cliente(v, mapa))
+        return df
     except Exception:return pd.DataFrame()
 
 def regras_df():

@@ -2317,7 +2317,7 @@ def render_ednna_workspace(
                             "Situação": rotulo_etapa(e.get("estado")),
                             "Procedimento": e.get("regra_id") or "—",
                         } for e in orq.get("etapas", [])])
-                        st.dataframe(df_orq, use_container_width=True, hide_index=True)
+                        st.dataframe(df_orq, width="stretch", hide_index=True)
 
                     for item_plano in plano.get("itens", []):
                         status_plano = item_plano.get("status_plano")

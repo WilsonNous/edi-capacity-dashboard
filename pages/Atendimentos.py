@@ -12,5 +12,5 @@ else:
     st.subheader('Chamados acompanhados')
     df=com_links_redmine(df)
     cols=[x for x in ['Chamado','cliente','responsavel','tipo','estado','prioridade','assunto','tempo_aberto_dias'] if x in df.columns]
-    st.dataframe(df[cols].sort_values('tempo_aberto_dias',ascending=False) if 'tempo_aberto_dias' in cols else df[cols],use_container_width=True,hide_index=True,column_config={'Chamado':st.column_config.LinkColumn('Chamado',display_text=r'/issues/(\d+)$')})
+    st.dataframe(df[cols].sort_values('tempo_aberto_dias',ascending=False) if 'tempo_aberto_dias' in cols else df[cols],width="stretch",hide_index=True,column_config={'Chamado':st.column_config.LinkColumn('Chamado',display_text=r'/issues/(\d+)$')})
 footer()

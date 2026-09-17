@@ -4,7 +4,7 @@ from ui.operational_data import regras_df
 setup('🧠 Aprendizado e homologação')
 tech,_=st.columns([1.2,5])
 with tech:
-    if st.button('⚙️ Modo técnico',use_container_width=True):
+    if st.button('⚙️ Modo técnico',width="stretch"):
         st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
 r=regras_df()
 if r.empty: st.info('A EDNNA ainda não possui regras de aprendizado disponíveis neste ambiente.')
@@ -20,7 +20,7 @@ else:
         cols=st.columns([4,1]);
         with cols[0]: st.markdown(f'<div class="rule"><b>{x.get("player") or x.get("regra_id")}</b><br><span class="pill">Pronta para revisão</span> · {int(x.get("completude") or 0)}% de completude<br><small>{x.get("regra_id")}</small></div>',unsafe_allow_html=True)
         with cols[1]:
-            if st.button('Revisar',key='rev_'+str(x.get('regra_id')),use_container_width=True):
+            if st.button('Revisar',key='rev_'+str(x.get('regra_id')),width="stretch"):
                 st.session_state['ednna_regra_foco']=x.get('regra_id'); st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
     with st.expander(f'Em aprendizado ({len(estudo)})'):
         for _,x in estudo.sort_values('completude',ascending=False).iterrows(): st.write(f"**{x.get('player') or x.get('regra_id')}** — {int(x.get('completude') or 0)}% · {str(x.get('estado') or '').replace('_',' ').title()}")

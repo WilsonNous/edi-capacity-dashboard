@@ -794,3 +794,13 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Leitura da EDNNA com apontamentos derivados dos indicadores reais.
 - Avatar comunica estado operacional por contexto: decisão, análise ou operação acompanhada.
 - Semântica de carteira observada revisada para não sugerir automação integral.
+
+## 3.28.30 — Clientes Persistentes e UX Compacta
+- Resolve IDs numéricos de Cliente na camada operacional usando o catálogo persistido do Redmine no painel.db.
+- Mantém suporte a clientes multivalorados (ex.: `243 / 347`).
+- Corrige snapshots antigos sem exigir nova consulta ao Redmine.
+- O sincronizador agora persiste enriquecimentos de Cliente/Origem mesmo quando o `updated_on` do chamado não mudou.
+- A resolução permanece local-first e resiliente ao circuit breaker do Redmine.
+
+- Compatibilidade Streamlit 2026: substitui `use_container_width` por `width="stretch"`/`width="content"`.
+- Leitura da EDNNA compactada em um único card com apontamentos curtos, reduzindo altura e ruído visual da Home.

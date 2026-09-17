@@ -6,6 +6,7 @@ import pandas as pd
 
 from ednna.armazenamento import (
     obter_alterado_em,
+    obter_chamado,
     salvar_chamado,
     salvar_metadado,
     agora_brasil_iso,
@@ -181,8 +182,24 @@ def sincronizar_dataframe(
                 continue
 
             # ------------------------------------------------
-            # SEM ALTERAÇÃO
+            # SEM ALTERAÇÃO NO REDMINE
             # ------------------------------------------------
+            # O catálogo Clientes/Origem pode ter sido enriquecido depois da
+            # primeira gravação. Nesse caso o updated_on do chamado não muda,
+            # mas precisamos substituir o ID numérico pelo nome resolvido.
+            atual_cache = obter_chamado(chamado_id) or {}
+            cliente_novo = _texto(dados.get("Clientes"))
+            cliente_cache = _texto(atual_cache.get("cliente"))
+            origem_nova = _texto(dados.get("Origem"))
+            origem_cache = _texto(atual_cache.get("origem"))
+            enriquecimento_mudou = (
+                (cliente_novo and cliente_novo != cliente_cache)
+                or (origem_nova and origem_nova != origem_cache)
+            )
+            if enriquecimento_mudou:
+                salvar_chamado(chamado_id, dados)
+                resultado["alterados"] += 1
+                continue
 
             resultado[
                 "sem_alteracao"
