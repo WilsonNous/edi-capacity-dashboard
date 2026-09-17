@@ -1,3 +1,11 @@
+
+## 3.28.25 — Aprendizado sincronizado com enriquecimento
+- Fontes locais vencidas passam a gerar estado transitório `AGUARDANDO_ENRIQUECIMENTO`.
+- O worker reprocessa automaticamente regras aguardando enriquecimento após atualizar o contexto.
+- Lote de enriquecimento ampliado de 3 para 12 chamados por ciclo para acelerar a convergência.
+- O teste em lote apresenta regras aguardando enriquecimento dentro de “Em aprendizado”.
+- Nenhuma regra é homologada ou executada enquanto houver fontes parciais.
+
 ## 3.28.23 — Fila Acionável de Revisão e Homologação
 
 - A fila persistente de regras deixa de ser apenas informativa e passa a oferecer revisão operacional diretamente no ponto de trabalho.

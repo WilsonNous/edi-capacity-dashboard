@@ -313,8 +313,14 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
     elif not recorrentes: bloqueios.append("DESTINATARIO_CONFIRMADO_APENAS_NO_CASO_ANCORA")
     if not sinais["evidencia_conclusao"]: bloqueios.append("EVIDENCIA_CONCLUSAO_NAO_CONFIRMADA")
 
-    pronto = completude >= 70 and len(anteriores) >= 2 and bool(constantes) and bool(recorrentes) and not fontes_parciais and not erros
-    estado = "PRONTA_PARA_REVISAO" if pronto else "APRENDIZADO_INCOMPLETO"
+    # v3.28.25 — fonte parcial é condição transitória, não conclusão do aprendizado.
+    # A regra fica aguardando o worker completar o corpus e é reavaliada automaticamente.
+    aguardando_enriquecimento = bool(fontes_parciais or erros)
+    pronto = completude >= 70 and len(anteriores) >= 2 and bool(constantes) and bool(recorrentes) and not aguardando_enriquecimento
+    if aguardando_enriquecimento:
+        estado = "AGUARDANDO_ENRIQUECIMENTO"
+    else:
+        estado = "PRONTA_PARA_REVISAO" if pronto else "APRENDIZADO_INCOMPLETO"
     resultado = {
         "regra_id": regra_id, "player": player, "operacao": "INCLUSAO", "estado": estado,
         "completude": min(completude, 100), "canal": "EMAIL" if todos_emails else "NAO_IDENTIFICADO",
@@ -366,7 +372,7 @@ def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = Non
     """Reavalia regras incompletas após o worker enriquecer suas fontes."""
     atualizados = {int(x) for x in (ids_atualizados or [])}
     with conectar() as conn:
-        rows = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE estado='APRENDIZADO_INCOMPLETO'").fetchall()
+        rows = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE estado IN ('APRENDIZADO_INCOMPLETO','AGUARDANDO_ENRIQUECIMENTO')").fetchall()
     reprocessadas, erros = [], []
     for row in rows:
         try:

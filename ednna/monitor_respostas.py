@@ -644,7 +644,7 @@ def executar_monitoramento_respostas() -> dict:
     # Mantém a experiência interativa rápida e desloca retries mais tolerantes
     # para o ciclo já existente do monitor.
     try:
-        enriquecimento = processar_enriquecimentos_pendentes(limite=3)
+        enriquecimento = processar_enriquecimentos_pendentes(limite=12)
         if enriquecimento.get("consultados"):
             resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
         if enriquecimento.get("atualizados"):
