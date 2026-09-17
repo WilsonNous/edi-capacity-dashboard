@@ -52,6 +52,15 @@ def chamados_df():
             mapa = _mapa_clientes_persistido()
             if mapa:
                 df['cliente'] = df['cliente'].apply(lambda v: _resolver_cliente(v, mapa))
+
+        # A camada operacional representa a carteira ATIVA. Chamados encerrados
+        # continuam preservados no ednna.db para histórico/aprendizado, porém não
+        # podem inflar Home, Equipe, Atendimentos ou indicadores de carga.
+        if not df.empty and 'estado' in df.columns:
+            encerrado = df['estado'].fillna('').astype(str).str.strip().str.lower().str.contains(
+                r'conclu|fechad|encerrad|resolvid|cancelad', regex=True
+            )
+            df = df.loc[~encerrado].copy()
         return df
     except Exception:return pd.DataFrame()
 

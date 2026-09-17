@@ -90,6 +90,7 @@ def normalizar_marca_alteracao(
 
 def sincronizar_dataframe(
     frame: pd.DataFrame,
+    reconciliar_ausentes: bool = True,
 ) -> dict:
     """
     Salva no SQLite o snapshot que já foi carregado
@@ -111,6 +112,10 @@ def sincronizar_dataframe(
         "sem_alteracao": 0,
         "ignorados": 0,
         "erros": 0,
+        "ausentes_detectados": 0,
+        "ausentes_verificados": 0,
+        "encerrados_reconciliados": 0,
+        "ausentes_indisponiveis": 0,
     }
 
     if frame is None:
@@ -213,6 +218,73 @@ def sincronizar_dataframe(
                 f"[EDNNA] Erro sincronizando chamado "
                 f"#{chamado_id}: {exc}"
             )
+
+    # ------------------------------------------------------------
+    # RECONCILIAÇÃO DE AUSENTES
+    # ------------------------------------------------------------
+    # A listagem principal do painel usa status_id=open. Quando um chamado é
+    # concluído ele deixa de vir nessa lista; sem esta etapa o SQLite manteria
+    # eternamente a última fotografia "Aberto". Ausência nunca é tratada como
+    # conclusão automaticamente: confirmamos o chamado individualmente no Redmine.
+    if reconciliar_ausentes:
+        try:
+            ids_atuais = {
+                _inteiro_seguro(v) for v in frame["#"].tolist()
+            }
+            ids_atuais.discard(None)
+
+            from ednna.armazenamento import listar_chamados
+            armazenados = listar_chamados() or []
+            candidatos = []
+            for item in armazenados:
+                cid = _inteiro_seguro(item.get("id"))
+                estado = _texto(item.get("estado")).lower()
+                ja_encerrado = any(x in estado for x in (
+                    "conclu", "fechad", "encerrad", "resolvid", "cancelad"
+                ))
+                if cid and cid not in ids_atuais and not ja_encerrado:
+                    candidatos.append(cid)
+
+            resultado["ausentes_detectados"] = len(candidatos)
+
+            # Lote conservador para não pressionar o Redmine. Em ciclos seguintes
+            # os resíduos históricos restantes são saneados automaticamente.
+            limite = 25
+            for cid in candidatos[:limite]:
+                try:
+                    from redmine_api import buscar_detalhes_chamado, issue_para_linha
+                    issue = buscar_detalhes_chamado(
+                        cid, consulta_pontual=True, timeout=(4, 12), tentativas=1
+                    )
+                    if not issue:
+                        resultado["ausentes_indisponiveis"] += 1
+                        continue
+                    linha = issue_para_linha(issue)
+                    salvar_chamado(cid, linha)
+                    resultado["ausentes_verificados"] += 1
+                    estado_novo = _texto(linha.get("Estado")).lower()
+                    if any(x in estado_novo for x in (
+                        "conclu", "fechad", "encerrad", "resolvid", "cancelad"
+                    )):
+                        resultado["encerrados_reconciliados"] += 1
+                except Exception as exc:
+                    resultado["ausentes_indisponiveis"] += 1
+                    print(
+                        f"[EDNNA] Reconciliação status | indisponível | chamado={cid} | {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+
+            if candidatos:
+                print(
+                    "[EDNNA] Reconciliação status | "
+                    f"ausentes={len(candidatos)} | "
+                    f"verificados={resultado['ausentes_verificados']} | "
+                    f"encerrados={resultado['encerrados_reconciliados']} | "
+                    f"indisponiveis={resultado['ausentes_indisponiveis']}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[EDNNA] Reconciliação status | erro geral: {exc}", flush=True)
 
     salvar_metadado(
         "ultima_sincronizacao_snapshot",

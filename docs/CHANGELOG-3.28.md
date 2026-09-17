@@ -1,3 +1,12 @@
+# 3.28.31 — Reconciliação de Status Redmine
+
+- Corrige chamados concluídos no Redmine que permaneciam como abertos no `ednna.db`.
+- Detecta IDs que desapareceram da listagem `status_id=open` e confirma o estado individualmente antes de atualizar o SQLite.
+- Reconciliação conservadora em lotes de até 25 chamados por ciclo, sem assumir que ausência significa conclusão.
+- Chamados encerrados permanecem no SQLite para histórico/aprendizado, mas deixam de compor Home, Equipe e indicadores da carteira ativa.
+- Logs passam a informar ausentes detectados e encerrados reconciliados.
+- Remove saudação nominal fixa: sem autenticação, a EDNNA não presume quem está usando o cockpit.
+
 
 ## 3.28.25 — Aprendizado sincronizado com enriquecimento
 - Fontes locais vencidas passam a gerar estado transitório `AGUARDANDO_ENRIQUECIMENTO`.

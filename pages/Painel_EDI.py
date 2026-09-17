@@ -2134,7 +2134,9 @@ try:
             f"alterados={diagnostico_ednna_sync.get('alterados', 0)} | "
             f"sem_alteracao={diagnostico_ednna_sync.get('sem_alteracao', 0)} | "
             f"ignorados={diagnostico_ednna_sync.get('ignorados', 0)} | "
-            f"erros={diagnostico_ednna_sync.get('erros', 0)}"
+            f"erros={diagnostico_ednna_sync.get('erros', 0)} | "
+            f"ausentes={diagnostico_ednna_sync.get('ausentes_detectados', 0)} | "
+            f"encerrados_reconciliados={diagnostico_ednna_sync.get('encerrados_reconciliados', 0)}"
         )
 
 

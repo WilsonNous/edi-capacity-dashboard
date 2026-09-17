@@ -48,7 +48,7 @@ with avcol:
         st.image(str(AVATAR), width='stretch')
         st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
 with copycol:
-    st.markdown(f'''<div class="hero-copy"><div class="greet">Bom dia, Will!</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas.</div></div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas.</div></div>''', unsafe_allow_html=True)
     ins=[]
     if r['total']:
         pct=round(r['terceiros']/r['total']*100)
