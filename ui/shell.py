@@ -7,7 +7,7 @@ import streamlit as st
 
 MAIN_TAB_LABELS = {
     "Visão Geral": "Visão geral",
-    "EDNNA": "🤖 EDNNA",
+    "Motor EDNNA": "⚙️ Motor EDNNA",
     "Equipe": "Equipe",
     "Tempo em aberto": "Tempo em aberto",
     "Tipos de demanda": "Tipos de demanda",
@@ -55,7 +55,7 @@ def render_sidebar() -> str:
             "Navegação principal",
             [
                 "Visão Geral",
-                "EDNNA",
+                "Motor EDNNA",
                 "Equipe",
                 "Tempo em aberto",
                 "Tipos de demanda",

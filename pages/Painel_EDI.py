@@ -320,6 +320,19 @@ st.markdown(
         border-color: var(--fb-border);
       }
 
+      .backend-section-head {
+        display:flex; align-items:baseline; gap:12px; margin:4px 0 2px;
+        padding:12px 14px; background:#fff; border:1px solid var(--fb-border); border-radius:10px;
+      }
+      .backend-section-head b {font-size:1.05rem;color:#1C1E21;}
+      .backend-section-head span {font-size:.78rem;color:#65676B;}
+      .backend-context {
+        display:flex; flex-direction:column; gap:3px; margin:8px 0 10px; padding:12px 14px;
+        background:#F8FAFC; border-left:4px solid #1877F2; border-radius:8px;
+      }
+      .backend-context b {font-size:.92rem;color:#1C1E21;}
+      .backend-context span {font-size:.79rem;color:#65676B;line-height:1.35;}
+
       @media (max-width: 900px) {
         .fb-topbar {
           align-items: flex-start;
@@ -1240,13 +1253,13 @@ st.markdown(
   <div class="fb-brand">
     <div class="fb-logo">EDI</div>
     <div>
-      <div class="fb-title">Painel de Capacidade e Atendimento</div>
-      <div class="fb-subtitle">Acompanhamento operacional dos chamados do Redmine</div>
+      <div class="fb-title">Painel EDI · Backend Operacional</div>
+      <div class="fb-subtitle">Dados, capacidade, motor e diagnóstico técnico da operação</div>
     </div>
   </div>
   <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
     <div class="fb-badge">● Dados operacionais</div>
-    <div class="fb-badge">🤖 EDNNA ativa</div>
+    <div class="fb-badge">⚙️ Backend</div>
   </div>
 </div>
     """,
@@ -2405,12 +2418,11 @@ f = f[
 with main_col:
 
     st.title(
-        "Visão operacional"
+        "Painel operacional EDI"
     )
 
     st.caption(
-        "Chamados em aberto, distribuição da carga, "
-        "tempo em aberto e dependências externas"
+        "Carteira ativa do Redmine, capacidade da equipe e controles técnicos da EDNNA."
     )
 
 
@@ -2557,7 +2569,7 @@ with main_col:
     ) = tabs_com_default(
         [
             "Visão geral",
-            "🤖 EDNNA",
+            "⚙️ Motor EDNNA",
             "Equipe",
             "Tempo em aberto",
             "Tipos de demanda",
@@ -3067,71 +3079,14 @@ with main_col:
 
     with tab_ednna:
 
-        ed_home, ed_tech = st.tabs(["✨ Início", "⚙️ Área técnica"])
-
-        with ed_home:
-            st.markdown("""
-            <style>
-            .ednna-hero{background:linear-gradient(120deg,#f7faff 0%,#eef5ff 55%,#fff 100%);border:1px solid #dfe8f5;border-radius:22px;padding:22px 26px;margin:4px 0 16px;box-shadow:0 8px 28px rgba(24,119,242,.08)}
-            .ednna-eyebrow{font-size:.72rem;font-weight:800;letter-spacing:.12em;color:#1877f2;text-transform:uppercase;margin-bottom:5px}.ednna-title{font-size:1.75rem;font-weight:850;color:#172b4d;line-height:1.12}.ednna-copy{font-size:1rem;color:#52657d;margin-top:8px;line-height:1.5}.ednna-highlight{color:#1877f2;font-weight:800}.ednna-avatar-wrap{animation:ednnaFloat 3.2s ease-in-out infinite;filter:drop-shadow(0 10px 16px rgba(24,119,242,.16))}@keyframes ednnaFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
-            .ednna-card-title{font-size:.83rem;font-weight:800;color:#344054}.ednna-card-number{font-size:1.55rem;font-weight:850;color:#172b4d;line-height:1.1}.ednna-card-note{font-size:.75rem;color:#7b8ca5;margin-top:3px}
-            </style>
-            """, unsafe_allow_html=True)
-
-            try:
-                regras_home = listar_regras_operacionais()
-            except Exception:
-                regras_home = []
-            homologadas_home = [r for r in regras_home if r.get("estado_operacional") == "HOMOLOGADA"]
-            revisao_home = [r for r in regras_home if r.get("estado_operacional") == "PRONTA_PARA_REVISAO"]
-            enriquecendo_home = [r for r in regras_home if r.get("estado_operacional") == "AGUARDANDO_ENRIQUECIMENTO"]
-            aprendendo_home = [r for r in regras_home if r.get("estado_operacional") not in {"HOMOLOGADA", "PRONTA_PARA_REVISAO"}]
-            total_home = len(filtrar_estado_aberto_dataframe(df))
-            cobertura_home = round((len(homologadas_home) / len(regras_home) * 100), 0) if regras_home else 0
-
-            if revisao_home:
-                frase_home = f"Tenho {len(revisao_home)} regra(s) pronta(s) para revisar com você."
-                apoio_home = "O restante continua sendo acompanhado enquanto você decide só o que importa."
-            elif enriquecendo_home:
-                frase_home = f"Estou enriquecendo {len(enriquecendo_home)} procedimento(s) agora."
-                apoio_home = "Pode seguir com seu trabalho — eu continuo organizando o conhecimento em segundo plano."
-            else:
-                frase_home = f"Estou acompanhando {total_home} chamados para você."
-                apoio_home = "A operação está organizada e eu aviso quando alguma decisão humana for necessária."
-
-            hero_img, hero_txt = st.columns([1.05, 4.2], vertical_alignment="center")
-            with hero_img:
-                avatar = Path("assets/ednna_avatar.png")
-                if avatar.exists():
-                    st.markdown('<div class="ednna-avatar-wrap">', unsafe_allow_html=True)
-                    st.image(str(avatar), width=150)
-                    st.markdown('</div>', unsafe_allow_html=True)
-            with hero_txt:
-                st.markdown(f'<div class="ednna-hero"><div class="ednna-eyebrow">EDNNA · Inteligência Operacional EDI</div><div class="ednna-title">{frase_home}</div><div class="ednna-copy">{apoio_home}<br><span class="ednna-highlight">{int(cobertura_home)}% das regras conhecidas já estão homologadas.</span></div></div>', unsafe_allow_html=True)
-
-            h1,h2,h3,h4 = st.columns(4)
-            with h1:
-                st.markdown(f'<div class="ednna-card-title">📥 ATENDIMENTOS</div><div class="ednna-card-number">{total_home}</div><div class="ednna-card-note">chamados acompanhados</div>', unsafe_allow_html=True)
-                st.button("Ver atendimentos", width="stretch", key="home_atendimentos")
-            with h2:
-                st.markdown(f'<div class="ednna-card-title">🧠 APRENDIZADO</div><div class="ednna-card-number">{len(aprendendo_home)}</div><div class="ednna-card-note">procedimentos em estudo</div>', unsafe_allow_html=True)
-                st.button("Ver aprendizado", width="stretch", key="home_aprendizado")
-            with h3:
-                st.markdown(f'<div class="ednna-card-title">✅ PARA VOCÊ</div><div class="ednna-card-number">{len(revisao_home)}</div><div class="ednna-card-note">regras prontas para revisão</div>', unsafe_allow_html=True)
-                st.button("Revisar regras", type="primary" if revisao_home else "secondary", width="stretch", key="home_revisar")
-            with h4:
-                st.markdown(f'<div class="ednna-card-title">⚡ AUTOMAÇÕES</div><div class="ednna-card-number">{len(homologadas_home)}</div><div class="ednna-card-note">regras homologadas</div>', unsafe_allow_html=True)
-                st.button("Ver automações", width="stretch", key="home_automacoes")
-
-            st.markdown("#### Agora na EDNNA")
-            if revisao_home:
-                nomes = ", ".join(str(r.get("player") or "") for r in revisao_home[:4])
-                st.info(f"🧠 **Prontas para sua decisão:** {nomes}. Abra a **Área técnica** para revisar e homologar.")
-            elif enriquecendo_home:
-                st.info(f"🔄 Estou enriquecendo {len(enriquecendo_home)} procedimento(s). Nenhuma ação sua é necessária agora.")
-            else:
-                st.success("✨ Nenhuma revisão imediata. A EDNNA continua acompanhando a operação.")
-            st.caption(f"EDNNA v{APP_VERSION} · {APP_RELEASE} · detalhes, corpus, evidências e diagnóstico ficam em ⚙️ Área técnica")
+        st.markdown(
+            "<div class='backend-section-head'><b>Motor EDNNA</b><span>Aprendizado, execução, homologação e diagnóstico</span></div>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Esta é a área técnica. A experiência visual da EDNNA fica na Home; aqui ficam somente controles, evidências e operação do motor."
+        )
+        ed_tech = st.container()
 
         with ed_tech:
 
@@ -3139,56 +3094,10 @@ with main_col:
             # CABEÇALHO EDNNA
             # ====================================================
 
-            ed_head1, ed_head2 = st.columns(
-                [
-                    1,
-                    5,
-                ],
-                vertical_alignment="center",
+            st.markdown(
+                "<div class='backend-context'><b>Controle do motor</b><span>Use esta área para analisar a fila, revisar evidências e operar regras. Informações de diagnóstico ficam recolhidas abaixo.</span></div>",
+                unsafe_allow_html=True,
             )
-
-            with ed_head1:
-                avatar_ednna = Path(
-                    "assets/ednna_avatar.png"
-                )
-
-                if avatar_ednna.exists():
-                    st.image(
-                        str(
-                            avatar_ednna
-                        ),
-                        width=78,
-                    )
-
-            with ed_head2:
-                st.markdown(
-                    (
-                        "<div class='section-title'>"
-                        "EDNNA — Central Operacional EDI"
-                        "</div>"
-                    ),
-                    unsafe_allow_html=True,
-                )
-
-                st.caption(
-                    "Inteligência operacional para entender a fila, executar procedimentos homologados "
-                    "e acompanhar o que ainda precisa de decisão humana."
-                )
-
-                modo_col1, modo_col2 = st.columns(
-                    [1.45, 1],
-                    gap="medium",
-                )
-
-                with modo_col1:
-                    st.info(
-                        "A EDNNA identifica padrões, prioriza o primeiro combate e prepara ações assistidas."
-                    )
-
-                with modo_col2:
-                    st.success(
-                        "Automação ativa · envio, Redmine e acompanhamento de retorno em procedimentos homologados."
-                    )
 
 
             # ====================================================
@@ -3287,14 +3196,14 @@ with main_col:
             )
 
             e1.metric(
-                "Estado Aberto",
+                "Chamados ativos",
                 len(
                     ednna_abertos
                 ),
             )
 
             e2.metric(
-                "Não analisados",
+                "A analisar",
                 resumo_ednna.get(
                     "nao_analisados",
                     0,
@@ -3302,7 +3211,7 @@ with main_col:
             )
 
             e3.metric(
-                "Sem primeiro combate",
+                "Sem 1º combate",
                 resumo_ednna.get(
                     "aguardando",
                     0,
@@ -3310,7 +3219,7 @@ with main_col:
             )
 
             e4.metric(
-                "Já atuados",
+                "Com atuação",
                 resumo_ednna.get(
                     "ja_atuados",
                     0,
@@ -3318,7 +3227,7 @@ with main_col:
             )
 
             e5.metric(
-                "Revisão",
+                "Revisão humana",
                 resumo_ednna.get(
                     "revisao",
                     0,
@@ -3326,7 +3235,7 @@ with main_col:
             )
 
             e6.metric(
-                "Pendentes globais",
+                "Fila técnica",
                 len(
                     pendentes_ednna_global
                 ),
@@ -3438,7 +3347,7 @@ with main_col:
             st.markdown(
                 (
                     "<div class='section-title'>"
-                    "Atualização da inteligência"
+                    "Processamento da fila"
                     "</div>"
                 ),
                 unsafe_allow_html=True,
@@ -3454,7 +3363,7 @@ with main_col:
 
             with ac1:
                 analisar_tudo = st.button(
-                    "🤖 Analisar fila completa",
+                    "▶ Processar fila completa",
                     type="primary",
                     width="stretch",
                     key="ednna_analisar_tudo",
@@ -3462,7 +3371,7 @@ with main_col:
 
             with ac2:
                 analisar_5 = st.button(
-                    "Analisar próximos 5",
+                    "Processar próximos 5",
                     width="stretch",
                     key="ednna_analisar_5",
                 )
@@ -3635,12 +3544,12 @@ with main_col:
                 ed_equipe,
             ) = st.tabs(
                 [
-                    "Visão geral",
+                    "Resumo do motor",
                     "Primeiro combate",
-                    "Já atuados",
-                    "Atenção",
-                    "Central EDNNA",
-                    "Equipe",
+                    "Com atuação",
+                    "Revisão",
+                    "Regras e automação",
+                    "Catálogo da equipe",
                 ]
             )
 

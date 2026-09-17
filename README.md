@@ -199,4 +199,4 @@ A raiz do projeto mantém apenas este `README.md`. Notas de releases são consol
 - `docs/historico/` — documentos históricos de linhas anteriores.
 - `ednna/README_EDNNA.md` — documentação técnica do módulo EDNNA.
 
-Versão atual: **3.28.18 — Thread Operacional e Caso-Âncora**.
+Versão atual: **3.28.34 — Backend organizado · Motor EDNNA**.

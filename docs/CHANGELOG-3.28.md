@@ -1,3 +1,13 @@
+# 3.28.34 — Backend organizado · Motor EDNNA
+
+- Painel EDI assume explicitamente o papel de backend operacional.
+- Removida a Home visual duplicada da EDNNA dentro do Painel EDI.
+- Aba técnica renomeada para **Motor EDNNA**.
+- Cabeçalhos, KPIs, ações e subabas reorganizados com linguagem operacional.
+- Avatar e apresentação comercial permanecem exclusivamente na Home EDNNA.
+- Diagnóstico e memória continuam disponíveis, porém separados da operação cotidiana.
+- Links vindos de Aprendizado passam a abrir diretamente o Motor EDNNA.
+
 # v3.28.32 — Carteira Ativa Confiável e Refinamento Visual
 
 - Home e Equipe passam a usar o snapshot `status=open` do `painel.db`, a mesma fonte operacional do Painel EDI.
