@@ -768,3 +768,11 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - A homologação deixa de exigir destinatário de e-mail para workflows que não são exclusivamente por e-mail.
 - A fila operacional passa a exibir canal, workflow e prontidão de execução.
 - Incluído `preparar_operacao_inclusao()` para transformar regra homologada em plano operacional sem disparar ação externa.
+
+## 3.28.26 — Nova Home Operacional EDNNA
+- Nova camada frontal simples, inspirada na linguagem visual do painel Tradutor.
+- Avatar EDNNA em destaque com movimento visual suave.
+- Frases e percentuais dinâmicos calculados a partir do estado real da operação e das regras.
+- Cards com botões para Atendimentos, Aprendizado, Revisões e Automações.
+- Separação explícita entre `✨ Início` e `⚙️ Área técnica`.
+- Toda a interface técnica anterior foi preservada integralmente na Área técnica.
