@@ -742,3 +742,21 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - O monitor procura resposta posterior na Inbox e o ciclo normal atualiza o Redmine.
 - Inclui logs explícitos do funil de reconciliação.
 - Caso de homologação histórico: #48567 MAIS CAMPUS.
+
+## 3.28.24 — Motor de Workflows e Executores
+
+- Separa formalmente **conhecimento homologado**, **workflow**, **canal** e **executor**.
+- Introduz catálogo declarativo de workflows de inclusão, evitando `if` por player no motor.
+- Regras homologadas passam a ter prontidão operacional independente: `ASSISTIDA_DISPONIVEL`, `AGUARDANDO_EXECUTOR` ou `SEM_WORKFLOW`.
+- Nenhuma execução automática é liberada nesta versão; a operação disponível permanece assistida e exige confirmação humana.
+- Workflows mapeados com conhecimento operacional validado:
+  - VALECARD, ALELO, TICKET, ONECARD, POLICARD, TRUCKPAG, VEROCHEQUE e VR BENEFÍCIOS: e-mail + estabelecimento do chamado.
+  - SODEXO/PLUXEE: inclusão por e-mail reutilizando contatos/padrão operacional de Falta de Arquivo, mantendo conteúdo de inclusão.
+  - CIELO: API (`CIELO_API`, executor ainda a implementar/validar).
+  - TICKETLOG: abertura de chamado (`TICKETLOG_CHAMADO`, executor ainda a implementar/validar).
+  - REDECARD: Opt-in via API primeiro; depois solicitação de autorização do cliente por e-mail.
+  - GREENCARD: gerar formulário; enviar ao cliente para assinatura; receber assinado; encaminhar à GreenCard.
+  - BANRISUL: banco; localizar Abertura de Relacionamento e obter os dados do gerente/conta antes da solicitação.
+- A homologação deixa de exigir destinatário de e-mail para workflows que não são exclusivamente por e-mail.
+- A fila operacional passa a exibir canal, workflow e prontidão de execução.
+- Incluído `preparar_operacao_inclusao()` para transformar regra homologada em plano operacional sem disparar ação externa.

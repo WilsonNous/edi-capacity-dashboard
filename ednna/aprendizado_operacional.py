@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 
 from ednna.armazenamento import conectar, agora_brasil_iso
 from ednna.contexto_relacionamentos import buscar_issue_contexto
+from ednna.workflows_inclusao import obter_workflow
 
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _CNPJ_RE = re.compile(r"(?<!\d)\d{2}[.\s]?\d{3}[.\s]?\d{3}[\s/.-]?\d{4}[-.\s]?\d{2}(?!\d)")
@@ -442,6 +443,7 @@ def salvar_revisao_assistida(
         "evidencias": aprendido.get("fontes") or {},
         "variaveis": aprendido.get("variaveis") or [],
         "constantes": aprendido.get("constantes") or [],
+        "workflow": obter_workflow(aprendido.get("player")),
     }
     agora = agora_brasil_iso()
     with conectar() as conn:
@@ -465,14 +467,18 @@ def homologar_regra_assistida(regra_id: str, *, revisado_por: str = "OPERADOR") 
         raise ValueError("A regra precisa ser revisada antes da homologação.")
     aprendido = obter_aprendizado(regra_id) or {}
     destinatario = str(revisao.get("destinatario_confirmado") or "").strip()
-    if not destinatario and not (aprendido.get("destinatarios_recorrentes") or []):
-        raise ValueError("Confirme ao menos um destinatário antes da homologação.")
+    workflow = obter_workflow(aprendido.get("player"))
+    # E-mail exige destinatário; API, abertura de chamado, banco e workflows
+    # compostos podem ser homologados como conhecimento mesmo sem e-mail.
+    if "EMAIL" in str(workflow.get("canal") or "") and workflow.get("canal") == "EMAIL":
+        if not destinatario and not (aprendido.get("destinatarios_recorrentes") or []):
+            raise ValueError("Confirme ao menos um destinatário para este workflow por e-mail.")
     agora = agora_brasil_iso()
     with conectar() as conn:
         conn.execute("""UPDATE revisoes_regras_operacionais
             SET estado='HOMOLOGADA', revisado_por=?, homologado_em=?, atualizado_em=?
             WHERE regra_id=?""", (revisado_por, agora, agora, regra_id))
-    print(f"[EDNNA] Homologação humana | regra={regra_id} | execução_externa=False", flush=True)
+    print(f"[EDNNA] Homologação humana | regra={regra_id} | workflow={workflow.get('workflow')} | canal={workflow.get('canal')} | prontidao={workflow.get('prontidao')} | execução_automatica=False", flush=True)
     return obter_revisao(regra_id)
 
 
@@ -509,6 +515,7 @@ def listar_regras_operacionais() -> list[dict]:
         except Exception: payload={}
         d['payload']=payload
         d['estado_operacional']='HOMOLOGADA' if d.get('estado_revisao')=='HOMOLOGADA' else d.get('estado')
+        d['workflow']=obter_workflow(d.get('player'))
         saida.append(d)
     return saida
 

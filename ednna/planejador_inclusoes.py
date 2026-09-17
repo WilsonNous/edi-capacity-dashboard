@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from ednna.contexto_relacionamentos import analisar_contexto_operacional, buscar_issue_contexto, PLAYER_ALIASES
+from ednna.workflows_inclusao import obter_workflow, planejar_workflow
 
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 _CNPJ_RE = re.compile(r"(?<!\d)(\d{2}[.\s]?\d{3}[.\s]?\d{3}[\s/.-]?\d{4}[-.\s]?\d{2})(?!\d)")
@@ -207,11 +208,13 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         if secundarios:
             print(f"[EDNNA] Players secundários ignorados | {', '.join(secundarios)}", flush=True)
         print(f"[EDNNA] Regra candidata | INCLUSAO-{player.replace(' ', '-')}-001 | estado=CANDIDATA_NAO_HOMOLOGADA", flush=True)
+        workflow_cfg = obter_workflow(player)
         regras.append({
             "player": player,
             "regra_sugerida": f"INCLUSAO-{player.replace(' ', '-')}-001",
             "status_regra": "CANDIDATA_NAO_HOMOLOGADA",
-            "canal_sugerido": "EMAIL" if agregados["emails"] else "NAO_IDENTIFICADO",
+            "canal_sugerido": workflow_cfg.get("canal") or ("EMAIL" if agregados["emails"] else "NAO_IDENTIFICADO"),
+            "workflow_sugerido": workflow_cfg,
             "dados_identificados": agregados,
             "player_alvo": player,
             "origem_player_alvo": origem_player_alvo,
@@ -299,3 +302,19 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         for p, ids in sorted(agrupados.items(), key=lambda kv: (-len(set(kv[1])), kv[0]))
     ]
     return {"total": len(candidatos), "players": players, "candidatos": candidatos}
+
+
+# v3.28.24 — plano operacional de regra homologada.
+def preparar_operacao_inclusao(chamado_id: int, player: str, dados: dict | None = None) -> dict:
+    """Monta o workflow operacional sem executar ações externas.
+
+    A camada de execução consulta este plano. Workflows com executor ainda não
+    implementado ficam explicitamente em AGUARDANDO_EXECUTOR.
+    """
+    from ednna.aprendizado_operacional import obter_regra_homologada
+    regra = obter_regra_homologada(player)
+    if not regra:
+        return {"chamado_id": int(chamado_id), "player": player, "estado":"REGRA_NAO_HOMOLOGADA", "pode_operar":False}
+    plano = planejar_workflow(player, dados=dados)
+    estado = "PRONTO_OPERACAO_ASSISTIDA" if plano.get("pode_operar_assistido") else "AGUARDANDO_EXECUTOR"
+    return {"chamado_id":int(chamado_id), "player":player, "regra_id":regra.get("regra_id"), "estado":estado, "pode_operar":plano.get("pode_operar_assistido",False), "workflow":plano}

@@ -53,7 +53,9 @@ from ednna.planejador_cancelamentos import (
 from ednna.planejador_inclusoes import (
     preparar_aprendizado_inclusao,
     descobrir_candidatos_inclusao,
+    preparar_operacao_inclusao,
 )
+from ednna.workflows_inclusao import obter_workflow
 from ednna.aprendizado_operacional import (
     aprender_procedimento_inclusao,
     obter_aprendizado,
@@ -1753,15 +1755,19 @@ def render_ednna_workspace(
                     fila_rows=[]
                     for rr in regras_fila:
                         estado = rr.get("estado_operacional") or rr.get("estado") or "NÃO INVESTIGADA"
+                        wf = rr.get("workflow") or obter_workflow(rr.get("player"))
                         fila_rows.append({
                             "Player": rr.get("player") or "—",
                             "Regra": rr.get("regra_id") or "—",
                             "Estado": estado,
                             "Completude": f"{int(rr.get('completude') or 0)}%",
+                            "Canal": wf.get("canal") or "—",
+                            "Workflow": wf.get("workflow") or "—",
+                            "Operação": wf.get("prontidao") or "—",
                             "Destinatário": rr.get("destinatario_confirmado") or "—",
                         })
                     st.dataframe(pd.DataFrame(fila_rows), width="stretch", hide_index=True)
-                    st.caption("🟢 Homologada = patrimônio operacional · 🟡 pronta para revisão · 🟠 aprendizado incompleto. Regras homologadas são preservadas e não voltam ao aprendizado em lote.")
+                    st.caption("🟢 Homologada = conhecimento aprovado. Operação é avaliada separadamente pelo workflow: ASSISTIDA DISPONÍVEL ou AGUARDANDO EXECUTOR. Nenhuma regra é executada automaticamente nesta versão.")
 
                     # v3.28.23 — a fila deixa de ser somente informativa e vira uma mesa de revisão/homologação.
                     regras_revisaveis = [
@@ -1788,6 +1794,7 @@ def render_ednna_workspace(
                             constantes_fila = aprendido_fila.get("constantes") or []
                             variaveis_fila = aprendido_fila.get("variaveis") or []
                             bloqueios_fila = aprendido_fila.get("bloqueios") or []
+                            workflow_fila = obter_workflow(player_fila)
 
                             with st.expander(
                                 f"{player_fila} · {regra_id_fila} · {completude_fila}% · "
@@ -1796,8 +1803,15 @@ def render_ednna_workspace(
                             ):
                                 q1, q2, q3 = st.columns(3)
                                 q1.metric("Completude", f"{completude_fila}%")
-                                q2.metric("Destinatários aprendidos", len(recorrentes_fila))
-                                q3.metric("Constantes", len(constantes_fila))
+                                q2.metric("Canal", workflow_fila.get("canal") or "—")
+                                q3.metric("Operação", workflow_fila.get("prontidao") or "—")
+                                st.markdown(f"**Workflow:** `{workflow_fila.get('workflow') or 'NAO_CLASSIFICADO'}`")
+                                if workflow_fila.get("etapas"):
+                                    with st.expander("Ver etapas do workflow", expanded=False):
+                                        for i_etapa, etapa in enumerate(workflow_fila.get("etapas") or [], 1):
+                                            st.markdown(f"{i_etapa}. `{etapa}`")
+                                if workflow_fila.get("executores_faltantes"):
+                                    st.warning("Executor(es) ainda não implementado(s): " + " · ".join(workflow_fila.get("executores_faltantes") or []))
 
                                 if recorrentes_fila:
                                     st.markdown("**Destinatário(s) sugerido(s) pela EDNNA:** " + " · ".join(recorrentes_fila))
@@ -1814,7 +1828,7 @@ def render_ednna_workspace(
                                     st.info("Pendências técnicas registradas: " + " · ".join(str(x).replace("_", " ") for x in bloqueios_fila))
 
                                 dest_fila = st.text_input(
-                                    "Destinatário confirmado",
+                                    "Destinatário confirmado" + ("" if workflow_fila.get("canal") == "EMAIL" else " (quando aplicável)"),
                                     value=sugerido_fila,
                                     key=f"fila_rev_dest_{regra_id_fila}",
                                     placeholder="contato@player.com.br",
@@ -1849,7 +1863,10 @@ def render_ednna_workspace(
                                         except Exception as exc_fila:
                                             st.error(f"Não foi possível homologar {player_fila}: {exc_fila}")
                                 with h2:
-                                    st.info("Homologação não executa ação externa. A liberação para execução continua sendo uma etapa separada.")
+                                    if workflow_fila.get("prontidao") == "ASSISTIDA_DISPONIVEL":
+                                        st.success("Após homologada, esta regra fica apta ao modo operacional assistido. A confirmação humana continua obrigatória antes de qualquer ação externa.")
+                                    else:
+                                        st.info("A regra pode ser homologada como conhecimento, mas só entra em operação após implementação/validação do executor indicado.")
 
                 aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):
