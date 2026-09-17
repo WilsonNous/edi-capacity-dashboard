@@ -823,3 +823,11 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Leitura da EDNNA compactada no hero com apontamentos da fotografia atual.
 - Estado visual da EDNNA muda conforme decisão pendente, aprendizado ou operação acompanhada.
 - Mantidos links individuais de chamados para o Redmine em Equipe e Atendimentos.
+
+## 3.28.33 — Motor de Inclusões Tipado — GREEN e ALELO
+- Workflows de inclusão passam a declarar pré-requisitos, estados, artefatos e executores.
+- GREEN BENEFÍCIOS: fluxo documental em duas fases (cliente -> Green), com termo oficial versionado em `docs/templates/TERMO_GREEN_BENEFICIOS.docx`.
+- GREEN exige validação do termo assinado e documento de identidade do representante antes do encaminhamento à adquirente.
+- ALELO exige CNPJ Matriz + estabelecimento/EC. CNPJ Matriz só é inferido automaticamente quando o CNPJ possui filial `0001`; caso contrário o motor bloqueia aguardando dado seguro.
+- Planejador agora distingue `AGUARDANDO_DADOS`, `AGUARDANDO_EXECUTOR` e `PRONTO_OPERACAO_ASSISTIDA`.
+- Workflows de e-mail direto passam a declarar estabelecimento como dado mínimo.

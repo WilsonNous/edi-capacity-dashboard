@@ -62,6 +62,29 @@ def _extrair_dados(issue: dict) -> dict:
     return {"emails": emails, "cnpjs": cnpjs, "ecs": _unicos(ecs)}
 
 
+
+
+def _normalizar_cnpj(valor: str) -> str:
+    digitos = re.sub(r"\D", "", str(valor or ""))
+    if len(digitos) != 14:
+        return ""
+    return f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:]}"
+
+
+def _identificar_cnpj_matriz(cnpjs: list[str]) -> str:
+    """Identifica matriz somente quando o CNPJ explicita filial 0001.
+
+    Não escolhe arbitrariamente o primeiro CNPJ: se nenhum /0001 estiver
+    presente, o workflow ALELO permanece bloqueado aguardando dado seguro.
+    """
+    for valor in cnpjs or []:
+        normalizado = _normalizar_cnpj(valor)
+        digitos = re.sub(r"\D", "", normalizado)
+        if len(digitos) == 14 and digitos[8:12] == "0001":
+            return normalizado
+    return ""
+
+
 def _eh_abertura(evento: dict) -> bool:
     return str(evento.get("evento") or "").upper() == "ABERTURA"
 
@@ -197,6 +220,11 @@ def preparar_aprendizado_inclusao(chamado_id: int, *, force: bool = False) -> di
         for chave in agregados:
             agregados[chave] = _unicos(agregados[chave])
 
+        # Dados canônicos consumidos pelo motor. O CNPJ Matriz só é inferido
+        # quando o identificador de filial é 0001; caso contrário exige revisão.
+        agregados["estabelecimento"] = list(agregados.get("ecs") or [])
+        agregados["cnpj_matriz"] = _identificar_cnpj_matriz(agregados.get("cnpjs") or [])
+
         evidencia_historica = bool(aberturas_player or anteriores)
         ar_ids = [int(e["id"]) for e in aberturas_player if e.get("id")]
         ant_ids = [int(e["id"]) for e in anteriores if e.get("id")]
@@ -315,6 +343,15 @@ def preparar_operacao_inclusao(chamado_id: int, player: str, dados: dict | None 
     regra = obter_regra_homologada(player)
     if not regra:
         return {"chamado_id": int(chamado_id), "player": player, "estado":"REGRA_NAO_HOMOLOGADA", "pode_operar":False}
-    plano = planejar_workflow(player, dados=dados)
-    estado = "PRONTO_OPERACAO_ASSISTIDA" if plano.get("pode_operar_assistido") else "AGUARDANDO_EXECUTOR"
+    dados_motor = dict(dados or {})
+    if not dados_motor:
+        try:
+            extraidos = _extrair_dados(buscar_issue_contexto(int(chamado_id), force=False))
+            dados_motor.update(extraidos)
+            dados_motor["estabelecimento"] = list(extraidos.get("ecs") or [])
+            dados_motor["cnpj_matriz"] = _identificar_cnpj_matriz(extraidos.get("cnpjs") or [])
+        except Exception as exc:
+            dados_motor["erro_extracao"] = str(exc)
+    plano = planejar_workflow(player, dados=dados_motor)
+    estado = plano.get("estado_planejamento") or ("PRONTO_OPERACAO_ASSISTIDA" if plano.get("pode_operar_assistido") else "AGUARDANDO_EXECUTOR")
     return {"chamado_id":int(chamado_id), "player":player, "regra_id":regra.get("regra_id"), "estado":estado, "pode_operar":plano.get("pode_operar_assistido",False), "workflow":plano}

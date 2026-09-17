@@ -1,5 +1,5 @@
 """Versão central da aplicação."""
-APP_VERSION = "3.28.32"
-APP_RELEASE = "Carteira Ativa Confiável e Refinamento Visual"
+APP_VERSION = "3.28.33"
+APP_RELEASE = "Motor de Inclusões Tipado — GREEN e ALELO"
 def version_label() -> str:
     return f"{APP_VERSION} — {APP_RELEASE}"
