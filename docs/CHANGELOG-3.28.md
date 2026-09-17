@@ -1,11 +1,12 @@
-# 3.28.31 — Reconciliação de Status Redmine
+# v3.28.32 — Carteira Ativa Confiável e Refinamento Visual
 
-- Corrige chamados concluídos no Redmine que permaneciam como abertos no `ednna.db`.
-- Detecta IDs que desapareceram da listagem `status_id=open` e confirma o estado individualmente antes de atualizar o SQLite.
-- Reconciliação conservadora em lotes de até 25 chamados por ciclo, sem assumir que ausência significa conclusão.
-- Chamados encerrados permanecem no SQLite para histórico/aprendizado, mas deixam de compor Home, Equipe e indicadores da carteira ativa.
-- Logs passam a informar ausentes detectados e encerrados reconciliados.
-- Remove saudação nominal fixa: sem autenticação, a EDNNA não presume quem está usando o cockpit.
+- Home e Equipe passam a usar o snapshot `status=open` do `painel.db`, a mesma fonte operacional do Painel EDI.
+- `ednna.db` permanece como memória histórica/inteligência e deixa de definir o total da carteira ativa.
+- Indicador renomeado para **Chamados ativos**.
+- Distribuição por responsável passa a fechar contra a mesma carteira ativa do Painel EDI.
+- Mantido fallback para `ednna.db` apenas como contingência de inicialização.
+- Saudação neutra: a EDNNA não presume a identidade de quem acessou sem autenticação.
+- Refinamento visual de tipografia, espaçamento, hierarquia e acabamento dos cards, preservando o cockpit aprovado.
 
 
 ## 3.28.25 — Aprendizado sincronizado com enriquecimento

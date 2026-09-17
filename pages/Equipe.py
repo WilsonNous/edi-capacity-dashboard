@@ -1,12 +1,12 @@
 import streamlit as st
 from ui.operational_shell import setup,footer
-from ui.operational_data import chamados_df, com_links_redmine
+from ui.operational_data import chamados_ativos_df, com_links_redmine
 setup('👥 Equipe e capacidade')
-df=chamados_df()
+df=chamados_ativos_df()
 if df.empty: st.info('Nenhum chamado disponível para calcular a distribuição da equipe.')
 else:
     s=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts().reset_index(); s.columns=['Responsável','Chamados']
-    st.markdown(f'<div class="op-card"><div class="op-k">Chamados distribuídos</div><div class="op-n">{len(df)}</div><div class="op-note">visão por responsável atual</div></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="op-card"><div class="op-k">Chamados ativos distribuídos</div><div class="op-n">{len(df)}</div><div class="op-note">mesma carteira ativa do Painel EDI</div></div>',unsafe_allow_html=True)
     st.subheader('Quem está com o quê?')
     st.dataframe(s,width="stretch",hide_index=True)
     nome=st.selectbox('Ver chamados de',s['Responsável'].tolist())

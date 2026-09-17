@@ -3,7 +3,7 @@ import html
 import re
 import streamlit as st
 from version import APP_VERSION, APP_RELEASE
-from ui.operational_data import resumo, chamados_df
+from ui.operational_data import resumo, chamados_ativos_df
 
 ROOT = Path(__file__).resolve().parent
 AVATAR = ROOT / 'assets' / 'ednna_avatar.png'
@@ -26,9 +26,18 @@ st.markdown('''<style>
 .module-title{font-size:1.1rem;font-weight:950;color:#102f62;margin:0 0 2px}.module-sub{font-size:.72rem;color:#8093ae;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:70px!important;font-weight:850!important;border:1px solid #dce7f4!important;background:#fff!important;color:#17386b!important;box-shadow:0 2px 8px rgba(24,75,140,.03)!important}div.stButton>button:hover{border-color:#1268e8!important;color:#1268e8!important;transform:translateY(-1px)}
 .foot{text-align:center;color:#8ba0bd;font-size:.68rem;margin-top:14px}.redmine-note{font-size:.67rem;color:#8ba0bd;text-align:right;margin-top:6px}
 @media(max-width:1000px){.people-grid{grid-template-columns:repeat(2,1fr)}.insight-grid{grid-template-columns:1fr}.insight{border-right:0;border-bottom:1px solid #dce7f5;padding:6px 0}.insight:last-child{border-bottom:0}.hero-title{font-size:1.65rem}}
+
+:root{--ed-blue:#1268e8;--ed-navy:#0b2d61;--ed-muted:#6f84a2}
+html,body,[class*="css"],.stApp{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.brand-main{font-size:1.18rem;letter-spacing:.035em}.brand-sub{font-size:.66rem;letter-spacing:.18em}
+.st-key-hero_shell{border-color:#dbe6f4;box-shadow:0 10px 30px rgba(24,75,140,.055)}
+.hero-copy{padding:18px 14px 13px 7px}.greet{font-size:.88rem;font-weight:650;color:#476787}.hero-title{font-size:1.92rem;letter-spacing:-.025em;margin:5px 0 10px}.hero-text{font-size:.94rem;line-height:1.5;color:#607591}
+.ops-head,.section-title,.module-title{letter-spacing:-.012em}.klabel{font-size:.74rem;font-weight:650}.knum{letter-spacing:-.035em}.knote{line-height:1.3}
+.insight-card{padding:10px 13px}.insight b{letter-spacing:-.01em}.section-shell{padding:16px 19px}.person{transition:transform .15s ease,box-shadow .15s ease}.person:hover{transform:translateY(-1px);box-shadow:0 7px 18px rgba(24,75,140,.06)}
+div.stButton>button{font-size:.82rem!important;letter-spacing:-.005em!important}
 </style>''', unsafe_allow_html=True)
 
-r = resumo(); df = chamados_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
+r = resumo(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
 if r['revisao'] == 1: title = 'Tenho 1 decisão para você.'
 elif r['revisao'] > 1: title = f"Tenho {r['revisao']} decisões para você."
 elif r['aprendendo'] > 0: title = 'Estou aprendendo enquanto você trabalha.'
@@ -48,7 +57,7 @@ with avcol:
         st.image(str(AVATAR), width='stretch')
         st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
 with copycol:
-    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas.</div></div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas.</div></div>''', unsafe_allow_html=True)
     ins=[]
     if r['total']:
         pct=round(r['terceiros']/r['total']*100)
@@ -67,7 +76,7 @@ with copycol:
 with opscol:
     st.markdown('<div class="ops-panel"><div class="ops-head"><span>〽 Estado da operação</span><span class="ops-pill">✚ Em acompanhamento</span></div>', unsafe_allow_html=True)
     k1,k2=st.columns(2); k3,k4=st.columns(2)
-    data=[(k1,'Chamados gerais',r['total'],'em acompanhamento',''),(k2,'Equipe / Atuação',r['em_atuacao'],'fora de espera por terceiros',''),(k3,'Aguardando terceiros',r['terceiros'],'dependência externa',''),(k4,'EDNNA',r['revisao']+r['aprendendo'],'regras em atenção','ednna')]
+    data=[(k1,'Chamados ativos',r['total'],'carteira ativa do Redmine',''),(k2,'Equipe / Atuação',r['em_atuacao'],'fora de espera por terceiros',''),(k3,'Aguardando terceiros',r['terceiros'],'dependência externa',''),(k4,'EDNNA',r['revisao']+r['aprendendo'],'regras em atenção','ednna')]
     for col,label,num,note,klass in data:
         with col: st.markdown(f'<div class="kpi {klass}"><div class="klabel">{label}</div><div class="knum">{num}</div><div class="knote">{note}</div></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)

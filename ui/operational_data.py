@@ -2,7 +2,7 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 import pandas as pd
-from painel_cache import obter_metadado_json
+from painel_cache import obter_metadado_json, conectar as conectar_painel
 
 ROOT=Path(__file__).resolve().parent.parent
 
@@ -52,17 +52,62 @@ def chamados_df():
             mapa = _mapa_clientes_persistido()
             if mapa:
                 df['cliente'] = df['cliente'].apply(lambda v: _resolver_cliente(v, mapa))
-
-        # A camada operacional representa a carteira ATIVA. Chamados encerrados
-        # continuam preservados no ednna.db para histórico/aprendizado, porém não
-        # podem inflar Home, Equipe, Atendimentos ou indicadores de carga.
-        if not df.empty and 'estado' in df.columns:
-            encerrado = df['estado'].fillna('').astype(str).str.strip().str.lower().str.contains(
-                r'conclu|fechad|encerrad|resolvid|cancelad', regex=True
-            )
-            df = df.loc[~encerrado].copy()
         return df
     except Exception:return pd.DataFrame()
+
+
+def chamados_ativos_df():
+    """
+    Carteira operacional ATIVA.
+
+    Fonte primária: snapshot status=open do painel.db, que é a mesma fonte
+    usada pelo Painel EDI. O ednna.db permanece como memória histórica e
+    não deve definir os totais operacionais da Home/Equipe.
+    """
+    try:
+        with conectar_painel() as con:
+            row = con.execute(
+                """
+                SELECT payload_json, quantidade, atualizado_em
+                FROM snapshots
+                WHERE chave LIKE '%|status=open|%'
+                ORDER BY atualizado_em DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if row is not None:
+            payload = json.loads(row['payload_json'] or '[]')
+            if isinstance(payload, list):
+                linhas=[]
+                mapa = _mapa_clientes_persistido()
+                for issue in payload:
+                    if not isinstance(issue, dict):
+                        continue
+                    cfs={str(x.get('id')):x.get('value') for x in (issue.get('custom_fields') or []) if isinstance(x,dict)}
+                    cliente=_resolver_cliente(cfs.get('1'), mapa)
+                    linhas.append({
+                        'id': issue.get('id'),
+                        'cliente': cliente,
+                        'tipo': (issue.get('tracker') or {}).get('name'),
+                        'estado': (issue.get('status') or {}).get('name'),
+                        'prioridade': (issue.get('priority') or {}).get('name'),
+                        'assunto': issue.get('subject'),
+                        'responsavel': (issue.get('assigned_to') or {}).get('name'),
+                        'projeto': (issue.get('project') or {}).get('name'),
+                        'criado_em': issue.get('created_on'),
+                        '_fonte_operacional': 'painel.db/status=open',
+                        '_snapshot_atualizado_em': row['atualizado_em'],
+                    })
+                return pd.DataFrame(linhas)
+    except Exception as exc:
+        print(f'[EDNNA] Carteira ativa | painel.db indisponível | fallback ednna.db | {type(exc).__name__}: {exc}', flush=True)
+
+    # Contingência somente para não derrubar a interface durante uma carga inicial.
+    # O rótulo permite distinguir que não é a fonte oficial da carteira ativa.
+    df=chamados_df()
+    if not df.empty:
+        df=df.copy(); df['_fonte_operacional']='ednna.db/fallback'
+    return df
 
 def regras_df():
     p=_db('ednna.db')
@@ -77,7 +122,7 @@ def regras_df():
     except Exception:return pd.DataFrame()
 
 def resumo():
-    c=chamados_df(); r=regras_df()
+    c=chamados_ativos_df(); r=regras_df()
     total=len(c)
     terceiros=int(c['estado'].fillna('').astype(str).str.contains('terceir|aguard',case=False,regex=True).sum()) if not c.empty and 'estado' in c else 0
     em_atuacao=max(total-terceiros,0)
