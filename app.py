@@ -11,18 +11,37 @@ if r['revisao']==1: title='Tenho 1 decisão para você.'
 elif r['revisao']>1: title=f"Tenho {r['revisao']} decisões para você."
 elif r['aprendendo']: title='Estou aprendendo enquanto você trabalha.'
 else:title='A operação está sob acompanhamento.'
-copy=f"Estou acompanhando {r['total']} chamados. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença."
+copy=f"Estou acompanhando {r['total']} chamados junto com a equipe. Você entra apenas onde sua decisão faz diferença."
+if r['revisao']>0: avatar_state='👉 Preciso da sua decisão'
+elif r['aprendendo']>0: avatar_state='🧠 Analisando a operação'
+else: avatar_state='😊 Operação acompanhada'
 
 st.markdown('<div class="top"><div class="brand">EDNNA · NETUNNA</div><div class="online">● Operando</div></div>',unsafe_allow_html=True)
 a,b=st.columns([1.05,3.6],vertical_alignment='center')
 with a:
     av=Path('assets/ednna_avatar.png')
-    if av.exists(): st.markdown('<div class="avatar">',unsafe_allow_html=True); st.image(str(av),width=235); st.markdown('</div>',unsafe_allow_html=True)
+    if av.exists(): st.markdown('<div class="avatar">',unsafe_allow_html=True); st.image(str(av),width=235); st.markdown('</div>',unsafe_allow_html=True); st.caption(avatar_state)
 with b: st.markdown(f'<div class="hero"><div><div class="eyebrow">Inteligência Operacional EDI</div><div class="title">{title}</div><div class="copy">{copy}</div><div class="copy" style="margin-top:12px"><b style="color:#1877f2">{cobertura}%</b> das regras conhecidas estão homologadas.</div></div></div>',unsafe_allow_html=True)
 
 c1,c2,c3,c4=st.columns(4)
-for c,l,n,note in [(c1,'Chamados gerais',r['total'],'em acompanhamento'),(c2,'Equipe / atuação',r['em_atuacao'],'fora de espera por terceiros'),(c3,'Aguardando terceiros',r['terceiros'],'dependência externa'),(c4,'EDNNA',r['revisao']+r['aprendendo'],'regras exigindo atenção ou aprendizado')]:
+for c,l,n,note in [(c1,'Chamados gerais',r['total'],'em acompanhamento'),(c2,'Equipe / atuação',r['em_atuacao'],'fora de espera por terceiros'),(c3,'Aguardando terceiros',r['terceiros'],'dependência externa'),(c4,'EDNNA',r['revisao']+r['aprendendo'],'procedimentos em atenção')]:
     with c: st.markdown(f'<div class="kpi"><div class="klabel">{l}</div><div class="knum">{n}</div><div class="knote">{note}</div></div>',unsafe_allow_html=True)
+
+# Leitura inteligente da fotografia atual
+ins=[]
+if r['total']:
+    pct=round(r['terceiros']/r['total']*100)
+    if pct>=50: ins.append(f'**{pct}% dos chamados dependem de terceiros.** A maior parte da operação está condicionada a retornos externos.')
+if not df.empty and 'responsavel' in df.columns:
+    vc=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts()
+    if len(vc):
+        nome,n=vc.index[0],int(vc.iloc[0]); pct=round(n/len(df)*100)
+        if pct>=35: ins.append(f'**{nome} concentra {pct}% dos chamados distribuídos.** É o maior volume individual da fotografia atual.')
+if r['revisao']:
+    ins.append(f'**{r["revisao"]} procedimento' + (' está' if r['revisao']==1 else 's estão') + ' pronto' + ('' if r['revisao']==1 else 's') + ' para decisão.** Sua homologação é o ponto de maior impacto agora.')
+if ins:
+    st.markdown('<div class="section">💡 Leitura da EDNNA</div><div class="sub">Apontamentos derivados da fotografia atual da operação.</div>',unsafe_allow_html=True)
+    for x in ins[:3]: st.info(x)
 
 st.markdown('<div class="section">Quem está com o quê?</div><div class="sub">Distribuição atual dos chamados por responsável. A EDNNA aparece separadamente como camada de inteligência.</div>',unsafe_allow_html=True)
 if not df.empty and 'responsavel' in df:
@@ -41,11 +60,9 @@ with b:
     if st.button('🧠  Aprendizado e homologação',use_container_width=True): st.switch_page('pages/Aprendizado.py')
 with c:
     if st.button('📥  Atendimentos da EDNNA',use_container_width=True): st.switch_page('pages/Atendimentos.py')
-d,e,f=st.columns(3)
+d,e=st.columns(2)
 with d:
     if st.button('⚡  Automações',use_container_width=True): st.switch_page('pages/Automacoes.py')
 with e:
     if st.button('👥  Equipe e capacidade',use_container_width=True): st.switch_page('pages/Equipe.py')
-with f:
-    if st.button('⚙️  Área técnica',use_container_width=True): st.switch_page('pages/Area_Tecnica.py')
 st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · cockpit operacional</div>',unsafe_allow_html=True)

@@ -1,6 +1,6 @@
 import streamlit as st
 from ui.operational_shell import setup,footer
-from ui.operational_data import chamados_df
+from ui.operational_data import chamados_df, com_links_redmine
 setup('👥 Equipe e capacidade')
 df=chamados_df()
 if df.empty: st.info('Nenhum chamado disponível para calcular a distribuição da equipe.')
@@ -11,6 +11,7 @@ else:
     st.dataframe(s,use_container_width=True,hide_index=True)
     nome=st.selectbox('Ver chamados de',s['Responsável'].tolist())
     base=df[df.responsavel.fillna('Sem responsável').replace('','Sem responsável').eq(nome)]
-    cols=[x for x in ['id','cliente','tipo','estado','prioridade','assunto','tempo_aberto_dias'] if x in base.columns]
-    st.dataframe(base[cols],use_container_width=True,hide_index=True)
+    base=com_links_redmine(base)
+    cols=[x for x in ['Chamado','cliente','tipo','estado','prioridade','assunto','tempo_aberto_dias'] if x in base.columns]
+    st.dataframe(base[cols],use_container_width=True,hide_index=True,column_config={'Chamado':st.column_config.LinkColumn('Chamado',display_text=r'/issues/(\d+)$')})
 footer()

@@ -785,3 +785,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Painel EDI completo é carregado somente pelo botão Painel EDI.
 - Revisão de português e pluralização dinâmica da Home.
 - Área técnica preserva o backend detalhado existente.
+
+
+## 3.28.29 — EDNNA Viva e Leitura Inteligente
+- Área Técnica removida da Home para eliminar redundância com Painel EDI.
+- Modo técnico reposicionado em Aprendizado e homologação.
+- IDs clicáveis para abertura direta no Redmine em Atendimentos e Equipe.
+- Leitura da EDNNA com apontamentos derivados dos indicadores reais.
+- Avatar comunica estado operacional por contexto: decisão, análise ou operação acompanhada.
+- Semântica de carteira observada revisada para não sugerir automação integral.

@@ -2,6 +2,10 @@ import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import regras_df
 setup('🧠 Aprendizado e homologação')
+tech,_=st.columns([1.2,5])
+with tech:
+    if st.button('⚙️ Modo técnico',use_container_width=True):
+        st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
 r=regras_df()
 if r.empty: st.info('A EDNNA ainda não possui regras de aprendizado disponíveis neste ambiente.')
 else:

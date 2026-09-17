@@ -39,3 +39,12 @@ def resumo():
     rev=int((r.get('estado',pd.Series(dtype=str)).fillna('').eq('PRONTA_PARA_REVISAO')).sum()) if not r.empty else 0
     aprend=int((~r.get('estado',pd.Series(dtype=str)).fillna('').isin(['HOMOLOGADA','PRONTA_PARA_REVISAO'])).sum()) if not r.empty else 0
     return dict(total=total,terceiros=terceiros,em_atuacao=em_atuacao,homologadas=hom,revisao=rev,aprendendo=aprend,regras=len(r))
+
+
+def redmine_link(issue_id):
+    try: return f"https://chamados.nteia.com/issues/{int(issue_id)}"
+    except Exception: return ""
+
+def com_links_redmine(df):
+    if df is None or df.empty or 'id' not in df.columns: return df
+    out=df.copy(); out['Chamado']=out['id'].apply(redmine_link); return out
