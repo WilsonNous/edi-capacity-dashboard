@@ -804,3 +804,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 
 - Compatibilidade Streamlit 2026: substitui `use_container_width` por `width="stretch"`/`width="content"`.
 - Leitura da EDNNA compactada em um único card com apontamentos curtos, reduzindo altura e ruído visual da Home.
+
+
+### v3.28.30 — Cockpit EDNNA Final
+- Home redesenhada para o cockpit visual aprovado, mantendo EDNNA como porta de entrada.
+- Diferencia “ednna automação edi” (usuário operacional do Redmine) da EDNNA Inteligência (camada de regras/aprendizado).
+- Favicon passa a usar o rosto da EDNNA.
+- Leitura da EDNNA compactada no hero com apontamentos da fotografia atual.
+- Estado visual da EDNNA muda conforme decisão pendente, aprendizado ou operação acompanhada.
+- Mantidos links individuais de chamados para o Redmine em Equipe e Atendimentos.
