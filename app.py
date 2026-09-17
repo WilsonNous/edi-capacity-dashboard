@@ -1,95 +1,51 @@
-from __future__ import annotations
-import sqlite3
 from pathlib import Path
 import streamlit as st
 from version import APP_VERSION, APP_RELEASE
+from ui.operational_data import resumo, chamados_df
 
-st.set_page_config(page_title="EDNNA — Inteligência Operacional EDI", page_icon="🤖", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title='EDNNA — Inteligência Operacional EDI',page_icon='🤖',layout='wide',initial_sidebar_state='collapsed')
+st.markdown('''<style>[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}.stApp{background:linear-gradient(135deg,#f3f7ff,#f8fafc 48%,#eef4ff);color:#172b4d}.block-container{max-width:1280px;padding:1.25rem 2rem 2rem}.top{display:flex;justify-content:space-between;align-items:center}.brand{font-size:1.15rem;font-weight:900;letter-spacing:.08em;color:#1877f2}.online{background:#e8f7ee;color:#16803d;border-radius:999px;padding:7px 12px;font-weight:800}.hero{background:#fff;border:1px solid #dce6f4;border-radius:26px;padding:26px 32px;box-shadow:0 12px 34px rgba(24,119,242,.08);min-height:260px;display:flex;align-items:center}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.14em;color:#1877f2;text-transform:uppercase}.title{font-size:2.15rem;font-weight:900;line-height:1.08;margin:8px 0 12px}.copy{font-size:1rem;color:#5b6f88;line-height:1.5}.avatar{animation:float 3.2s ease-in-out infinite;filter:drop-shadow(0 14px 18px rgba(24,119,242,.18))}@keyframes float{50%{transform:translateY(-8px)}}.kpi{background:#fff;border:1px solid #e0e7f0;border-radius:17px;padding:14px 16px;min-height:86px}.klabel{font-size:.72rem;font-weight:850;color:#718096;text-transform:uppercase}.knum{font-size:1.7rem;font-weight:900}.knote{font-size:.74rem;color:#8796aa}.section{font-size:1.05rem;font-weight:900;margin:22px 0 8px}.sub{font-size:.84rem;color:#7b8ca5;margin-top:-5px;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:50px!important;font-weight:800!important;border:1px solid #d5dfed!important;background:#fff!important}div.stButton>button:hover{border-color:#1877f2!important;color:#1877f2!important}.person{background:#fff;border:1px solid #e0e7f0;border-radius:15px;padding:12px 14px}.pname{font-weight:850}.pnum{font-size:1.25rem;font-weight:900;color:#1877f2}.foot{text-align:center;color:#91a0b4;font-size:.72rem;margin-top:22px}</style>''',unsafe_allow_html=True)
 
-st.markdown("""
-<style>
-[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"],[data-testid="collapsedControl"]{display:none!important}
-.stApp{background:linear-gradient(135deg,#f3f7ff 0%,#f8fafc 48%,#eef4ff 100%);color:#172b4d}
-.block-container{max-width:1280px;padding:1.25rem 2rem 2rem}
-.ed-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.brand{font-size:1.15rem;font-weight:900;letter-spacing:.08em;color:#1877f2}.online{background:#e8f7ee;color:#16803d;border-radius:999px;padding:7px 12px;font-weight:750;font-size:.82rem}
-.hero{background:rgba(255,255,255,.92);border:1px solid #dce6f4;border-radius:28px;padding:28px 34px;box-shadow:0 14px 40px rgba(24,119,242,.09);min-height:300px;display:flex;align-items:center}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.14em;color:#1877f2;text-transform:uppercase}.title{font-size:2.35rem;font-weight:900;line-height:1.05;margin:8px 0 12px;color:#172b4d}.copy{font-size:1.05rem;color:#5b6f88;line-height:1.55}.pulse{color:#1877f2;font-weight:900}.avatar{animation:float 3.2s ease-in-out infinite;filter:drop-shadow(0 14px 18px rgba(24,119,242,.18))}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-9px)}}
-.kpi{background:#fff;border:1px solid #e0e7f0;border-radius:18px;padding:15px 18px;margin-top:14px;min-height:88px}.klabel{font-size:.76rem;font-weight:850;color:#718096;text-transform:uppercase}.knum{font-size:1.75rem;font-weight:900;color:#172b4d}.knote{font-size:.76rem;color:#8796aa}
-div.stButton>button{border-radius:14px!important;min-height:52px!important;font-weight:800!important;border:1px solid #d5dfed!important;background:#fff!important;box-shadow:0 3px 10px rgba(20,50,90,.05)}div.stButton>button:hover{border-color:#1877f2!important;color:#1877f2!important;transform:translateY(-1px)}
-.action-title{font-size:1.05rem;font-weight:900;margin-top:22px;margin-bottom:2px}.action-sub{font-size:.86rem;color:#7b8ca5;margin-bottom:10px}.foot{text-align:center;color:#91a0b4;font-size:.72rem;margin-top:22px}
-</style>
-""", unsafe_allow_html=True)
+r=resumo(); df=chamados_df(); cobertura=round(r['homologadas']/r['regras']*100) if r['regras'] else 0
+if r['revisao']==1: title='Tenho 1 decisão para você.'
+elif r['revisao']>1: title=f"Tenho {r['revisao']} decisões para você."
+elif r['aprendendo']: title='Estou aprendendo enquanto você trabalha.'
+else:title='A operação está sob acompanhamento.'
+copy=f"Estou acompanhando {r['total']} chamados. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença."
 
-def db_count(path: Path, candidates):
-    if not path.exists(): return None
-    try:
-        con=sqlite3.connect(str(path)); cur=con.cursor()
-        for sql in candidates:
-            try:
-                v=cur.execute(sql).fetchone()[0]; con.close(); return int(v or 0)
-            except Exception: pass
-        con.close()
-    except Exception: pass
-    return None
+st.markdown('<div class="top"><div class="brand">EDNNA · NETUNNA</div><div class="online">● Operando</div></div>',unsafe_allow_html=True)
+a,b=st.columns([1.05,3.6],vertical_alignment='center')
+with a:
+    av=Path('assets/ednna_avatar.png')
+    if av.exists(): st.markdown('<div class="avatar">',unsafe_allow_html=True); st.image(str(av),width=235); st.markdown('</div>',unsafe_allow_html=True)
+with b: st.markdown(f'<div class="hero"><div><div class="eyebrow">Inteligência Operacional EDI</div><div class="title">{title}</div><div class="copy">{copy}</div><div class="copy" style="margin-top:12px"><b style="color:#1877f2">{cobertura}%</b> das regras conhecidas estão homologadas.</div></div></div>',unsafe_allow_html=True)
 
-def rules_summary():
-    try:
-        from ednna.aprendizado_operacional import listar_regras_operacionais
-        rs=listar_regras_operacionais() or []
-        hom=sum(1 for r in rs if r.get('estado_operacional')=='HOMOLOGADA')
-        rev=sum(1 for r in rs if r.get('estado_operacional')=='PRONTA_PARA_REVISAO')
-        wait=sum(1 for r in rs if r.get('estado_operacional')=='AGUARDANDO_ENRIQUECIMENTO')
-        return len(rs),hom,rev,wait
-    except Exception:return 0,0,0,0
+c1,c2,c3,c4=st.columns(4)
+for c,l,n,note in [(c1,'Chamados gerais',r['total'],'em acompanhamento'),(c2,'Equipe / atuação',r['em_atuacao'],'fora de espera por terceiros'),(c3,'Aguardando terceiros',r['terceiros'],'dependência externa'),(c4,'EDNNA',r['revisao']+r['aprendendo'],'regras exigindo atenção ou aprendizado')]:
+    with c: st.markdown(f'<div class="kpi"><div class="klabel">{l}</div><div class="knum">{n}</div><div class="knote">{note}</div></div>',unsafe_allow_html=True)
 
-def chamados_count():
-    p=Path('/home/data/painel.db')
-    if not p.exists(): p=Path('data/painel.db')
-    return db_count(p,["select count(*) from chamados", "select count(*) from snapshot_chamados", "select count(*) from issues"]) or 0
+st.markdown('<div class="section">Quem está com o quê?</div><div class="sub">Distribuição atual dos chamados por responsável. A EDNNA aparece separadamente como camada de inteligência.</div>',unsafe_allow_html=True)
+if not df.empty and 'responsavel' in df:
+    top=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts().head(4)
+    cols=st.columns(5)
+    for col,(nome,n) in zip(cols[:4],top.items()):
+        with col: st.markdown(f'<div class="person"><div class="pname">{nome}</div><div class="pnum">{n}</div><div class="knote">chamados</div></div>',unsafe_allow_html=True)
+    with cols[4]: st.markdown(f'<div class="person"><div class="pname">🤖 EDNNA</div><div class="pnum">{r["revisao"]+r["aprendendo"]}</div><div class="knote">regras em atenção</div></div>',unsafe_allow_html=True)
+else: st.caption('A distribuição da equipe aparecerá assim que o snapshot local estiver disponível.')
 
-total_rules,hom,rev,wait=rules_summary(); chamados=chamados_count(); cobertura=round(hom/total_rules*100) if total_rules else 0
-if rev:
-    title=f"Tenho {rev} decisão{'ões' if rev != 1 else ''} para você."
-    copy="O restante da operação continua comigo. Você entra apenas onde sua decisão faz diferença."
-elif wait:
-    title="Estou aprendendo enquanto você trabalha."
-    copy=f"Tenho {wait} procedimento(s) sendo enriquecido(s) agora. Não preciso de nenhuma ação sua neste momento."
-else:
-    title="Está tranquilo por aqui."
-    copy=f"Estou acompanhando a operação EDI e aviso quando alguma decisão precisar de você."
-
-st.markdown('<div class="ed-top"><div class="brand">EDNNA · NETUNNA</div><div class="online">● Operando</div></div>', unsafe_allow_html=True)
-left,right=st.columns([1.05,3.5],vertical_alignment='center')
-with left:
-    avatar=Path('assets/ednna_avatar.png')
-    if avatar.exists():
-        st.markdown('<div class="avatar">',unsafe_allow_html=True); st.image(str(avatar),width=245); st.markdown('</div>',unsafe_allow_html=True)
-with right:
-    st.markdown(f'<div class="hero"><div><div class="eyebrow">Inteligência Operacional EDI</div><div class="title">{title}</div><div class="copy">{copy}</div><div class="copy" style="margin-top:14px"><span class="pulse">{cobertura}%</span> das regras conhecidas estão homologadas.</div></div></div>',unsafe_allow_html=True)
-
-k1,k2,k3,k4=st.columns(4)
-for col,label,num,note in [(k1,'Chamados',chamados,'acompanhados'),(k2,'Homologadas',hom,'regras no patrimônio'),(k3,'Para você',rev,'prontas para revisão'),(k4,'Aprendendo',wait,'em enriquecimento')]:
-    with col: st.markdown(f'<div class="kpi"><div class="klabel">{label}</div><div class="knum">{num}</div><div class="knote">{note}</div></div>',unsafe_allow_html=True)
-
-st.markdown('<div class="action-title">O que você quer fazer?</div><div class="action-sub">Entre somente na área que precisa. A EDNNA continua trabalhando em segundo plano.</div>',unsafe_allow_html=True)
+st.markdown('<div class="section">O que você quer fazer?</div><div class="sub">Cada botão abre somente o módulo escolhido. O painel completo fica isolado em Painel EDI.</div>',unsafe_allow_html=True)
 a,b,c=st.columns(3)
 with a:
-    if st.button('📊  Abrir Painel EDI',use_container_width=True):
-        st.session_state['shell_main_navigation']='Visão Geral'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('📊  Painel EDI',use_container_width=True): st.session_state['shell_main_navigation']='Visão Geral'; st.switch_page('pages/Painel_EDI.py')
 with b:
-    if st.button('🧠  Aprendizado e homologação',use_container_width=True):
-        st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('🧠  Aprendizado e homologação',use_container_width=True): st.switch_page('pages/Aprendizado.py')
 with c:
-    if st.button('📥  Atendimentos da EDNNA',use_container_width=True):
-        st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('📥  Atendimentos da EDNNA',use_container_width=True): st.switch_page('pages/Atendimentos.py')
 d,e,f=st.columns(3)
 with d:
-    if st.button('⚡  Automações',use_container_width=True):
-        st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('⚡  Automações',use_container_width=True): st.switch_page('pages/Automacoes.py')
 with e:
-    if st.button('👥  Equipe e capacidade',use_container_width=True):
-        st.session_state['shell_main_navigation']='Equipe'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('👥  Equipe e capacidade',use_container_width=True): st.switch_page('pages/Equipe.py')
 with f:
-    if st.button('⚙️  Área técnica',use_container_width=True):
-        st.session_state['shell_main_navigation']='EDNNA'; st.switch_page('pages/Painel_EDI.py')
-
-st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · Home operacional</div>',unsafe_allow_html=True)
+    if st.button('⚙️  Área técnica',use_container_width=True): st.switch_page('pages/Area_Tecnica.py')
+st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · cockpit operacional</div>',unsafe_allow_html=True)

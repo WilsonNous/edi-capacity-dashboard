@@ -776,3 +776,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Cards com botões para Atendimentos, Aprendizado, Revisões e Automações.
 - Separação explícita entre `✨ Início` e `⚙️ Área técnica`.
 - Toda a interface técnica anterior foi preservada integralmente na Área técnica.
+
+## 3.28.28 — Cockpit Operacional e Navegação Modular
+- EDNNA passa a ser o cockpit principal da operação.
+- Home mostra chamados gerais, atuação/equipe, dependências externas e inteligência EDNNA.
+- Nova visão "Quem está com o quê?" por responsável.
+- Aprendizado, Atendimentos, Automações, Equipe e Área técnica passam a ser páginas independentes.
+- Painel EDI completo é carregado somente pelo botão Painel EDI.
+- Revisão de português e pluralização dinâmica da Home.
+- Área técnica preserva o backend detalhado existente.
