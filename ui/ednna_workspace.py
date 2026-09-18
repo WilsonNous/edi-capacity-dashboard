@@ -582,6 +582,7 @@ def render_ednna_workspace(
                     if rasc_home.get("ok"):
                         st.markdown("##### O que vou fazer")
                         st.write(f"**Para:** {', '.join(rasc_home.get('para') or [])}")
+                        st.write(f"**Cc padrão:** {', '.join(rasc_home.get('cc') or []) or '—'}")
                         st.write(f"**Assunto:** {rasc_home.get('assunto','')}")
                         st.text_area("Mensagem preparada", rasc_home.get("corpo", ""), height=220, disabled=True, key=f"preview_inc_{cid_home}_v32838")
                         confirmar_home = st.checkbox("Confirmo que a EDNNA pode executar esta ação externa.", key=f"confirm_inc_{cid_home}_v32838")
