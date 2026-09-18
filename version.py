@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.39"
-APP_RELEASE = "Identidade institucional de e-mail · Equipe EDI Netunna"
+APP_VERSION = "3.28.40"
+APP_RELEASE = "VR Benefícios · Portal do cliente · leitura e continuidade"

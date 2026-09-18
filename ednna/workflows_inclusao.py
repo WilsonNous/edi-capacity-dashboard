@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 WORKFLOW_EMAIL_ESTABELECIMENTO = "INCLUSAO_EMAIL_ESTABELECIMENTO"
+WORKFLOW_VR_PORTAL_CLIENTE = "INCLUSAO_VR_PORTAL_CLIENTE"
 GREEN_TEMPLATE = "docs/templates/TERMO_GREEN_BENEFICIOS.docx"
 
 WORKFLOWS = {
@@ -21,7 +22,7 @@ WORKFLOWS = {
     "POLICARD": {"tipo_player":"BENEFICIO","workflow":WORKFLOW_EMAIL_ESTABELECIMENTO,"canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
     "TRUCKPAG": {"tipo_player":"BENEFICIO","workflow":WORKFLOW_EMAIL_ESTABELECIMENTO,"canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
     "VEROCHEQUE": {"tipo_player":"BENEFICIO","workflow":WORKFLOW_EMAIL_ESTABELECIMENTO,"canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
-    "VR BENEFICIOS": {"tipo_player":"BENEFICIO","workflow":WORKFLOW_EMAIL_ESTABELECIMENTO,"canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
+    "VR BENEFICIOS": {"tipo_player":"BENEFICIO","workflow":WORKFLOW_VR_PORTAL_CLIENTE,"canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["cnpjs"],"responsavel_habilitacao":"CLIENTE","destinatario_tipo":"CLIENTE","retorno_esperado_de":"CLIENTE","status_pos_envio":"Aguardando Retorno Cliente","sla_primeiro_followup_horas":48,"regra_dados":"O cliente habilita a NETUNNA no Portal VR em Financeiro > Conciliação. A EDNNA apenas orienta, acompanha o retorno e monitora a chegada dos primeiros arquivos.","etapas":["EXTRAIR_CNPJS","IDENTIFICAR_CONTATOS_CLIENTE","PREPARAR_ORIENTACAO_PORTAL_VR","ENVIAR_ORIENTACAO_CLIENTE","AGUARDAR_RETORNO_CLIENTE","FOLLOWUP_CLIENTE_SE_NECESSARIO","INTERPRETAR_RETORNO_CLIENTE","VALIDAR_INICIO_OPERACAO","AGUARDAR_PRIMEIROS_ARQUIVOS","VALIDAR_ARQUIVOS_RECEBIDOS","REGISTRAR_EVIDENCIA_REDMINE"]},
     "SODEXO/PLUXEE": {"tipo_player":"BENEFICIO","workflow":"INCLUSAO_EMAIL_REUSA_FALTA_ARQUIVO","canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","fonte_procedimento":"FALTA_ARQUIVO_SODEXO_PLUXEE","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","RECUPERAR_CONTATOS_FALTA_ARQUIVO","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
     "CIELO": {"tipo_player":"ADQUIRENTE","workflow":"INCLUSAO_API","canal":"API","fonte_dados":"CHAMADO_ATUAL","executor":"CIELO_API","etapas":["EXTRAIR_DADOS","VALIDAR_DADOS","EXECUTAR_API","VALIDAR_RETORNO_API","REGISTRAR_EVIDENCIA_REDMINE"]},
     "TICKETLOG": {"tipo_player":"BENEFICIO","workflow":"INCLUSAO_ABERTURA_CHAMADO","canal":"CHAMADO","fonte_dados":"CHAMADO_ATUAL","executor":"TICKETLOG_CHAMADO","campos_obrigatorios":["estabelecimento"],"etapas":["EXTRAIR_ESTABELECIMENTO","ABRIR_CHAMADO_FORNECEDOR","REGISTRAR_PROTOCOLO","ACOMPANHAR_CHAMADO","REGISTRAR_EVIDENCIA_REDMINE"]},
@@ -39,6 +40,7 @@ def _valor_presente(dados: dict, campo: str) -> bool:
     aliases = {
         "estabelecimento": ("estabelecimento", "ec", "ecs", "convenio", "convenios"),
         "cnpj_matriz": ("cnpj_matriz", "matriz_cnpj"),
+        "cnpjs": ("cnpjs", "cnpj", "relacao_cnpjs"),
     }
     for chave in aliases.get(campo, (campo,)):
         valor = dados.get(chave)

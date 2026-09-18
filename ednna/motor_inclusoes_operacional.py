@@ -41,6 +41,8 @@ def _dados_snapshot(row: dict) -> dict:
         **extraidos,
         "estabelecimento": list(extraidos.get("ecs") or []),
         "cnpj_matriz": _identificar_cnpj_matriz(extraidos.get("cnpjs") or []),
+        "cnpjs": list(extraidos.get("cnpjs") or []),
+        "emails": list(extraidos.get("emails") or []),
         "cliente": str(row.get("Clientes", "") or ""),
         "assunto": str(row.get("Assunto", "") or ""),
         "estado_redmine": str(row.get("Estado", "") or ""),
@@ -89,6 +91,18 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
 
         # E-mail assistido exige destinatário humano confirmado na homologação.
         destinatario = str(regra.get("destinatario_confirmado") or "").strip()
+        if player == "VR BENEFICIOS":
+            # VR: a ação é dirigida ao CLIENTE, nunca à VR. Preferimos contatos
+            # externos encontrados no chamado e rejeitamos domínios Netunna/VR.
+            candidatos_cliente = [
+                str(e).strip() for e in (dados.get("emails") or [])
+                if str(e).strip() and not str(e).lower().endswith("@netunna.com.br")
+                and not str(e).lower().endswith("@vr.com.br")
+            ]
+            if candidatos_cliente:
+                destinatario = candidatos_cliente[0]
+            elif destinatario.lower().endswith("@vr.com.br") or destinatario.lower().endswith("@netunna.com.br"):
+                destinatario = ""
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
             estado = "AGUARDANDO_DESTINATARIO"
 
@@ -146,6 +160,7 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "cliente": dados.get("cliente") or "",
         "cnpj_matriz": dados.get("cnpj_matriz") or "",
         "estabelecimentos": dados.get("estabelecimento") or [],
+        "cnpjs": dados.get("cnpjs") or [],
         "etapas": wf.get("etapas") or [],
         "confirmacao_obrigatoria": True,
         "executou_acao_externa": False,
@@ -168,15 +183,43 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     cliente=str(pacote.get("cliente") or "Cliente")
     cid=int(pacote.get("chamado_id") or 0)
     ecs=[str(x) for x in (pacote.get("estabelecimentos") or []) if str(x).strip()]
+    cnpjs=[str(x) for x in (pacote.get("cnpjs") or []) if str(x).strip()]
     matriz=str(pacote.get("cnpj_matriz") or "").strip()
+
+    if player == "VR BENEFICIOS":
+        # O cliente é quem realiza a habilitação no Portal VR. A EDNNA somente
+        # orienta e acompanha; não envia solicitação de inclusão para a VR.
+        assunto=f"[VR - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, tudo bem?", "",
+            "Para darmos continuidade à recepção dos arquivos da VR Benefícios, é necessário habilitar a NETUNNA como conciliadora no Portal VR para o(s) CNPJ(s) abaixo.", "",
+            "1 - Acesse o Portal VR.",
+            "2 - No menu principal, clique em Financeiro.",
+            "3 - Selecione Conciliação.",
+            "4 - Selecione NETUNNA como conciliadora responsável pelo recebimento dos arquivos EDI.",
+            "5 - Confirme e finalize a habilitação.", "",
+        ]
+        if cnpjs:
+            linhas += ["CNPJ(s) solicitado(s):"] + [f"- {x}" for x in cnpjs] + [""]
+        linhas += [
+            "Após concluir a habilitação, pedimos a gentileza de nos confirmar o retorno para que possamos acompanhar a recepção dos arquivos.", "",
+            "Caso o estabelecimento ainda não esteja em operação, informe também a previsão de inauguração/início das vendas.",
+        ]
+        corpo=finalizar_email("\n".join(linhas))
+        return {
+            "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
+            "para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,
+            "prazo_resposta_dias_uteis":2,"tipo_acao":"ORIENTAR_CLIENTE_PORTAL_VR",
+            "status_pos_envio":"Aguardando Retorno Cliente",
+        }
+
     assunto=f"[{player} - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
     linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
     if matriz: linhas += [f"CNPJ Matriz: {matriz}"]
     if ecs: linhas += ["Estabelecimento(s): " + ", ".join(ecs)]
     linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
     corpo = finalizar_email("\n".join(linhas))
-    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2}
-
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Cliente"}
 
 def executar_atuacao_assistida_email(pacote: dict) -> dict:
     """Executa somente pacote EMAIL previamente preparado e confirmado na UI."""
@@ -191,7 +234,24 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     try:
         mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""))
-        print(f"[EDNNA] Operação assistida EXECUTADA | chamado={cid} | player={pacote.get('player')} | regra={rid} | canal=EMAIL",flush=True)
-        return {"ok":True,"estado":"AGUARDANDO_RESPOSTA","email":mail,"acompanhamento":acomp}
+        redmine_result = None
+        if pacote.get("player") == "VR BENEFICIOS":
+            try:
+                from ednna.redmine_writer import registrar_email_e_status_chamado
+                nota = (
+                    "EDNNA - orientação operacional enviada ao cliente para habilitação da NETUNNA no Portal VR.\n\n"
+                    f"Destinatário: {', '.join(r.get('para') or [])}\n"
+                    f"CNPJ(s): {', '.join(str(x) for x in (pacote.get('cnpjs') or []))}\n"
+                    "Próxima etapa: aguardar confirmação do cliente e, após a habilitação, acompanhar a chegada dos primeiros arquivos."
+                )
+                redmine_result = registrar_email_e_status_chamado(
+                    chamado_id=cid, nota=nota, status_nome="Aguardando Retorno Cliente",
+                    assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
+                )
+            except Exception as redmine_exc:
+                # O e-mail já foi enviado: nunca duplicar o disparo por falha do Redmine.
+                print(f"[EDNNA] VR pós-envio | Redmine pendente | chamado={cid} | {type(redmine_exc).__name__}: {redmine_exc}", flush=True)
+        print(f"[EDNNA] Operação assistida EXECUTADA | chamado={cid} | player={pacote.get('player')} | regra={rid} | canal=EMAIL | tipo={r.get('tipo_acao')}",flush=True)
+        return {"ok":True,"estado":"AGUARDANDO_RETORNO_CLIENTE" if pacote.get("player") == "VR BENEFICIOS" else "AGUARDANDO_RESPOSTA","email":mail,"acompanhamento":acomp,"redmine":redmine_result,"tipo_acao":r.get("tipo_acao")}
     except Exception as exc:
         registrar_falha_envio(cid,rid,str(exc)); raise

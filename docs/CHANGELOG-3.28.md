@@ -1,3 +1,12 @@
+# 3.28.40 — VR Benefícios: Portal do cliente e continuidade
+
+- Corrige o workflow VR Benefícios: a EDNNA não solicita inclusão à VR; orienta o cliente a habilitar NETUNNA no Portal VR.
+- Exige CNPJ(s) e destinatário do cliente; bloqueia endereços @vr.com.br e @netunna.com.br como destinatário operacional VR.
+- Gera mensagem específica com Financeiro > Conciliação > NETUNNA.
+- Após envio, registra no Redmine `Aguardando Retorno Cliente` e mantém monitoramento da thread.
+- Follow-up VR específico e elegante após o SLA.
+- Resposta do cliente continua sendo lida pelo monitor e registrada no Redmine, preservando o retorno no SQLite se o Redmine estiver indisponível.
+
 
 ## 3.28.39 — Identidade institucional de e-mail
 

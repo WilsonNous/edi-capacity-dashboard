@@ -23,6 +23,21 @@ def _parse(v):
 
 def _texto_followup(acao: dict, numero: int) -> str:
     chamado = int(acao.get("chamado_id") or 0)
+    regra_id = str(acao.get("regra_id") or "").upper()
+    if "VR-BENEFICIOS" in regra_id:
+        if numero <= 1:
+            return finalizar_email(
+                "Olá, tudo bem?\n\n"
+                "Passando para verificar se conseguiram realizar a habilitação da NETUNNA no Portal VR para o(s) CNPJ(s) informado(s).\n\n"
+                "Quando possível, pedimos, por gentileza, que nos confirmem o retorno para que possamos dar continuidade ao acompanhamento da recepção dos arquivos.\n\n"
+                "Caso tenham encontrado alguma dificuldade no procedimento, permanecemos à disposição."
+            )
+        return finalizar_email(
+            "Olá, tudo bem?\n\n"
+            "Retomando o acompanhamento da habilitação da NETUNNA no Portal VR, ainda não identificamos a confirmação na conversa.\n\n"
+            "Poderiam, por gentileza, nos atualizar sobre o andamento ou informar se há alguma dificuldade para concluir a habilitação?\n\n"
+            "Permanecemos à disposição."
+        )
     if numero <= 1:
         return finalizar_email(
             "Olá, tudo bem?\n\n"

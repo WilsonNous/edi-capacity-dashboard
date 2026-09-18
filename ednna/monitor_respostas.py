@@ -234,6 +234,32 @@ def _processar_retorno_getnet(chamado_id: int, corpo: str) -> tuple[str, int | N
     return "\n".join(linhas), ednna_id, "Em andamento"
 
 
+def _processar_retorno_vr(chamado_id: int, corpo: str) -> tuple[str, int | None, str]:
+    """Interpretação conservadora do retorno do cliente no fluxo VR.
+
+    Não conclui o chamado: após a habilitação ainda é necessário acompanhar os
+    primeiros arquivos/vendas. Apenas registra a próxima etapa no Redmine.
+    """
+    ednna_id = int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+    t = re.sub(r"\s+", " ", str(corpo or "").casefold())
+    sinais_habilitado = ("habilitad", "adicionei", "adicionado", "add o cnpj", "já esta tudo habilitado", "já está tudo habilitado", "concluí", "conclui")
+    if any(x in t for x in sinais_habilitado):
+        extra = (
+            "\n\n*EDNNA — Interpretação VR Benefícios*\n\n"
+            "*Resultado:* retorno do cliente indica que a habilitação no Portal VR foi realizada.\n"
+            "*Próxima etapa:* acompanhar o início da operação e a chegada dos primeiros arquivos com vendas. "
+            "O chamado não deve ser concluído apenas pela confirmação da habilitação."
+        )
+        if any(x in t for x in ("inaugur", "prevista", "previsto", "abre dia", "início", "inicio")):
+            extra += "\n*Observação:* o retorno também contém informação sobre início/inauguração; usar essa data como referência para o acompanhamento dos arquivos."
+        return extra, ednna_id, "Em andamento"
+    return (
+        "\n\n*EDNNA — Interpretação VR Benefícios*\n\n"
+        "*Resultado:* retorno do cliente recebido, mas a confirmação da habilitação no Portal VR não foi identificada com segurança. "
+        "Manter o chamado em acompanhamento e revisar o conteúdo antes de avançar para a espera dos arquivos."
+    ), ednna_id, "Em andamento"
+
+
 def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
     conversation_id = str(acao.get("graph_conversation_id", "") or "").strip()
     if conversation_id:
@@ -604,6 +630,9 @@ def _sincronizar_respostas_pendentes_redmine() -> int:
         if regra_id == "CANCELAMENTO-GETNET-001":
             extra, assigned_to, status = _processar_retorno_getnet(chamado_id, corpo)
             nota += extra
+        elif "VR-BENEFICIOS" in regra_id.upper():
+            extra, assigned_to, status = _processar_retorno_vr(chamado_id, corpo)
+            nota += extra
         try:
             message_id = str(acao.get("resposta_graph_message_id") or "")
             if message_id and not str(acao.get("evidencia_anexada_em") or ""):
@@ -743,6 +772,9 @@ def executar_monitoramento_respostas() -> dict:
             status_efetivo = status_retorno
             if regra_id == "CANCELAMENTO-GETNET-001":
                 extra, assigned_to_retorno, status_efetivo = _processar_retorno_getnet(chamado_id, corpo)
+                nota += extra
+            elif "VR-BENEFICIOS" in regra_id.upper():
+                extra, assigned_to_retorno, status_efetivo = _processar_retorno_vr(chamado_id, corpo)
                 nota += extra
 
             # v3.28.7.2: o e-mail é persistido ANTES do Redmine. Se o Redmine
