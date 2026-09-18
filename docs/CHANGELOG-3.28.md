@@ -1,3 +1,11 @@
+## 3.28.41 — Operação na Home · CC institucional · Redmine resiliente
+- Leva Preparar/Executar atuação assistida para a Home principal da EDNNA.
+- Exibe Para, Cc, assunto e corpo antes da confirmação humana.
+- Padroniza Cc global: BPO, EDI e Consultores (configurável por EDNNA_EMAIL_CC_PADRAO).
+- Toda execução assistida por e-mail passa a registrar o pós-envio no Redmine.
+- Falha do Redmine gera outbox pendente; o monitor reconcilia depois sem reenviar e-mail.
+- Mostra na Home a quantidade de atualizações Redmine pendentes.
+
 # 3.28.40 — VR Benefícios: Portal do cliente e continuidade
 
 - Corrige o workflow VR Benefícios: a EDNNA não solicita inclusão à VR; orienta o cliente a habilitar NETUNNA no Portal VR.

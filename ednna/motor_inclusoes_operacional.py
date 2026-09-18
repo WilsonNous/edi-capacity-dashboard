@@ -10,6 +10,7 @@ e-mail, NÃO chama APIs e NÃO altera Redmine. Ela prepara o braço operacional.
 from typing import Any
 import os
 from ednna.email_identity import finalizar_email
+from ednna.email_policy import aplicar_cc_padrao
 import pandas as pd
 
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
@@ -208,7 +209,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         corpo=finalizar_email("\n".join(linhas))
         return {
             "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
-            "para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,
+            "para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,
             "prazo_resposta_dias_uteis":2,"tipo_acao":"ORIENTAR_CLIENTE_PORTAL_VR",
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
@@ -219,7 +220,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     if ecs: linhas += ["Estabelecimento(s): " + ", ".join(ecs)]
     linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
     corpo = finalizar_email("\n".join(linhas))
-    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Cliente"}
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Cliente"}
 
 def executar_atuacao_assistida_email(pacote: dict) -> dict:
     """Executa somente pacote EMAIL previamente preparado e confirmado na UI."""
@@ -234,23 +235,27 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     try:
         mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""))
-        redmine_result = None
+        # Pós-envio obrigatório: o e-mail já saiu, portanto qualquer falha no Redmine
+        # vira outbox pendente e nunca provoca reenvio da mensagem.
+        from ednna.redmine_outbox import registrar_ou_enfileirar
+        status_pos = str(r.get("status_pos_envio") or "Aguardando Retorno Cliente")
         if pacote.get("player") == "VR BENEFICIOS":
-            try:
-                from ednna.redmine_writer import registrar_email_e_status_chamado
-                nota = (
-                    "EDNNA - orientação operacional enviada ao cliente para habilitação da NETUNNA no Portal VR.\n\n"
-                    f"Destinatário: {', '.join(r.get('para') or [])}\n"
-                    f"CNPJ(s): {', '.join(str(x) for x in (pacote.get('cnpjs') or []))}\n"
-                    "Próxima etapa: aguardar confirmação do cliente e, após a habilitação, acompanhar a chegada dos primeiros arquivos."
-                )
-                redmine_result = registrar_email_e_status_chamado(
-                    chamado_id=cid, nota=nota, status_nome="Aguardando Retorno Cliente",
-                    assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
-                )
-            except Exception as redmine_exc:
-                # O e-mail já foi enviado: nunca duplicar o disparo por falha do Redmine.
-                print(f"[EDNNA] VR pós-envio | Redmine pendente | chamado={cid} | {type(redmine_exc).__name__}: {redmine_exc}", flush=True)
+            descricao = "orientação operacional enviada ao cliente para habilitação da NETUNNA no Portal VR"
+            proxima = "aguardar confirmação do cliente e, após a habilitação, acompanhar a chegada dos primeiros arquivos"
+        else:
+            descricao = f"ação operacional enviada por e-mail ({r.get('tipo_acao') or 'INCLUSAO'})"
+            proxima = "aguardar retorno e manter o acompanhamento pela EDNNA"
+        nota = (
+            f"EDNNA - {descricao}.\n\n"
+            f"Para: {', '.join(r.get('para') or [])}\n"
+            f"Cc: {', '.join(r.get('cc') or [])}\n"
+            f"Assunto: {r.get('assunto') or ''}\n"
+            f"Próxima etapa: {proxima}."
+        )
+        redmine_result = registrar_ou_enfileirar(
+            chamado_id=cid, regra_id=rid, nota=nota, status_nome=status_pos,
+            assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
+        )
         print(f"[EDNNA] Operação assistida EXECUTADA | chamado={cid} | player={pacote.get('player')} | regra={rid} | canal=EMAIL | tipo={r.get('tipo_acao')}",flush=True)
         return {"ok":True,"estado":"AGUARDANDO_RETORNO_CLIENTE" if pacote.get("player") == "VR BENEFICIOS" else "AGUARDANDO_RESPOSTA","email":mail,"acompanhamento":acomp,"redmine":redmine_result,"tipo_acao":r.get("tipo_acao")}
     except Exception as exc:

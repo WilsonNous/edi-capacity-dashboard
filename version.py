@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.40"
-APP_RELEASE = "VR Benefícios · Portal do cliente · leitura e continuidade"
+APP_VERSION = "3.28.41"
+APP_RELEASE = "Operação na Home · CC institucional · Redmine resiliente"

@@ -847,6 +847,13 @@ def executar_monitoramento_respostas() -> dict:
     except Exception as exc:
         print(f"[EDNNA] Continuidade | falha geral | {type(exc).__name__}: {exc}", flush=True)
 
+    # Repara efeitos pós-envio que ficaram pendentes por indisponibilidade do Redmine.
+    try:
+        from ednna.redmine_outbox import reconciliar_redmine_pendentes
+        resumo["redmine_reconciliacao"] = reconciliar_redmine_pendentes(10)
+    except Exception as exc:
+        print(f"[EDNNA] Redmine reconciliação | falha geral | {type(exc).__name__}: {exc}", flush=True)
+
     return resumo
 
 

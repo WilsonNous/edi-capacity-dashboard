@@ -144,6 +144,10 @@ def inicializar_acompanhamento() -> None:
             "evidencia_erro": "TEXT",
             "followup_count": "INTEGER DEFAULT 0",
             "followup_ultimo_em": "TEXT",
+            "redmine_pendente_nota": "TEXT",
+            "redmine_pendente_status": "TEXT",
+            "redmine_pendente_assigned_to_id": "INTEGER",
+            "redmine_tentativas": "INTEGER DEFAULT 0",
         }
 
         for nome, tipo in novas_colunas.items():
@@ -523,6 +527,48 @@ def marcar_status_redmine(
         chamado_id,
         regra_id,
     )
+
+
+
+def agendar_redmine_pendente(chamado_id: int, regra_id: str, *, nota: str, status_nome: str, assigned_to_id: int | None = None, erro: str = "") -> dict:
+    inicializar_acompanhamento()
+    agora = _iso(_agora())
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais
+                  SET redmine_pendente_nota=?, redmine_pendente_status=?,
+                      redmine_pendente_assigned_to_id=?, redmine_erro=?,
+                      redmine_tentativas=COALESCE(redmine_tentativas,0)+1, atualizado_em=?
+                WHERE chamado_id=? AND regra_id=?""",
+            (str(nota or ""), str(status_nome or ""), assigned_to_id, str(erro or "")[:1500] or None, agora, int(chamado_id), str(regra_id)),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)
+
+
+def concluir_redmine_pendente(chamado_id: int, regra_id: str, status_nome: str) -> dict:
+    agora = _iso(_agora())
+    with _conectar() as conn:
+        conn.execute(
+            """UPDATE acoes_operacionais
+                  SET redmine_atualizado_em=?, redmine_status_nome=?, redmine_status_atualizado_em=?,
+                      redmine_erro=NULL, redmine_pendente_nota=NULL, redmine_pendente_status=NULL,
+                      redmine_pendente_assigned_to_id=NULL, atualizado_em=?
+                WHERE chamado_id=? AND regra_id=?""",
+            (agora, str(status_nome or ""), agora, agora, int(chamado_id), str(regra_id)),
+        )
+    return obter_acompanhamento(chamado_id, regra_id)
+
+
+def listar_redmine_pendentes() -> list[dict]:
+    inicializar_acompanhamento()
+    with _conectar() as conn:
+        rows=conn.execute(
+            """SELECT * FROM acoes_operacionais
+                WHERE enviado_em IS NOT NULL AND redmine_atualizado_em IS NULL
+                  AND COALESCE(redmine_pendente_nota,'') <> ''
+                ORDER BY enviado_em ASC"""
+        ).fetchall()
+    return [dict(x) for x in rows]
 
 
 def listar_acoes_aguardando_resposta() -> list[dict]:
