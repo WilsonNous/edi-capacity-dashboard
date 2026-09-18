@@ -9,6 +9,7 @@ e-mail, NÃO chama APIs e NÃO altera Redmine. Ela prepara o braço operacional.
 
 from typing import Any
 import os
+from ednna.email_identity import finalizar_email
 import pandas as pd
 
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
@@ -172,8 +173,9 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
     if matriz: linhas += [f"CNPJ Matriz: {matriz}"]
     if ecs: linhas += ["Estabelecimento(s): " + ", ".join(ecs)]
-    linhas += ["","Estamos à disposição para quaisquer esclarecimentos.","","Atenciosamente,","EDNNA · Automação EDI"]
-    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":"\n".join(linhas),"prazo_resposta_dias_uteis":2}
+    linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
+    corpo = finalizar_email("\n".join(linhas))
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2}
 
 
 def executar_atuacao_assistida_email(pacote: dict) -> dict:

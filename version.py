@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.38"
-APP_RELEASE = "Motor de execução e continuidade · Braço operacional EDNNA"
+APP_VERSION = "3.28.39"
+APP_RELEASE = "Identidade institucional de e-mail · Equipe EDI Netunna"

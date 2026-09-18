@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from ednna.acompanhamento_acoes import listar_acoes_aguardando_resposta
 from ednna.email_sender import responder_todos_email_graph
+from ednna.email_identity import finalizar_email
 
 TZ = ZoneInfo("America/Sao_Paulo")
 
@@ -23,21 +24,21 @@ def _parse(v):
 def _texto_followup(acao: dict, numero: int) -> str:
     chamado = int(acao.get("chamado_id") or 0)
     if numero <= 1:
-        return (
+        return finalizar_email(
             "Olá, tudo bem?\n\n"
             "Retomando nossa solicitação encaminhada anteriormente, "
             f"referente ao atendimento #{chamado}.\n\n"
             "Poderiam, por gentileza, nos informar se a solicitação já está em análise "
             "ou se há alguma informação adicional necessária para continuidade?\n\n"
-            "Permanecemos à disposição.\n\nAtenciosamente,\nEDNNA · Automação EDI"
+            "Permanecemos à disposição."
         )
-    return (
+    return finalizar_email(
         "Olá, tudo bem?\n\n"
         f"Gostaríamos de acompanhar novamente a solicitação referente ao atendimento #{chamado}. "
         "Até o momento não identificamos retorno na conversa.\n\n"
         "Quando possível, pedimos a gentileza de nos atualizar sobre o andamento ou indicar "
         "eventual pendência para que possamos dar continuidade.\n\n"
-        "Agradecemos desde já.\n\nAtenciosamente,\nEDNNA · Automação EDI"
+        "Agradecemos desde já."
     )
 
 

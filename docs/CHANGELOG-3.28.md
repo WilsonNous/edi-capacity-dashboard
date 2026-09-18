@@ -1,3 +1,12 @@
+
+## 3.28.39 — Identidade institucional de e-mail
+
+- Padroniza a assinatura dos e-mails operacionais e follow-ups como **Equipe EDI Netunna**.
+- A EDNNA permanece identificada discretamente no rodapé como camada de automação e acompanhamento.
+- Centraliza assinatura e rodapé em `ednna/email_identity.py`, com configuração por variáveis de ambiente.
+- Aplica o padrão tanto às inclusões por e-mail quanto aos follow-ups na mesma thread.
+- Mantém remetente técnico configurável por `EDNNA_EMAIL_FROM`; assinatura institucional é independente da conta de envio.
+
 # 3.28.34 — Backend organizado · Motor EDNNA
 
 - Painel EDI assume explicitamente o papel de backend operacional.
