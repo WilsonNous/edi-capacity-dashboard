@@ -850,3 +850,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Execução automática de inclusões continua bloqueada por segurança nesta versão.
 - Motor impede operação de regra homologada mas não autorizada.
 - Backend passa a exibir uma mesa objetiva de autorização: homologada, executor, estado do motor, autorizar/suspender.
+
+
+## 3.28.36 — Motor resiliente · Cache-first · Delta operacional
+- Falhas transitórias do Redmine em journals deixam de interromper a fila operacional.
+- Timeout/circuit breaker passam a gerar `PENDENTE_ENRIQUECIMENTO`, com cooldown por chamado e continuidade da fila.
+- Classificação no Painel passa a ser orientada a delta: novos/alterados são reavaliados; snapshot sem mudança não reprocessa toda a carteira.
+- Mantido o SQLite como memória operacional para servir dados já conhecidos durante indisponibilidade do Redmine.
+- Log diferencia falha de infraestrutura de erro real de análise.
+- Homologações e autorizações assistidas da v3.28.35 são preservadas.

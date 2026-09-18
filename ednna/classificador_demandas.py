@@ -227,11 +227,19 @@ def classificacao_precisa_atualizar(chamado_id: int, alterado_em: str) -> bool:
     return normalizar_marca_alteracao(atual.get("alterado_em_redmine")) != normalizar_marca_alteracao(alterado_em)
 
 
-def classificar_dataframe(frame: pd.DataFrame) -> dict:
+def classificar_dataframe(frame: pd.DataFrame, chamados_ids: set[int] | None = None) -> dict:
     resultado = {"recebidos":0,"classificados":0,"reaproveitados":0,"nao_classificados":0,"erros":0}
     if frame is None or not isinstance(frame,pd.DataFrame) or frame.empty or "#" not in frame.columns: return resultado
     resultado["recebidos"] = len(frame)
-    for _, row in frame.iterrows():
+    frame_processamento = frame
+    if chamados_ids is not None:
+        ids_normalizados = {int(x) for x in chamados_ids if x is not None}
+        if not ids_normalizados:
+            return resultado
+        ids_frame = pd.to_numeric(frame["#"], errors="coerce")
+        frame_processamento = frame[ids_frame.isin(ids_normalizados)]
+        resultado["recebidos"] = len(frame_processamento)
+    for _, row in frame_processamento.iterrows():
         try: chamado_id = int(float(row.get("#")))
         except Exception: resultado["erros"] += 1; continue
         alterado = normalizar_marca_alteracao(row.get("Alterado"))
@@ -244,7 +252,9 @@ def classificar_dataframe(frame: pd.DataFrame) -> dict:
         except Exception as exc:
             resultado["erros"] += 1; print(f"[EDNNA] Erro classificando demanda | chamado={chamado_id} | erro={exc}", flush=True)
     salvar_metadado("ultima_classificacao_demandas", agora_brasil_iso())
-    print("[EDNNA] Classificação de demandas | " + " | ".join(f"{k}={v}" for k,v in resultado.items()), flush=True)
+    if resultado["classificados"] or resultado["erros"] or chamados_ids is None:
+        modo = "delta" if chamados_ids is not None else "snapshot"
+        print("[EDNNA] Classificação de demandas | modo=" + modo + " | " + " | ".join(f"{k}={v}" for k,v in resultado.items()), flush=True)
     return resultado
 
 

@@ -111,6 +111,8 @@ def sincronizar_dataframe(
         "sem_alteracao": 0,
         "ignorados": 0,
         "erros": 0,
+        "ids_novos": [],
+        "ids_alterados": [],
     }
 
     if frame is None:
@@ -163,6 +165,7 @@ def sincronizar_dataframe(
                 )
 
                 resultado["novos"] += 1
+                resultado["ids_novos"].append(chamado_id)
 
                 continue
 
@@ -178,6 +181,7 @@ def sincronizar_dataframe(
                 )
 
                 resultado["alterados"] += 1
+                resultado["ids_alterados"].append(chamado_id)
 
                 continue
 
@@ -199,6 +203,7 @@ def sincronizar_dataframe(
             if enriquecimento_mudou:
                 salvar_chamado(chamado_id, dados)
                 resultado["alterados"] += 1
+                resultado["ids_alterados"].append(chamado_id)
                 continue
 
             resultado[

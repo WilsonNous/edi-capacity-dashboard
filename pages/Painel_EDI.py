@@ -28,6 +28,7 @@ from ednna.primeiro_combate import (
 
 from ednna.sincronizador import (
     sincronizar_dataframe,
+    normalizar_marca_alteracao,
 )
 
 from ednna.sincronizador_journals import (
@@ -44,6 +45,7 @@ from ednna.armazenamento import (
 
 from ednna.classificador_demandas import (
     classificar_dataframe,
+    classificacao_precisa_atualizar,
     enriquecer_dataframe_com_classificacoes,
     carregar_catalogo,
     calcular_prontidao_automacao,
@@ -2179,11 +2181,13 @@ diagnostico_classificacao_ednna = None
 
 try:
     if not usando_memoria_ednna:
-        diagnostico_classificacao_ednna = (
-            classificar_dataframe(
-                df
-            )
-        )
+        # v3.28.36: classificação orientada a delta. O snapshot já informa
+        # quantos itens mudaram; só reavaliamos IDs realmente novos/alterados.
+        ids_delta = None
+        if diagnostico_ednna_sync:
+            ids_delta = set(diagnostico_ednna_sync.get("ids_novos", []) or [])
+            ids_delta.update(diagnostico_ednna_sync.get("ids_alterados", []) or [])
+        diagnostico_classificacao_ednna = classificar_dataframe(df, chamados_ids=ids_delta)
 except Exception as exc:
     print(
         "[EDNNA] Falha na classificação de demandas: "

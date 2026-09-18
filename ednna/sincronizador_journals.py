@@ -18,6 +18,7 @@ from ednna.armazenamento import (
     liberar_lock,
     cooldown_ativo,
     definir_cooldown,
+    listar_journals,
 )
 from ednna.primeiro_combate import (
     autores_edi_do_dataframe,
@@ -138,6 +139,16 @@ def listar_pendentes_dataframe(
     return resultado
 
 
+def _erro_infraestrutura_redmine(erro: str) -> bool:
+    texto = (erro or "").lower()
+    sinais = (
+        "connecttimeout", "readtimeout", "timed out", "timeout",
+        "circuit breaker", "connectionerror", "max retries exceeded",
+        "temporarily unavailable", "service unavailable",
+    )
+    return any(sinal in texto for sinal in sinais)
+
+
 def processar_chamado(
     row: pd.Series,
     autores_edi: set[str],
@@ -248,6 +259,26 @@ def processar_chamado(
         erro = str(exc)
         definir_cooldown(chave_cooldown, JOURNAL_COOLDOWN_SECONDS, erro)
 
+        # Falha de infraestrutura não é falha do chamado. A EDNNA preserva
+        # a fila, marca o enriquecimento como pendente e segue trabalhando.
+        if _erro_infraestrutura_redmine(erro):
+            cache_journals = listar_journals(chamado_id)
+            print(
+                "[EDNNA] Journals PENDENTE | "
+                f"chamado={chamado_id} | cache={len(cache_journals)} | "
+                "motivo=REDMINE_INDISPONIVEL | fila=CONTINUA",
+                flush=True,
+            )
+            return {
+                "ok": True,
+                "id": chamado_id,
+                "journals": 0,
+                "situacao": "PENDENTE_ENRIQUECIMENTO",
+                "erro": erro,
+                "infraestrutura_indisponivel": True,
+                "cache_journals": len(cache_journals),
+            }
+
         print(
             "[EDNNA] Journals ERRO | "
             f"chamado={chamado_id} | "
@@ -296,6 +327,8 @@ def _processar_lote(
             0,
         "revisao":
             0,
+        "pendente_enriquecimento":
+            0,
         "interrompido":
             False,
         "resultados":
@@ -329,6 +362,8 @@ def _processar_lote(
             resultado["aguardando"] += 1
         elif situacao == "REVISAO_NECESSARIA":
             resultado["revisao"] += 1
+        elif situacao == "PENDENTE_ENRIQUECIMENTO":
+            resultado["pendente_enriquecimento"] += 1
 
         resultado["journals"] += int(
             item.get(
