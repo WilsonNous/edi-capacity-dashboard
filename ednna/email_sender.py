@@ -340,3 +340,28 @@ def listar_envios_cancelamento_getnet(*, remetente: str, top: int = 250) -> list
         copia["chamado_id"] = int(m.group(1))
         resultado.append(copia)
     return resultado
+
+
+def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: str) -> dict:
+    """Responde a todos na thread de uma mensagem já enviada via Microsoft Graph."""
+    remetente = str(remetente or os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
+    message_id = str(message_id or "").strip()
+    comentario = str(comentario or "").strip()
+    if not remetente:
+        raise EmailConfigError("Remetente não configurado.")
+    if not message_id:
+        raise EmailConfigError("Mensagem original não localizada para follow-up.")
+    if not comentario:
+        raise EmailConfigError("Comentário do follow-up está vazio.")
+    token = obter_token_graph()
+    resposta = requests.post(
+        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{message_id}/replyAll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"comment": comentario}, timeout=30,
+    )
+    if resposta.status_code != 202:
+        raise EmailSendError(
+            "Falha ao enviar follow-up pelo Microsoft Graph: "
+            f"HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+    return {"ok": True, "status_code": resposta.status_code, "message_id_origem": message_id}

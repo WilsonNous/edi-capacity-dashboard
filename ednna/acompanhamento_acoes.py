@@ -142,6 +142,8 @@ def inicializar_acompanhamento() -> None:
             "evidencia_anexada_em": "TEXT",
             "evidencia_filename": "TEXT",
             "evidencia_erro": "TEXT",
+            "followup_count": "INTEGER DEFAULT 0",
+            "followup_ultimo_em": "TEXT",
         }
 
         for nome, tipo in novas_colunas.items():

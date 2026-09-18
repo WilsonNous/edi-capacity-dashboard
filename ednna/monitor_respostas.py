@@ -794,6 +794,27 @@ def executar_monitoramento_respostas() -> dict:
                 flush=True,
             )
 
+    # v3.28.38 — continuidade: após confirmar que não houve resposta, avalia follow-ups vencidos.
+    try:
+        from ednna.followup_engine import avaliar_followups, executar_followup
+        followups = avaliar_followups()
+        resumo["followups_prontos"] = int(followups.get("prontos", 0) or 0)
+        resumo["followups_enviados"] = 0
+        auto = str(os.getenv("EDNNA_FOLLOWUP_AUTO", "true") or "true").strip().casefold() in {"1","true","sim","yes","on"}
+        if auto:
+            limite = max(1, int(os.getenv("EDNNA_FOLLOWUP_MAX_PER_CYCLE", "3") or 3))
+            for item in [x for x in followups.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO"][:limite]:
+                try:
+                    executar_followup(item)
+                    resumo["followups_enviados"] += 1
+                except Exception as exc:
+                    resumo["erros"] += 1
+                    print(f"[EDNNA] Follow-up pendente | chamado={item.get('chamado_id')} | {type(exc).__name__}: {exc}", flush=True)
+        if resumo.get("followups_prontos") or resumo.get("followups_enviados"):
+            print(f"[EDNNA] Continuidade | followups_prontos={resumo.get('followups_prontos',0)} | followups_enviados={resumo.get('followups_enviados',0)}", flush=True)
+    except Exception as exc:
+        print(f"[EDNNA] Continuidade | falha geral | {type(exc).__name__}: {exc}", flush=True)
+
     return resumo
 
 

@@ -867,3 +867,11 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Workflows de e-mail exigem destinatário confirmado antes de ficarem prontos para atuação.
 - Novo comando **Preparar atuação assistida** gera pacote operacional para confirmação humana sem enviar e-mail, chamar API ou alterar Redmine.
 - Log do motor passa a registrar resumo da fila e preparação da atuação.
+
+## 3.28.38 — Motor de execução e continuidade
+- A fila de atuação assistida passa a aparecer também na interface principal da EDNNA.
+- Inclusões por e-mail homologadas/autorizadas podem ser preparadas, revisadas e executadas com confirmação humana.
+- Após envio, a ação entra em acompanhamento e monitoramento de retorno.
+- Novo Follow-up Engine: identifica prazo vencido sem resposta, mantém limite/cooldown e responde na mesma thread via Microsoft Graph.
+- Follow-up automático habilitado por padrão, limitado a 2 acompanhamentos por ação e 3 envios por ciclo; configurável por ambiente.
+- A Home operacional diferencia: posso preparar, aguardando retorno, follow-up pronto e preciso de dados.

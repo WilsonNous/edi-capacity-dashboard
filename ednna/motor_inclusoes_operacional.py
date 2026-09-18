@@ -8,6 +8,7 @@ e-mail, NÃO chama APIs e NÃO altera Redmine. Ela prepara o braço operacional.
 """
 
 from typing import Any
+import os
 import pandas as pd
 
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
@@ -150,3 +151,45 @@ def preparar_atuacao_assistida(item: dict) -> dict:
     }
     print(f"[EDNNA] Operação assistida preparada | chamado={pacote['chamado_id']} | player={pacote['player']} | regra={pacote['regra_id']} | estado=AGUARDANDO_CONFIRMACAO_HUMANA", flush=True)
     return pacote
+
+
+def gerar_rascunho_inclusao(pacote: dict) -> dict:
+    """Transforma pacote validado de inclusão EMAIL em rascunho visível ao operador."""
+    if not pacote.get("ok"):
+        return {"ok": False, "motivo": "Pacote operacional inválido."}
+    canal = str(pacote.get("canal") or "")
+    if canal != "EMAIL":
+        return {"ok": False, "motivo": f"Executor direto ainda não disponível para canal {canal}."}
+    destinatario = str(pacote.get("destinatario") or "").strip()
+    if not destinatario:
+        return {"ok": False, "motivo": "Destinatário não confirmado."}
+    player=str(pacote.get("player") or "")
+    cliente=str(pacote.get("cliente") or "Cliente")
+    cid=int(pacote.get("chamado_id") or 0)
+    ecs=[str(x) for x in (pacote.get("estabelecimentos") or []) if str(x).strip()]
+    matriz=str(pacote.get("cnpj_matriz") or "").strip()
+    assunto=f"[{player} - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+    linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
+    if matriz: linhas += [f"CNPJ Matriz: {matriz}"]
+    if ecs: linhas += ["Estabelecimento(s): " + ", ".join(ecs)]
+    linhas += ["","Estamos à disposição para quaisquer esclarecimentos.","","Atenciosamente,","EDNNA · Automação EDI"]
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":[],"assunto":assunto,"corpo":"\n".join(linhas),"prazo_resposta_dias_uteis":2}
+
+
+def executar_atuacao_assistida_email(pacote: dict) -> dict:
+    """Executa somente pacote EMAIL previamente preparado e confirmado na UI."""
+    from ednna.acompanhamento_acoes import adquirir_envio, confirmar_envio_real, registrar_falha_envio
+    from ednna.email_sender import enviar_email_graph
+    r=gerar_rascunho_inclusao(pacote)
+    if not r.get("ok"): return r
+    cid=int(pacote.get("chamado_id") or 0); rid=str(pacote.get("regra_id") or "")
+    adquirido, estado=adquirir_envio(cid,rid)
+    if not adquirido:
+        return {"ok":False,"motivo":"Ação já iniciada ou enviada.","acompanhamento":estado}
+    try:
+        mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
+        acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""))
+        print(f"[EDNNA] Operação assistida EXECUTADA | chamado={cid} | player={pacote.get('player')} | regra={rid} | canal=EMAIL",flush=True)
+        return {"ok":True,"estado":"AGUARDANDO_RESPOSTA","email":mail,"acompanhamento":acomp}
+    except Exception as exc:
+        registrar_falha_envio(cid,rid,str(exc)); raise

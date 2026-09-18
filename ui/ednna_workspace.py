@@ -56,7 +56,8 @@ from ednna.planejador_inclusoes import (
     preparar_operacao_inclusao,
 )
 from ednna.workflows_inclusao import obter_workflow
-from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida
+from ednna.motor_inclusoes_operacional import (avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email)
+from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.aprendizado_operacional import (
     aprender_procedimento_inclusao,
     obter_aprendizado,
@@ -555,6 +556,60 @@ def render_ednna_workspace(
                 '<div class="ednna-section-title">Operação assistida</div>',
                 unsafe_allow_html=True,
             )
+            st.caption("Aqui a EDNNA mostra o que já pode fazer, o que está aguardando retorno e o que precisa de continuidade.")
+
+            # v3.28.38 — braço operacional também na interface principal da EDNNA.
+            snapshot_motor = snapshot_global if isinstance(snapshot_global, pd.DataFrame) and not snapshot_global.empty else ednna_analisados
+            fila_home = avaliar_fila_inclusoes(snapshot_motor)
+            follow_home = avaliar_followups()
+            fh1, fh2, fh3, fh4 = st.columns(4)
+            fh1.metric("Posso preparar", int((fila_home.get("resumo") or {}).get("prontas", 0) or 0))
+            fh2.metric("Aguardando retorno", int(follow_home.get("total", 0) or 0))
+            fh3.metric("Follow-up pronto", int(follow_home.get("prontos", 0) or 0))
+            fh4.metric("Preciso de dados", int((fila_home.get("resumo") or {}).get("aguardando_dados", 0) or 0))
+
+            prontos_home = [x for x in fila_home.get("itens", []) if x.get("estado_motor") == "PRONTO_OPERACAO_ASSISTIDA"]
+            if prontos_home:
+                st.markdown("#### 🦾 Chamados em que posso agir")
+                mapa_home = {int(x["id"]): x for x in prontos_home}
+                cid_home = st.selectbox("Escolha um chamado", list(mapa_home), format_func=lambda cid: f"#{cid} · {mapa_home[cid].get('player')} · {mapa_home[cid].get('cliente') or 'Sem cliente'}", key="ednna_home_operacao_sel_v32838")
+                item_home = mapa_home[int(cid_home)]
+                if st.button("🧾 Preparar atuação", type="primary", width="stretch", key="ednna_home_prepare_v32838"):
+                    st.session_state["ednna_home_pacote_v32838"] = preparar_atuacao_assistida(item_home)
+                pacote_home = st.session_state.get("ednna_home_pacote_v32838")
+                if pacote_home and int(pacote_home.get("chamado_id") or 0) == int(cid_home):
+                    rasc_home = gerar_rascunho_inclusao(pacote_home)
+                    if rasc_home.get("ok"):
+                        st.markdown("##### O que vou fazer")
+                        st.write(f"**Para:** {', '.join(rasc_home.get('para') or [])}")
+                        st.write(f"**Assunto:** {rasc_home.get('assunto','')}")
+                        st.text_area("Mensagem preparada", rasc_home.get("corpo", ""), height=220, disabled=True, key=f"preview_inc_{cid_home}_v32838")
+                        confirmar_home = st.checkbox("Confirmo que a EDNNA pode executar esta ação externa.", key=f"confirm_inc_{cid_home}_v32838")
+                        if st.button("📨 Executar agora", type="primary", disabled=not confirmar_home, width="stretch", key=f"exec_inc_{cid_home}_v32838"):
+                            try:
+                                resultado_exec = executar_atuacao_assistida_email(pacote_home)
+                                if resultado_exec.get("ok"):
+                                    st.success("Ação executada. A EDNNA agora acompanhará o retorno e fará follow-up quando o prazo vencer.")
+                                    st.session_state.pop("ednna_home_pacote_v32838", None)
+                                else:
+                                    st.warning(resultado_exec.get("motivo") or "A ação não foi executada.")
+                            except Exception as exc:
+                                st.error(f"Falha na execução: {type(exc).__name__}: {exc}")
+                    else:
+                        st.info(rasc_home.get("motivo") or "Este workflow ainda exige executor específico.")
+
+            follow_prontos_home = [x for x in follow_home.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO"]
+            if follow_prontos_home:
+                st.markdown("#### 📨 Continuidade pendente")
+                for fup in follow_prontos_home[:5]:
+                    cid_f = int(fup.get("chamado_id") or 0)
+                    with st.expander(f"#{cid_f} · follow-up {fup.get('proximo_followup')} pronto", expanded=False):
+                        st.text_area("Mensagem de acompanhamento", fup.get("texto_followup", ""), height=180, disabled=True, key=f"fup_preview_{cid_f}_{fup.get('regra_id')}")
+                        if st.button("Enviar follow-up agora", key=f"fup_exec_{cid_f}_{fup.get('regra_id')}"):
+                            try:
+                                executar_followup(fup); st.success("Follow-up enviado na mesma conversa."); st.rerun()
+                            except Exception as exc:
+                                st.error(f"Não foi possível enviar: {type(exc).__name__}: {exc}")
             regras_auto = [
                 regra
                 for regra in (
