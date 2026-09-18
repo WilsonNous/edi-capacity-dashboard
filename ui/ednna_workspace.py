@@ -56,6 +56,7 @@ from ednna.planejador_inclusoes import (
     preparar_operacao_inclusao,
 )
 from ednna.workflows_inclusao import obter_workflow
+from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida
 from ednna.aprendizado_operacional import (
     aprender_procedimento_inclusao,
     obter_aprendizado,
@@ -1912,6 +1913,40 @@ def render_ednna_workspace(
                                         st.error(str(exc_auth))
                             else:
                                 st.info("Regra homologada, mas ainda não pode operar até o executor indicado ser implementado e validado.")
+
+                # v3.28.37 — braço operacional: regras homologadas + autorizadas viram fila de trabalho.
+                st.markdown("##### 🦾 Fila de operação assistida")
+                st.caption("Aqui a EDNNA deixa de apenas aprender: cruza inclusões ativas com regras homologadas e autorizadas. Preparar atuação ainda não envia e-mail, não chama API e não altera o Redmine.")
+                fila_motor_inc = avaliar_fila_inclusoes(base_descoberta)
+                rm = fila_motor_inc.get("resumo", {})
+                fm1, fm2, fm3, fm4 = st.columns(4)
+                fm1.metric("Inclusões ativas", rm.get("descobertas", 0))
+                fm2.metric("Autorizadas", rm.get("autorizadas", 0))
+                fm3.metric("Prontas para agir", rm.get("prontas", 0))
+                fm4.metric("Pendências", int(rm.get("aguardando_dados",0))+int(rm.get("aguardando_destinatario",0))+int(rm.get("aguardando_executor",0)))
+                itens_motor = fila_motor_inc.get("itens", []) or []
+                if itens_motor:
+                    tabela_motor = pd.DataFrame([{
+                        "#": x.get("id"), "Cliente": x.get("cliente") or "—", "Player": x.get("player") or "—",
+                        "Regra": x.get("regra_id") or "—", "Estado do motor": x.get("estado_motor") or "—",
+                        "Próxima ação": x.get("acao_sugerida") or "—"
+                    } for x in itens_motor])
+                    tabela_motor, cfg_motor = preparar_tabela_com_link_redmine_fn(tabela_motor)
+                    st.dataframe(tabela_motor, width="stretch", hide_index=True, column_config=cfg_motor)
+                    prontos_motor = [x for x in itens_motor if x.get("estado_motor") == "PRONTO_OPERACAO_ASSISTIDA"]
+                    if prontos_motor:
+                        mapa_prontos = {int(x["id"]): x for x in prontos_motor}
+                        sel_motor = st.selectbox("Chamado pronto para atuação", list(mapa_prontos), format_func=lambda cid: f"#{cid} · {mapa_prontos[cid].get('player')} · {mapa_prontos[cid].get('cliente') or 'Sem cliente'}", key="ednna_motor_inc_sel_v32837")
+                        if st.button("🦾 Preparar atuação assistida", type="primary", width="stretch", key="ednna_motor_inc_prepare_v32837"):
+                            pacote_motor = preparar_atuacao_assistida(mapa_prontos[int(sel_motor)])
+                            st.session_state["ednna_pacote_operacao_v32837"] = pacote_motor
+                    pacote_motor = st.session_state.get("ednna_pacote_operacao_v32837")
+                    if pacote_motor and pacote_motor.get("ok"):
+                        st.success(f"Atuação preparada para #{pacote_motor.get('chamado_id')} · {pacote_motor.get('player')}. Aguardando confirmação humana; nenhuma ação externa foi executada.")
+                        with st.expander("Ver pacote operacional preparado", expanded=True):
+                            st.write(pacote_motor)
+                else:
+                    st.info("Nenhuma inclusão ativa disponível para o motor neste snapshot.")
 
                 aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):

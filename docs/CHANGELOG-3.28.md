@@ -859,3 +859,11 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Mantido o SQLite como memória operacional para servir dados já conhecidos durante indisponibilidade do Redmine.
 - Log diferencia falha de infraestrutura de erro real de análise.
 - Homologações e autorizações assistidas da v3.28.35 são preservadas.
+
+## 3.28.37 — Braço operacional · Fila assistida de inclusões
+
+- Inclusões ativas passam a ser cruzadas com regras homologadas e autorização explícita do motor.
+- Nova fila operacional distingue regra não homologada, não autorizada, dados faltantes, destinatário faltante, executor faltante e operação pronta.
+- Workflows de e-mail exigem destinatário confirmado antes de ficarem prontos para atuação.
+- Novo comando **Preparar atuação assistida** gera pacote operacional para confirmação humana sem enviar e-mail, chamar API ou alterar Redmine.
+- Log do motor passa a registrar resumo da fila e preparação da atuação.

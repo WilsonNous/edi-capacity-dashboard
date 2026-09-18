@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.36"
-APP_RELEASE = "Motor resiliente · Cache-first · Delta operacional"
+APP_VERSION = "3.28.37"
+APP_RELEASE = "Braço operacional · Fila assistida de inclusões"
