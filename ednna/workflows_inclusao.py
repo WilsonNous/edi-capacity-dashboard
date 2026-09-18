@@ -72,6 +72,10 @@ def obter_workflow(player: str) -> dict:
     if not cfg:
         return {"player": p, "workflow":"NAO_CLASSIFICADO", "canal":"NAO_IDENTIFICADO", "executor":"NAO_IMPLEMENTADO", "etapas":[], "prontidao":"SEM_WORKFLOW"}
     cfg["player"] = p
+    # v3.28.35 — workflows definidos pela operação têm autoridade humana confirmada.
+    # O histórico enriquece a regra, mas não bloqueia sua revisão/homologação.
+    cfg.setdefault("fonte_autoridade", "ORIENTACAO_OPERACIONAL")
+    cfg.setdefault("procedimento_confirmado", True)
     executores = [x for x in str(cfg.get("executor") or "").split("+") if x]
     faltantes = [x for x in executores if x not in EXECUTORES_IMPLEMENTADOS]
     cfg["executores_faltantes"] = faltantes

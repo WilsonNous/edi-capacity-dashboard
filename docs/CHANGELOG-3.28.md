@@ -841,3 +841,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - ALELO exige CNPJ Matriz + estabelecimento/EC. CNPJ Matriz só é inferido automaticamente quando o CNPJ possui filial `0001`; caso contrário o motor bloqueia aguardando dado seguro.
 - Planejador agora distingue `AGUARDANDO_DADOS`, `AGUARDANDO_EXECUTOR` e `PRONTO_OPERACAO_ASSISTIDA`.
 - Workflows de e-mail direto passam a declarar estabelecimento como dado mínimo.
+
+## 3.28.35 — Autoridade operacional e autorização do motor
+- Separa aprendizado, homologação e autorização de execução.
+- Workflows de inclusão definidos pela operação passam a ter fonte de autoridade `ORIENTACAO_OPERACIONAL`; histórico enriquece, mas não bloqueia revisão.
+- Regras homologadas permanecem bloqueadas para execução até autorização explícita.
+- Novo modo `ASSISTIDA`: permite entrada no fluxo operacional somente quando o executor do workflow está disponível.
+- Execução automática de inclusões continua bloqueada por segurança nesta versão.
+- Motor impede operação de regra homologada mas não autorizada.
+- Backend passa a exibir uma mesa objetiva de autorização: homologada, executor, estado do motor, autorizar/suspender.

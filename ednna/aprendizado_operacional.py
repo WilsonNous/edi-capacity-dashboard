@@ -522,6 +522,8 @@ def listar_regras_operacionais() -> list[dict]:
         d['payload']=payload
         d['estado_operacional']='HOMOLOGADA' if d.get('estado_revisao')=='HOMOLOGADA' else d.get('estado')
         d['workflow']=obter_workflow(d.get('player'))
+        d['autorizacao_motor']=obter_autorizacao_motor(d.get('regra_id'))
+        d['modo_motor']=d['autorizacao_motor'].get('modo','BLOQUEADA')
         saida.append(d)
     return saida
 
@@ -532,3 +534,52 @@ def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | No
         if str(regra.get('player') or '').strip().upper()==alvo and str(regra.get('operacao') or '').upper()==str(operacao).upper() and regra.get('estado_revisao')=='HOMOLOGADA':
             return regra
     return None
+
+
+# ============================================================
+# v3.28.35 — AUTORIZAÇÃO OPERACIONAL DO MOTOR
+# ============================================================
+
+def _garantir_tabela_autorizacoes_motor() -> None:
+    with conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS autorizacoes_motor (
+            regra_id TEXT PRIMARY KEY,
+            modo TEXT NOT NULL DEFAULT 'BLOQUEADA',
+            autorizado_por TEXT,
+            autorizado_em TEXT,
+            observacoes TEXT,
+            atualizado_em TEXT NOT NULL
+        )""")
+
+
+def obter_autorizacao_motor(regra_id: str) -> dict:
+    _garantir_tabela_autorizacoes_motor()
+    with conectar() as conn:
+        row = conn.execute("SELECT * FROM autorizacoes_motor WHERE regra_id=?", (str(regra_id),)).fetchone()
+    return dict(row) if row else {"regra_id": str(regra_id), "modo": "BLOQUEADA"}
+
+
+def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_por: str = "OPERADOR_EDNNA", observacoes: str = "") -> dict:
+    modo = str(modo or '').upper().strip()
+    if modo not in {"ASSISTIDA", "AUTOMATICA", "BLOQUEADA"}:
+        raise ValueError("Modo operacional inválido.")
+    revisao = obter_revisao(regra_id)
+    if revisao.get("estado") != "HOMOLOGADA":
+        raise ValueError("Somente regra homologada pode ser autorizada para operação.")
+    aprendido = obter_aprendizado(regra_id) or {}
+    workflow = obter_workflow(aprendido.get("player"))
+    if modo == "AUTOMATICA":
+        raise ValueError("Execução automática de inclusões permanece bloqueada nesta versão. Autorize em modo ASSISTIDA.")
+    if modo == "ASSISTIDA" and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
+        raise ValueError("O executor deste workflow ainda não está disponível para operação assistida.")
+    agora = agora_brasil_iso()
+    with conectar() as conn:
+        conn.execute("""INSERT INTO autorizacoes_motor
+            (regra_id,modo,autorizado_por,autorizado_em,observacoes,atualizado_em)
+            VALUES (?,?,?,?,?,?)
+            ON CONFLICT(regra_id) DO UPDATE SET modo=excluded.modo,
+              autorizado_por=excluded.autorizado_por, autorizado_em=excluded.autorizado_em,
+              observacoes=excluded.observacoes, atualizado_em=excluded.atualizado_em""",
+            (regra_id, modo, autorizado_por, agora, str(observacoes or ''), agora))
+    print(f"[EDNNA] Motor | regra={regra_id} | autorização={modo} | workflow={workflow.get('workflow')}", flush=True)
+    return obter_autorizacao_motor(regra_id)

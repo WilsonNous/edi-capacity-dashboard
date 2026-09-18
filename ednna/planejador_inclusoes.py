@@ -339,10 +339,13 @@ def preparar_operacao_inclusao(chamado_id: int, player: str, dados: dict | None 
     A camada de execução consulta este plano. Workflows com executor ainda não
     implementado ficam explicitamente em AGUARDANDO_EXECUTOR.
     """
-    from ednna.aprendizado_operacional import obter_regra_homologada
+    from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
     regra = obter_regra_homologada(player)
     if not regra:
         return {"chamado_id": int(chamado_id), "player": player, "estado":"REGRA_NAO_HOMOLOGADA", "pode_operar":False}
+    autorizacao = obter_autorizacao_motor(regra.get("regra_id"))
+    if str(autorizacao.get("modo") or "BLOQUEADA") == "BLOQUEADA":
+        return {"chamado_id": int(chamado_id), "player": player, "regra_id": regra.get("regra_id"), "estado":"REGRA_HOMOLOGADA_NAO_AUTORIZADA", "pode_operar":False, "autorizacao_motor":autorizacao}
     dados_motor = dict(dados or {})
     if not dados_motor:
         try:
@@ -354,4 +357,4 @@ def preparar_operacao_inclusao(chamado_id: int, player: str, dados: dict | None 
             dados_motor["erro_extracao"] = str(exc)
     plano = planejar_workflow(player, dados=dados_motor)
     estado = plano.get("estado_planejamento") or ("PRONTO_OPERACAO_ASSISTIDA" if plano.get("pode_operar_assistido") else "AGUARDANDO_EXECUTOR")
-    return {"chamado_id":int(chamado_id), "player":player, "regra_id":regra.get("regra_id"), "estado":estado, "pode_operar":plano.get("pode_operar_assistido",False), "workflow":plano}
+    return {"chamado_id":int(chamado_id), "player":player, "regra_id":regra.get("regra_id"), "estado":estado, "pode_operar":plano.get("pode_operar_assistido",False), "workflow":plano, "autorizacao_motor":autorizacao}

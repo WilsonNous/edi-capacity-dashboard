@@ -64,6 +64,8 @@ from ednna.aprendizado_operacional import (
     homologar_regra_assistida,
     listar_regras_operacionais,
     obter_regra_homologada,
+    obter_autorizacao_motor,
+    autorizar_regra_motor,
 )
 from ednna.orquestrador_cancelamentos import (
     marcar_etapa, resumo_orquestracao, rotulo_etapa,
@@ -1770,10 +1772,16 @@ def render_ednna_workspace(
                     st.caption("🟢 Homologada = conhecimento aprovado. Operação é avaliada separadamente pelo workflow: ASSISTIDA DISPONÍVEL ou AGUARDANDO EXECUTOR. Nenhuma regra é executada automaticamente nesta versão.")
 
                     # v3.28.23 — a fila deixa de ser somente informativa e vira uma mesa de revisão/homologação.
+                    # v3.28.35 — orientação operacional confirmada tem autoridade
+                    # para levar a regra à revisão mesmo quando o corpus histórico é incompleto.
+                    # Aprendizado passa a enriquecer, não a bloquear conhecimento informado pelo operador.
                     regras_revisaveis = [
                         rr for rr in regras_fila
-                        if (rr.get("estado_operacional") or rr.get("estado")) == "PRONTA_PARA_REVISAO"
-                        or rr.get("estado_revisao") == "REVISADA"
+                        if rr.get("estado_revisao") != "HOMOLOGADA" and (
+                            (rr.get("estado_operacional") or rr.get("estado")) == "PRONTA_PARA_REVISAO"
+                            or rr.get("estado_revisao") == "REVISADA"
+                            or bool((rr.get("workflow") or obter_workflow(rr.get("player"))).get("procedimento_confirmado"))
+                        )
                     ]
                     if regras_revisaveis:
                         st.markdown("##### ✅ Revisão e homologação")
@@ -1806,6 +1814,8 @@ def render_ednna_workspace(
                                 q2.metric("Canal", workflow_fila.get("canal") or "—")
                                 q3.metric("Operação", workflow_fila.get("prontidao") or "—")
                                 st.markdown(f"**Workflow:** `{workflow_fila.get('workflow') or 'NAO_CLASSIFICADO'}`")
+                                if workflow_fila.get("procedimento_confirmado"):
+                                    st.success("Procedimento confirmado pela operação. O histórico é evidência complementar e não bloqueia a homologação.")
                                 if workflow_fila.get("etapas"):
                                     with st.expander("Ver etapas do workflow", expanded=False):
                                         for i_etapa, etapa in enumerate(workflow_fila.get("etapas") or [], 1):
@@ -1867,6 +1877,41 @@ def render_ednna_workspace(
                                         st.success("Após homologada, esta regra fica apta ao modo operacional assistido. A confirmação humana continua obrigatória antes de qualquer ação externa.")
                                     else:
                                         st.info("A regra pode ser homologada como conhecimento, mas só entra em operação após implementação/validação do executor indicado.")
+
+                # v3.28.35 — homologação e autorização são decisões separadas.
+                homologadas_motor = [rr for rr in regras_fila if rr.get("estado_revisao") == "HOMOLOGADA"]
+                if homologadas_motor:
+                    st.markdown("##### ⚙️ Autorização do motor")
+                    st.caption("Homologar aprova o conhecimento. Autorizar permite que a EDNNA use a regra no fluxo operacional. Nesta versão, inclusões só podem ser autorizadas em modo assistido; execução automática continua bloqueada.")
+                    for rr in homologadas_motor:
+                        rid = str(rr.get("regra_id") or "")
+                        player = str(rr.get("player") or "Player")
+                        wf = rr.get("workflow") or obter_workflow(player)
+                        aut = obter_autorizacao_motor(rid)
+                        modo = str(aut.get("modo") or "BLOQUEADA")
+                        with st.expander(f"{player} · {rid} · Motor: {modo}", expanded=False):
+                            a1, a2, a3 = st.columns(3)
+                            a1.metric("Regra", "Homologada")
+                            a2.metric("Executor", wf.get("prontidao") or "—")
+                            a3.metric("Motor", modo)
+                            st.caption("Canal: " + str(wf.get("canal") or "—") + " · Workflow: " + str(wf.get("workflow") or "—"))
+                            if wf.get("executores_faltantes"):
+                                st.warning("Ainda falta executor: " + " · ".join(wf.get("executores_faltantes") or []))
+                            if modo == "ASSISTIDA":
+                                st.success("Autorizada para operação assistida. A EDNNA pode preparar e conduzir o fluxo, mantendo confirmação humana antes da ação externa.")
+                                if st.button("⏸️ Suspender regra", key=f"motor_suspend_{rid}", width="stretch"):
+                                    autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
+                                    st.rerun()
+                            elif wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
+                                if st.button("▶️ Autorizar operação assistida", key=f"motor_auth_{rid}", type="primary", width="stretch"):
+                                    try:
+                                        autorizar_regra_motor(rid, modo="ASSISTIDA", autorizado_por="OPERADOR_EDNNA")
+                                        st.success(f"{player}: motor autorizado para operação assistida.")
+                                        st.rerun()
+                                    except Exception as exc_auth:
+                                        st.error(str(exc_auth))
+                            else:
+                                st.info("Regra homologada, mas ainda não pode operar até o executor indicado ser implementado e validado.")
 
                 aprendizado_desc = st.session_state.get("ednna_aprendizado_descoberta_v32820")
                 if isinstance(aprendizado_desc, dict):
