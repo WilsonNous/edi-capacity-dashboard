@@ -13,6 +13,13 @@ def _db(name):
 def _mapa_clientes_persistido():
     """Resolve IDs de Cliente sem depender do Redmine online."""
     campos = obter_metadado_json('redmine_catalogos_custom_fields', []) or []
+    # Compatibilidade: buscar_custom_fields() persiste também o catálogo bruto
+    # sob redmine_custom_fields_v3282. A Home da EDNNA não pode voltar a exibir
+    # IDs quando o catálogo derivado ainda não foi materializado nesta instância.
+    if not isinstance(campos, list) or not campos:
+        bruto = obter_metadado_json('redmine_custom_fields_v3282', {}) or {}
+        if isinstance(bruto, dict):
+            campos = bruto.get('campos') or []
     if not isinstance(campos, list):
         return {}
     for campo in campos:
@@ -33,12 +40,20 @@ def _mapa_clientes_persistido():
 def _resolver_cliente(valor, mapa):
     if valor is None:
         return valor
-    texto = str(valor).strip()
-    if not texto or not mapa:
-        return texto
-    partes = [p.strip() for p in texto.split('/') if p.strip()]
+    # O custom field pode chegar como lista (ex.: ['347']) ou como string.
+    if isinstance(valor, (list, tuple, set)):
+        partes = [str(v).strip() for v in valor if str(v).strip()]
+    else:
+        texto = str(valor).strip()
+        if not texto:
+            return texto
+        # Normaliza representação textual de lista sem usar eval.
+        limpo = texto.strip('[]')
+        partes = [p.strip().strip("'\"") for p in limpo.replace(';','/').split('/') if p.strip().strip("'\"")]
     if not partes:
-        return texto
+        return str(valor).strip()
+    if not mapa:
+        return ' / '.join(partes)
     return ' / '.join(mapa.get(p, p) for p in partes)
 
 def chamados_df():
