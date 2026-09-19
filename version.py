@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.41"
-APP_RELEASE = "Operação na Home · CC institucional · Redmine resiliente"
+APP_VERSION = "3.28.42"
+APP_RELEASE = "Cliente resolvido · chamados clicáveis · operação compacta"

@@ -4,7 +4,7 @@ import re
 import streamlit as st
 import pandas as pd
 from version import APP_VERSION, APP_RELEASE
-from ui.operational_data import resumo, chamados_ativos_df
+from ui.operational_data import resumo, chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes
@@ -39,6 +39,11 @@ html,body,[class*="css"],.stApp{font-family:Inter,ui-sans-serif,-apple-system,Bl
 .ops-head,.section-title,.module-title{letter-spacing:-.012em}.klabel{font-size:.74rem;font-weight:650}.knum{letter-spacing:-.035em}.knote{line-height:1.3}
 .insight-card{padding:10px 13px}.insight b{letter-spacing:-.01em}.section-shell{padding:16px 19px}.person{transition:transform .15s ease,box-shadow .15s ease}.person:hover{transform:translateY(-1px);box-shadow:0 7px 18px rgba(24,75,140,.06)}
 div.stButton>button{font-size:.82rem!important;letter-spacing:-.005em!important}
+/* Operação deve ter a mesma escala visual dos demais módulos da Home. */
+.st-key-ednna_operation_shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:14px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}
+.st-key-ednna_operation_shell [data-testid="stMetric"]{background:#f8fbff;border:1px solid #e1eaf6;border-radius:14px;padding:9px 12px;min-height:78px}
+.st-key-ednna_operation_shell [data-testid="stMetricValue"]{font-size:1.42rem}
+.st-key-ednna_operation_shell div.stButton>button{min-height:48px!important}
 </style>''', unsafe_allow_html=True)
 
 r = resumo(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
@@ -108,66 +113,71 @@ st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="
 
 
 # Operação real também na Home bonita da EDNNA — o backend deixa de ser obrigatório.
-st.markdown('<div class="section-shell"><div class="module-title">🦾 Operação da EDNNA</div><div class="module-sub">Prepare, confira e execute as ações assistidas. O acompanhamento continua depois do envio.</div>', unsafe_allow_html=True)
-snapshot_motor = pd.DataFrame()
-if not df.empty:
-    snapshot_motor = df.rename(columns={
-        'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
-        'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
-    }).copy()
-fila_home = avaliar_fila_inclusoes(snapshot_motor) if not snapshot_motor.empty else {'resumo':{},'itens':[]}
-follow_home = avaliar_followups()
-try: redmine_pendentes = listar_redmine_pendentes()
-except Exception: redmine_pendentes = []
-op1,op2,op3,op4=st.columns(4)
-op1.metric('Posso agir', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
-op2.metric('Aguardando retorno', int(follow_home.get('total',0) or 0))
-op3.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
-op4.metric('Redmine pendente', len(redmine_pendentes))
-prontos=[x for x in fila_home.get('itens',[]) if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA']
-if prontos:
-    mapa={int(x['id']):x for x in prontos}
-    cid=st.selectbox('Chamado pronto para atuação', list(mapa), format_func=lambda x:f"#{x} · {mapa[x].get('player')} · {mapa[x].get('cliente') or 'Sem cliente'}", key='home_ednna_operacao_sel_v32841')
-    item=mapa[int(cid)]
-    if st.button('🧾 Preparar atuação', type='primary', width='stretch', key='home_ednna_prepare_v32841'):
-        st.session_state['home_ednna_pacote_v32841']=preparar_atuacao_assistida(item)
-    pacote=st.session_state.get('home_ednna_pacote_v32841')
-    if pacote and int(pacote.get('chamado_id') or 0)==int(cid):
-        rasc=gerar_rascunho_inclusao(pacote)
-        if rasc.get('ok'):
-            st.write(f"**Para:** {', '.join(rasc.get('para') or [])}")
-            st.write(f"**Cc:** {', '.join(rasc.get('cc') or []) or '—'}")
-            st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
-            st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32841')
-            confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32841')
-            if st.button('📨 Executar agora', type='primary', width='stretch', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32841'):
-                try:
-                    res=executar_atuacao_assistida_email(pacote)
-                    if res.get('ok'):
-                        if (res.get('redmine') or {}).get('pendente'):
-                            st.warning('E-mail enviado. A atualização do Redmine ficou na fila de reconciliação e será repetida sem reenviar o e-mail.')
-                        else:
-                            st.success('E-mail enviado e Redmine atualizado. A EDNNA seguirá acompanhando o retorno.')
-                        st.session_state.pop('home_ednna_pacote_v32841',None)
-                    else: st.warning(res.get('motivo') or 'Ação não executada.')
-                except Exception as exc: st.error(f'Falha na execução: {type(exc).__name__}: {exc}')
-        else: st.info(rasc.get('motivo') or 'Executor ainda não disponível para este workflow.')
-else:
-    st.caption('Nenhuma inclusão autorizada está pronta para execução assistida neste instante.')
+op_shell = st.container(key='ednna_operation_shell')
+with op_shell:
+    st.markdown('<div class="module-title">🦾 Operação da EDNNA</div><div class="module-sub">Ações prontas, acompanhamento e execução assistida.</div>', unsafe_allow_html=True)
+    snapshot_motor = pd.DataFrame()
+    if not df.empty:
+        snapshot_motor = df.rename(columns={
+            'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
+            'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
+        }).copy()
+    fila_home = avaliar_fila_inclusoes(snapshot_motor) if not snapshot_motor.empty else {'resumo':{},'itens':[]}
+    follow_home = avaliar_followups()
+    try: redmine_pendentes = listar_redmine_pendentes()
+    except Exception: redmine_pendentes = []
+    op1,op2,op3,op4=st.columns(4)
+    op1.metric('Posso agir', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
+    op2.metric('Aguardando retorno', int(follow_home.get('total',0) or 0))
+    op3.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
+    op4.metric('Redmine pendente', len(redmine_pendentes))
+    prontos=[x for x in fila_home.get('itens',[]) if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA']
+    if prontos:
+        mapa={int(x['id']):x for x in prontos}
+        cid=st.selectbox('Chamado pronto para atuação', list(mapa), format_func=lambda x:f"#{x} · {mapa[x].get('player')} · {mapa[x].get('cliente') or 'Sem cliente'}", key='home_ednna_operacao_sel_v32842')
+        item=mapa[int(cid)]
+        st.markdown(
+            f"**Chamado:** [#{int(cid)}]({redmine_link(cid)}) &nbsp; · &nbsp; **Cliente:** {html.escape(str(item.get('cliente') or 'Sem cliente'))}"
+        )
+        if st.button('🧾 Preparar atuação', type='primary', width='stretch', key='home_ednna_prepare_v32842'):
+            st.session_state['home_ednna_pacote_v32842']=preparar_atuacao_assistida(item)
+        pacote=st.session_state.get('home_ednna_pacote_v32842')
+        if pacote and int(pacote.get('chamado_id') or 0)==int(cid):
+            rasc=gerar_rascunho_inclusao(pacote)
+            if rasc.get('ok'):
+                st.write(f"**Para:** {', '.join(rasc.get('para') or [])}")
+                st.write(f"**Cc:** {', '.join(rasc.get('cc') or []) or '—'}")
+                st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
+                st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32842')
+                confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32842')
+                if st.button('📨 Executar agora', type='primary', width='stretch', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32842'):
+                    try:
+                        res=executar_atuacao_assistida_email(pacote)
+                        if res.get('ok'):
+                            if (res.get('redmine') or {}).get('pendente'):
+                                st.warning('E-mail enviado. A atualização do Redmine ficou na fila de reconciliação e será repetida sem reenviar o e-mail.')
+                            else:
+                                st.success('E-mail enviado e Redmine atualizado. A EDNNA seguirá acompanhando o retorno.')
+                            st.session_state.pop('home_ednna_pacote_v32842',None)
+                        else: st.warning(res.get('motivo') or 'Ação não executada.')
+                    except Exception as exc: st.error(f'Falha na execução: {type(exc).__name__}: {exc}')
+            else: st.info(rasc.get('motivo') or 'Executor ainda não disponível para este workflow.')
+    else:
+        st.caption('Nenhuma inclusão autorizada está pronta para execução assistida neste instante.')
 
-fups=[x for x in follow_home.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
-if fups:
-    with st.expander(f"📨 Continuidade · {len(fups)} follow-up(s) pronto(s)", expanded=False):
-        for fup in fups[:5]:
-            cidf=int(fup.get('chamado_id') or 0)
-            st.write(f"**#{cidf} · follow-up {fup.get('proximo_followup')}**")
-            st.text_area('Mensagem de acompanhamento', fup.get('texto_followup') or '', height=150, disabled=True, key=f'home_fup_preview_{cidf}_{fup.get("regra_id")}_v32841')
-            if st.button('Enviar follow-up agora', key=f'home_fup_exec_{cidf}_{fup.get("regra_id")}_v32841'):
-                try: executar_followup(fup); st.success(f'Follow-up do chamado #{cidf} enviado.'); st.rerun()
-                except Exception as exc: st.error(f'Falha no follow-up: {type(exc).__name__}: {exc}')
-if redmine_pendentes:
-    st.warning(f"Há {len(redmine_pendentes)} atualização(ões) pós-envio aguardando reconciliação com o Redmine. Os e-mails não serão reenviados.")
-st.markdown('</div>', unsafe_allow_html=True)
+    fups=[x for x in follow_home.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
+    if fups:
+        with st.expander(f"📨 Continuidade · {len(fups)} follow-up(s) pronto(s)", expanded=False):
+            for fup in fups[:5]:
+                cidf=int(fup.get('chamado_id') or 0)
+                st.write(f"**#{cidf} · follow-up {fup.get('proximo_followup')}**")
+                st.text_area('Mensagem de acompanhamento', fup.get('texto_followup') or '', height=150, disabled=True, key=f'home_fup_preview_{cidf}_{fup.get("regra_id")}_v32842')
+                if st.button('Enviar follow-up agora', key=f'home_fup_exec_{cidf}_{fup.get("regra_id")}_v32842'):
+                    try: executar_followup(fup); st.success(f'Follow-up do chamado #{cidf} enviado.'); st.rerun()
+                    except Exception as exc: st.error(f'Falha no follow-up: {type(exc).__name__}: {exc}')
+    if redmine_pendentes:
+        st.warning(f"Há {len(redmine_pendentes)} atualização(ões) pós-envio aguardando reconciliação com o Redmine. Os e-mails não serão reenviados.")
+
 
 st.markdown('<div class="section-shell"><div class="module-title">O que você quer fazer?</div><div class="module-sub">Cada botão abre somente o módulo escolhido.</div>', unsafe_allow_html=True)
 cols=st.columns(5)
