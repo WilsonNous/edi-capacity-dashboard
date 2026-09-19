@@ -16,6 +16,7 @@ import pandas as pd
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
 from ednna.planejador_inclusoes import descobrir_candidatos_inclusao, preparar_operacao_inclusao, _extrair_dados, _identificar_cnpj_matriz
 from ednna.workflows_inclusao import obter_workflow
+from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -51,6 +52,31 @@ def _dados_snapshot(row: dict) -> dict:
     }
 
 
+
+def _historico_operacional(chamado_id: int) -> dict:
+    """Retorna uma trava conservadora contra primeira atuação duplicada.
+
+    A fonte primária é a análise de primeiro combate. Como defesa adicional,
+    journals já persistidos com notas operacionais também bloqueiam uma nova
+    primeira solicitação até que a continuidade seja classificada.
+    """
+    analise = obter_analise_primeiro_combate(int(chamado_id)) or {}
+    journals = listar_journals(int(chamado_id)) or []
+    teve = bool(int(analise.get("teve_atuacao") or 0))
+    notas = [j for j in journals if str(j.get("notas") or "").strip()]
+    if teve:
+        return {"tem_atuacao": True, "fonte": "ANALISE_PRIMEIRO_COMBATE", "analise": analise, "journals": len(journals)}
+    # Não tratamos qualquer comentário como atuação automaticamente. Porém,
+    # quando há histórico de e-mail/solicitação/retorno já salvo, é mais seguro
+    # bloquear nova primeira ação e mandar para continuidade/revisão.
+    sinais = ("de:", "enviado:", "enviadas:", "assunto:", "solicit", "aguardando retorno", "atenciosamente")
+    for j in notas:
+        txt = str(j.get("notas") or "").lower()
+        if any(x in txt for x in sinais):
+            return {"tem_atuacao": True, "fonte": "JOURNAL_OPERACIONAL", "analise": analise, "journals": len(journals)}
+    return {"tem_atuacao": False, "fonte": "SEM_EVIDENCIA", "analise": analise, "journals": len(journals)}
+
+
 def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
     inventario = descobrir_candidatos_inclusao(snapshot)
     itens: list[dict[str, Any]] = []
@@ -64,6 +90,7 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         "aguardando_executor": 0,
         "nao_homologadas": 0,
         "nao_autorizadas": 0,
+        "continuidade": 0,
     }
 
     for candidato in inventario.get("candidatos", []) or []:
@@ -72,6 +99,11 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             itens.append({**candidato, "estado_motor": "PLAYER_AMBIGUO", "acao_sugerida": "Revisar player"})
             continue
         player = str(players[0])
+        historico = _historico_operacional(int(candidato["id"]))
+        if historico.get("tem_atuacao"):
+            contadores["continuidade"] += 1
+            itens.append({**candidato, "player": player, "estado_motor": "CONTINUIDADE_ATUACAO_PREVIA", "acao_sugerida": "Continuar acompanhamento", "historico_operacional": historico})
+            continue
         regra = obter_regra_homologada(player)
         if not regra:
             contadores["nao_homologadas"] += 1
@@ -104,6 +136,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
                 destinatario = candidatos_cliente[0]
             elif destinatario.lower().endswith("@vr.com.br") or destinatario.lower().endswith("@netunna.com.br"):
                 destinatario = ""
+        elif player == "VEROCHEQUE":
+            destinatario = "conciliacao@verocard.com.br"
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
             estado = "AGUARDANDO_DESTINATARIO"
 
@@ -162,6 +196,7 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "cnpj_matriz": dados.get("cnpj_matriz") or "",
         "estabelecimentos": dados.get("estabelecimento") or [],
         "cnpjs": dados.get("cnpjs") or [],
+        "emails": dados.get("emails") or [],
         "etapas": wf.get("etapas") or [],
         "confirmacao_obrigatoria": True,
         "executou_acao_externa": False,
@@ -177,10 +212,12 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     canal = str(pacote.get("canal") or "")
     if canal != "EMAIL":
         return {"ok": False, "motivo": f"Executor direto ainda não disponível para canal {canal}."}
+    player=str(pacote.get("player") or "")
     destinatario = str(pacote.get("destinatario") or "").strip()
+    if player == "VEROCHEQUE" and not destinatario:
+        destinatario = "conciliacao@verocard.com.br"
     if not destinatario:
         return {"ok": False, "motivo": "Destinatário não confirmado."}
-    player=str(pacote.get("player") or "")
     cliente=str(pacote.get("cliente") or "Cliente")
     cid=int(pacote.get("chamado_id") or 0)
     ecs=[str(x) for x in (pacote.get("estabelecimentos") or []) if str(x).strip()]
@@ -213,6 +250,30 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "prazo_resposta_dias_uteis":2,"tipo_acao":"ORIENTAR_CLIENTE_PORTAL_VR",
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
+
+    if player == "VEROCHEQUE":
+        # Procedimento operacional confirmado pela Verocheque: modelo fixo de
+        # conciliação + autorização do responsável do estabelecimento.
+        externos=[e for e in (pacote.get("emails") or []) if str(e).strip() and not str(e).lower().endswith("@netunna.com.br") and not str(e).lower().endswith("@verocard.com.br")]
+        responsavel = externos[0] if externos else "[PENDENTE: e-mail do responsável do estabelecimento]"
+        cnpj = cnpjs[0] if cnpjs else (ecs[0] if ecs else "[PENDENTE: CNPJ]")
+        assunto=f"[VEROCHEQUE - Inclusão de estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, time VEROCHEQUE, tudo bem?", "",
+            "Segue os dados para inclusão do estabelecimento no tráfego de arquivos de conciliação:", "",
+            f"Razão Social do Estabelecimento: {cliente}",
+            f"CNPJ: {cnpj}",
+            "Layout do arquivo: 1.7D",
+            "Periodicidade: Diário",
+            "Diretório de exportação: Servidor SFTP Verocard (Host: sftp.verocard.com.br / Porta: 20022), na pasta vinculada ao usuário netunna.",
+            f"E-mail do responsável do estabelecimento: {responsavel}",
+            "E-mail do responsável da conciliadora: edi@netunna.com.br", "",
+            "É necessária a autorização do responsável pelo estabelecimento, por carta assinada ou resposta por e-mail, autorizando a NETUNNA a receber os arquivos.",
+        ]
+        if responsavel.startswith("[PENDENTE"):
+            return {"ok":False,"motivo":"VEROCHEQUE: falta identificar o e-mail do responsável do estabelecimento antes do envio.","estado":"AGUARDANDO_DADOS"}
+        corpo=finalizar_email("\n".join(linhas))
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["conciliacao@verocard.com.br"],"cc":aplicar_cc_padrao(["conciliacao@verocard.com.br", responsavel]) + ([responsavel] if responsavel not in aplicar_cc_padrao(["conciliacao@verocard.com.br", responsavel]) else []),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_VEROCHEQUE","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     assunto=f"[{player} - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
     linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
