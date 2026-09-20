@@ -17,6 +17,7 @@ from ednna.aprendizado_operacional import obter_regra_homologada, obter_autoriza
 from ednna.planejador_inclusoes import descobrir_candidatos_inclusao, preparar_operacao_inclusao, _extrair_dados, _identificar_cnpj_matriz
 from ednna.workflows_inclusao import obter_workflow
 from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
+from ednna.sincronizador import normalizar_marca_alteracao
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -53,7 +54,7 @@ def _dados_snapshot(row: dict) -> dict:
 
 
 
-def _historico_operacional(chamado_id: int) -> dict:
+def _historico_operacional(chamado_id: int, alterado_em: str = "") -> dict:
     """Retorna uma trava conservadora contra primeira atuação duplicada.
 
     A fonte primária é a análise de primeiro combate. Como defesa adicional,
@@ -62,6 +63,16 @@ def _historico_operacional(chamado_id: int) -> dict:
     """
     analise = obter_analise_primeiro_combate(int(chamado_id)) or {}
     journals = listar_journals(int(chamado_id)) or []
+    # Segurança operacional: um chamado só pode entrar em "Posso agir" depois
+    # que os journals correspondentes à versão atual do chamado forem analisados.
+    # Sem isso, uma atuação humana anterior pode ser ignorada e a EDNNA duplicar
+    # uma solicitação já enviada.
+    marca_analise = normalizar_marca_alteracao(analise.get("alterado_em_redmine"))
+    marca_snapshot = normalizar_marca_alteracao(alterado_em)
+    if not analise:
+        return {"tem_atuacao": False, "historico_pendente": True, "fonte": "ANALISE_AUSENTE", "analise": {}, "journals": len(journals)}
+    if marca_snapshot and marca_analise and marca_snapshot != marca_analise:
+        return {"tem_atuacao": False, "historico_pendente": True, "fonte": "ANALISE_DESATUALIZADA", "analise": analise, "journals": len(journals)}
     teve = bool(int(analise.get("teve_atuacao") or 0))
     notas = [j for j in journals if str(j.get("notas") or "").strip()]
     if teve:
@@ -91,6 +102,7 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         "nao_homologadas": 0,
         "nao_autorizadas": 0,
         "continuidade": 0,
+        "historico_pendente": 0,
     }
 
     for candidato in inventario.get("candidatos", []) or []:
@@ -99,7 +111,12 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             itens.append({**candidato, "estado_motor": "PLAYER_AMBIGUO", "acao_sugerida": "Revisar player"})
             continue
         player = str(players[0])
-        historico = _historico_operacional(int(candidato["id"]))
+        row = _row_por_id(snapshot, int(candidato["id"]))
+        historico = _historico_operacional(int(candidato["id"]), str(row.get("Alterado", "") or ""))
+        if historico.get("historico_pendente"):
+            contadores["historico_pendente"] += 1
+            itens.append({**candidato, "player": player, "estado_motor": "AGUARDANDO_VERIFICACAO_HISTORICO", "acao_sugerida": "Sincronizar histórico", "historico_operacional": historico})
+            continue
         if historico.get("tem_atuacao"):
             contadores["continuidade"] += 1
             itens.append({**candidato, "player": player, "estado_motor": "CONTINUIDADE_ATUACAO_PREVIA", "acao_sugerida": "Continuar acompanhamento", "historico_operacional": historico})
@@ -116,7 +133,6 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             itens.append({**candidato, "player": player, "regra_id": regra.get("regra_id"), "estado_motor": "REGRA_HOMOLOGADA_NAO_AUTORIZADA", "acao_sugerida": "Autorizar motor"})
             continue
         contadores["autorizadas"] += 1
-        row = _row_por_id(snapshot, int(candidato["id"]))
         dados = _dados_snapshot(row)
         plano = preparar_operacao_inclusao(int(candidato["id"]), player, dados=dados)
         estado = str(plano.get("estado") or "")
@@ -138,6 +154,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
                 destinatario = ""
         elif player == "VEROCHEQUE":
             destinatario = "conciliacao@verocard.com.br"
+        elif player == "VALECARD":
+            destinatario = "atendimentograndesredes@valecard.com.br"
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
             estado = "AGUARDANDO_DESTINATARIO"
 
@@ -216,6 +234,8 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     destinatario = str(pacote.get("destinatario") or "").strip()
     if player == "VEROCHEQUE" and not destinatario:
         destinatario = "conciliacao@verocard.com.br"
+    if player == "VALECARD" and not destinatario:
+        destinatario = "atendimentograndesredes@valecard.com.br"
     if not destinatario:
         return {"ok": False, "motivo": "Destinatário não confirmado."}
     cliente=str(pacote.get("cliente") or "Cliente")
@@ -251,6 +271,23 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
 
+    if player == "VALECARD":
+        if not cnpjs or not ecs:
+            faltam=[]
+            if not cnpjs: faltam.append("CNPJ")
+            if not ecs: faltam.append("EC")
+            return {"ok":False,"motivo":"VALECARD: faltam dados obrigatórios antes do envio: " + ", ".join(faltam) + ".","estado":"AGUARDANDO_DADOS"}
+        assunto=f"[VALECARD - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, time Valecard, tudo bem?", "",
+            f"Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum {cliente}, conforme dados abaixo:", "",
+            f"CNPJ: {cnpjs[0]}",
+            f"EC: {ecs[0]}", "",
+            "Estamos à disposição para quaisquer esclarecimentos.",
+        ]
+        corpo=finalizar_email("\n".join(linhas))
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["atendimentograndesredes@valecard.com.br"],"cc":aplicar_cc_padrao(["atendimentograndesredes@valecard.com.br"]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":3,"tipo_acao":"SOLICITAR_INCLUSAO_VALECARD","status_pos_envio":"Aguardando Retorno Adquirente"}
+
     if player == "VEROCHEQUE":
         # Procedimento operacional confirmado pela Verocheque: modelo fixo de
         # conciliação + autorização do responsável do estabelecimento.
@@ -278,10 +315,11 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     assunto=f"[{player} - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
     linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
     if matriz: linhas += [f"CNPJ Matriz: {matriz}"]
-    if ecs: linhas += ["Estabelecimento(s): " + ", ".join(ecs)]
+    elif cnpjs: linhas += ["CNPJ(s): " + ", ".join(cnpjs)]
+    if ecs: linhas += ["Estabelecimento(s)/EC(s): " + ", ".join(ecs)]
     linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
     corpo = finalizar_email("\n".join(linhas))
-    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Cliente"}
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Adquirente"}
 
 def executar_atuacao_assistida_email(pacote: dict) -> dict:
     """Executa somente pacote EMAIL previamente preparado e confirmado na UI."""

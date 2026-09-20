@@ -599,6 +599,42 @@ def render_ednna_workspace(
                     else:
                         st.info(rasc_home.get("motivo") or "Este workflow ainda exige executor específico.")
 
+            # Chamados que já possuem atuação não disputam espaço com a fila
+            # principal. Permanecem disponíveis apenas para consulta/continuidade.
+            continuidade_home = [x for x in fila_home.get("itens", []) if x.get("estado_motor") == "CONTINUIDADE_ATUACAO_PREVIA"]
+            if continuidade_home:
+                with st.expander(f"🔎 Consultar chamados em andamento ({len(continuidade_home)})", expanded=False):
+                    mapa_consulta = {int(x["id"]): x for x in continuidade_home}
+                    cid_consulta = st.selectbox(
+                        "Chamado para consulta",
+                        list(mapa_consulta),
+                        format_func=lambda cid: f"#{cid} · {mapa_consulta[cid].get('player')} · {mapa_consulta[cid].get('cliente') or 'Cliente não identificado'}",
+                        key="ednna_home_consulta_v32844",
+                    )
+                    item_consulta = mapa_consulta[int(cid_consulta)]
+                    base_redmine = os.getenv("REDMINE_BASE_URL", "https://chamados.nteia.com").rstrip("/")
+                    st.markdown(f"**Chamado:** [#{cid_consulta}]({base_redmine}/issues/{cid_consulta})")
+                    st.write(f"**Cliente:** {item_consulta.get('cliente') or 'Cliente não identificado'}")
+                    st.write(f"**Player:** {item_consulta.get('player') or '—'}")
+                    st.write("**Situação EDNNA:** continuidade de atuação já existente; nova primeira solicitação bloqueada.")
+                    hist = item_consulta.get("historico_operacional") or {}
+                    analise = hist.get("analise") or {}
+                    if analise.get("autor_primeira_atuacao") or analise.get("autor"):
+                        st.write(f"**Primeira atuação identificada:** {analise.get('autor_primeira_atuacao') or analise.get('autor')}")
+
+            pend_hist = int((fila_home.get("resumo") or {}).get("historico_pendente", 0) or 0)
+            if pend_hist:
+                st.caption(f"🛡️ {pend_hist} chamado(s) estão temporariamente fora de ‘Posso preparar’ até a EDNNA confirmar o histórico/journals no Redmine.")
+                if st.button("🔄 Verificar históricos pendentes", key="ednna_sync_hist_v32844", width="content"):
+                    try:
+                        from ednna.sincronizador_journals import sincronizar_proximo_lote
+                        with st.spinner("Consultando journals no Redmine com segurança..."):
+                            res_hist = sincronizar_proximo_lote(snapshot_motor, limite=5)
+                        st.success(f"Históricos verificados: {int(res_hist.get('processados', 0) or 0)}. A fila será recalculada.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.warning(f"Não foi possível concluir a verificação agora: {type(exc).__name__}: {exc}")
+
             follow_prontos_home = [x for x in follow_home.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO"]
             if follow_prontos_home:
                 st.markdown("#### 📨 Continuidade pendente")
