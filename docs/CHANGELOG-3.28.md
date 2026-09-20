@@ -901,3 +901,12 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Novo Follow-up Engine: identifica prazo vencido sem resposta, mantém limite/cooldown e responde na mesma thread via Microsoft Graph.
 - Follow-up automático habilitado por padrão, limitado a 2 acompanhamentos por ação e 3 envios por ciclo; configurável por ambiente.
 - A Home operacional diferencia: posso preparar, aguardando retorno, follow-up pronto e preciso de dados.
+
+## v3.28.44 — Regras operacionais e segurança de atuação
+- VALECARD: CNPJ + EC obrigatórios; destinatário Grandes Redes; pós-envio Aguardando Retorno Adquirente; continuidade por protocolo/confirmação/arquivos.
+- Trava global: chamado só entra em "Posso preparar" depois que o histórico/journals da versão atual do Redmine estiver analisado.
+- Chamados com atuação anterior passam para Consulta/Continuidade e não podem gerar nova primeira solicitação.
+- Home EDNNA ganhou consulta de chamados em andamento e verificação assistida dos históricos pendentes.
+- Rascunhos genéricos de inclusão passam a carregar CNPJ(s) e EC(s) quando disponíveis.
+- Pós-envio genérico de adquirentes/benefícios por e-mail usa Aguardando Retorno Adquirente; VR Benefícios permanece Aguardando Retorno Cliente.
+- Mantidos CC institucionais padrão via política central de e-mail.
