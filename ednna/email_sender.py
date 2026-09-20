@@ -342,8 +342,21 @@ def listar_envios_cancelamento_getnet(*, remetente: str, top: int = 250) -> list
     return resultado
 
 
+def _texto_para_html(texto: str) -> str:
+    """Converte texto institucional em HTML simples preservando parágrafos/quebras."""
+    import html
+    bruto = str(texto or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    paragrafos = [p.strip() for p in bruto.split("\n\n") if p.strip()]
+    return "".join(f"<p>{html.escape(p).replace(chr(10), '<br>')}</p>" for p in paragrafos)
+
+
 def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: str) -> dict:
-    """Responde a todos na thread de uma mensagem já enviada via Microsoft Graph."""
+    """Responde a todos preservando formatação e a conversa original.
+
+    O endpoint replyAll com `comment` pode achatar quebras de linha em alguns
+    clientes Outlook. Criamos o rascunho Reply All, preservamos o corpo citado
+    e inserimos o comentário como HTML antes de enviar.
+    """
     remetente = str(remetente or os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
     message_id = str(message_id or "").strip()
     comentario = str(comentario or "").strip()
@@ -353,15 +366,36 @@ def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: 
         raise EmailConfigError("Mensagem original não localizada para follow-up.")
     if not comentario:
         raise EmailConfigError("Comentário do follow-up está vazio.")
+
     token = obter_token_graph()
-    resposta = requests.post(
-        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{message_id}/replyAll",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"comment": comentario}, timeout=30,
+    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    criado=requests.post(
+        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{message_id}/createReplyAll",
+        headers=headers, json={}, timeout=30,
     )
-    if resposta.status_code != 202:
-        raise EmailSendError(
-            "Falha ao enviar follow-up pelo Microsoft Graph: "
-            f"HTTP {resposta.status_code} - {resposta.text[:800]}"
-        )
-    return {"ok": True, "status_code": resposta.status_code, "message_id_origem": message_id}
+    if criado.status_code not in (200, 201):
+        raise EmailSendError("Falha ao criar Reply All: " f"HTTP {criado.status_code} - {criado.text[:800]}")
+    draft=criado.json()
+    draft_id=str(draft.get("id") or "").strip()
+    if not draft_id:
+        raise EmailSendError("Microsoft Graph não retornou o ID do rascunho de follow-up.")
+
+    # O createReplyAll já traz a conversa citada no corpo. Mantemos esse conteúdo
+    # e apenas inserimos a mensagem formatada da EDNNA antes dele.
+    body=draft.get("body") or {}
+    original=str(body.get("content") or "")
+    html_novo=_texto_para_html(comentario) + "<br>" + original
+    atualizado=requests.patch(
+        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{draft_id}",
+        headers=headers, json={"body":{"contentType":"HTML","content":html_novo}}, timeout=30,
+    )
+    if atualizado.status_code not in (200, 204):
+        raise EmailSendError("Falha ao formatar follow-up: " f"HTTP {atualizado.status_code} - {atualizado.text[:800]}")
+
+    enviado=requests.post(
+        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{draft_id}/send",
+        headers=headers, timeout=30,
+    )
+    if enviado.status_code != 202:
+        raise EmailSendError("Falha ao enviar follow-up pelo Microsoft Graph: " f"HTTP {enviado.status_code} - {enviado.text[:800]}")
+    return {"ok": True, "status_code": enviado.status_code, "message_id_origem": message_id, "draft_id": draft_id, "formato":"HTML"}

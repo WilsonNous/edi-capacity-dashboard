@@ -26,6 +26,10 @@ def _evento_permitido_inclusao(evento: dict) -> bool:
 _EC_ROTULADO_RE = re.compile(
     r"(?im)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\s*(?:/\s*(?:CONVENIO|CONVÊNIO))?\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{2,30})"
 )
+# ECs podem aparecer em sequência no assunto/descrição (ex.: EC 123 - 456 - 789).
+# Aceitamos somente blocos numéricos de 5 a 13 dígitos para não confundir CNPJ (14)
+# nem códigos curtos auxiliares.
+_EC_NUMERICO_RE = re.compile(r"(?<!\d)(\d{5,13})(?!\d)")
 
 
 def _texto_issue(issue: dict) -> str:
@@ -59,6 +63,12 @@ def _extrair_dados(issue: dict) -> dict:
         # Evita transformar palavras comuns em EC quando o texto está mal formatado.
         if any(ch.isdigit() for ch in limpo) and 3 <= len(limpo) <= 31:
             ecs.append(limpo)
+
+    # Complemento multi-EC: quando o chamado fala explicitamente de EC/estabelecimento,
+    # captura todos os identificadores numéricos presentes no bloco, preservando ordem.
+    # CNPJs (14 dígitos) ficam de fora por construção.
+    if re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\b", texto):
+        ecs.extend(_EC_NUMERICO_RE.findall(texto))
     return {"emails": emails, "cnpjs": cnpjs, "ecs": _unicos(ecs)}
 
 

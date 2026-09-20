@@ -304,6 +304,24 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
 
+    if player == "TICKET":
+        if not cnpjs or not ecs:
+            faltam=[]
+            if not cnpjs: faltam.append("CNPJ")
+            if not ecs: faltam.append("EC/Estabelecimento")
+            return {"ok":False,"motivo":"TICKET: faltam dados obrigatórios antes do envio: " + ", ".join(faltam) + ".","estado":"AGUARDANDO_DADOS"}
+        assunto=f"[TICKET - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, time Ticket, tudo bem?", "",
+            f"Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum {cliente}, conforme dados abaixo:", "",
+            f"CNPJ: {cnpjs[0]}",
+            "Estabelecimentos/ECs:",
+        ]
+        linhas += [f"- {ec}" for ec in ecs]
+        linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
+        corpo=finalizar_email("\n".join(linhas))
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_TICKET","status_pos_envio":"Aguardando Retorno Adquirente"}
+
     if player == "VALECARD":
         if not cnpjs or not ecs:
             faltam=[]
