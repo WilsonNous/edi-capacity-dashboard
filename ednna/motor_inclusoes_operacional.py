@@ -88,6 +88,30 @@ def _historico_operacional(chamado_id: int, alterado_em: str = "") -> dict:
     return {"tem_atuacao": False, "fonte": "SEM_EVIDENCIA", "analise": analise, "journals": len(journals)}
 
 
+def _elegibilidade_primeira_atuacao(row: dict) -> dict:
+    """Barreira global: a fila principal só aceita chamado realmente inicial.
+
+    Estados de continuidade (aguardando retorno, em andamento etc.) nunca podem
+    oferecer uma nova primeira solicitação, mesmo que outra camada falhe.
+    """
+    estado = str(row.get("Estado", "") or "").strip()
+    estado_norm = estado.upper().replace("Á", "A").replace("Ã", "A").replace("Ç", "C").replace("Ê", "E")
+    # Regra conservadora: somente ABERTO pode disputar a fila de primeira atuação.
+    # Todo outro estado ativo permanece consultável/continuidade.
+    if estado_norm != "ABERTO":
+        return {"elegivel": False, "motivo": f"Estado Redmine '{estado or 'não informado'}' indica continuidade", "estado_redmine": estado}
+    # Se o snapshot trouxer percentual > 0, há evidência adicional de andamento.
+    for chave in ("% Completo", "% completo", "Completo", "done_ratio"):
+        if chave in row and row.get(chave) not in (None, ""):
+            try:
+                pct = float(str(row.get(chave)).replace("%", "").replace(",", "."))
+                if pct > 0:
+                    return {"elegivel": False, "motivo": f"Chamado já possui {pct:g}% de progresso", "estado_redmine": estado}
+            except Exception:
+                pass
+    return {"elegivel": True, "motivo": "Chamado em estado inicial", "estado_redmine": estado}
+
+
 def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
     inventario = descobrir_candidatos_inclusao(snapshot)
     itens: list[dict[str, Any]] = []
@@ -112,6 +136,11 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             continue
         player = str(players[0])
         row = _row_por_id(snapshot, int(candidato["id"]))
+        elegibilidade = _elegibilidade_primeira_atuacao(row)
+        if not elegibilidade.get("elegivel"):
+            contadores["continuidade"] += 1
+            itens.append({**candidato, "player": player, "estado_motor": "CONTINUIDADE_ESTADO_REDMINE", "acao_sugerida": "Consultar / continuar acompanhamento", "elegibilidade": elegibilidade})
+            continue
         historico = _historico_operacional(int(candidato["id"]), str(row.get("Alterado", "") or ""))
         if historico.get("historico_pendente"):
             contadores["historico_pendente"] += 1
@@ -156,6 +185,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             destinatario = "conciliacao@verocard.com.br"
         elif player == "VALECARD":
             destinatario = "atendimentograndesredes@valecard.com.br"
+        elif player == "POLICARD":
+            destinatario = "grandesredesup@upbrasil.com"
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
             estado = "AGUARDANDO_DESTINATARIO"
 
@@ -236,6 +267,8 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         destinatario = "conciliacao@verocard.com.br"
     if player == "VALECARD" and not destinatario:
         destinatario = "atendimentograndesredes@valecard.com.br"
+    if player == "POLICARD" and not destinatario:
+        destinatario = "grandesredesup@upbrasil.com"
     if not destinatario:
         return {"ok": False, "motivo": "Destinatário não confirmado."}
     cliente=str(pacote.get("cliente") or "Cliente")
@@ -287,6 +320,23 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         ]
         corpo=finalizar_email("\n".join(linhas))
         return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["atendimentograndesredes@valecard.com.br"],"cc":aplicar_cc_padrao(["atendimentograndesredes@valecard.com.br"]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":3,"tipo_acao":"SOLICITAR_INCLUSAO_VALECARD","status_pos_envio":"Aguardando Retorno Adquirente"}
+
+    if player == "POLICARD":
+        if not cnpjs or not ecs:
+            faltam=[]
+            if not cnpjs: faltam.append("CNPJ")
+            if not ecs: faltam.append("EC")
+            return {"ok":False,"motivo":"POLICARD: faltam dados obrigatórios antes do envio: " + ", ".join(faltam) + ".","estado":"AGUARDANDO_DADOS"}
+        assunto=f"[POLICARD - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, time Policard, tudo bem?", "",
+            f"Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum {cliente}, conforme dados abaixo:", "",
+            f"CNPJ: {cnpjs[0]}",
+            f"EC: {ecs[0]}", "",
+            "Estamos à disposição para quaisquer esclarecimentos.",
+        ]
+        corpo=finalizar_email("\n".join(linhas))
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["grandesredesup@upbrasil.com"],"cc":aplicar_cc_padrao(["grandesredesup@upbrasil.com"]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_POLICARD","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     if player == "VEROCHEQUE":
         # Procedimento operacional confirmado pela Verocheque: modelo fixo de
