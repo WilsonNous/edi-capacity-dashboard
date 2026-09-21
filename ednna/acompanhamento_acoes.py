@@ -148,6 +148,9 @@ def inicializar_acompanhamento() -> None:
             "redmine_pendente_status": "TEXT",
             "redmine_pendente_assigned_to_id": "INTEGER",
             "redmine_tentativas": "INTEGER DEFAULT 0",
+            # v3.28.50: prova transacional de que o Graph aceitou o envio.
+            # Não inferir envio apenas por estado/enviado_em legado.
+            "envio_confirmado": "INTEGER DEFAULT 0",
         }
 
         for nome, tipo in novas_colunas.items():
@@ -208,6 +211,7 @@ def obter_acompanhamento(
             "graph_message_id": "",
             "graph_conversation_id": "",
             "graph_internet_message_id": "",
+            "envio_confirmado": 0,
             "resposta_graph_message_id": "",
             "resposta_remetente": "",
             "resposta_assunto": "",
@@ -279,13 +283,50 @@ def adquirir_envio(
                 print(f"[EDNNA] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
 
             elif estado in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA"}:
-                # Estados pós-envio só bloqueiam quando existe evidência de envio.
-                # Registros antigos/corrompidos sem enviado_em não podem congelar a operação.
-                if str(dados_row.get("enviado_em") or "").strip():
+                # v3.28.50 — estado/enviado_em NÃO são mais prova suficiente de envio.
+                # Prova forte: envio_confirmado=1 (gravado somente após HTTP 202 do Graph)
+                # ou IDs reais do Graph persistidos por versões anteriores/reconciliação.
+                confirmado = int(dados_row.get("envio_confirmado") or 0) == 1
+                graph_ids = any(
+                    str(dados_row.get(campo) or "").strip()
+                    for campo in (
+                        "graph_message_id",
+                        "graph_conversation_id",
+                        "graph_internet_message_id",
+                    )
+                )
+                if confirmado or graph_ids:
                     conn.execute("ROLLBACK")
-                    print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EMAIL_JA_ENVIADO | estado={estado}", flush=True)
+                    print(
+                        f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} "
+                        f"| motivo=EMAIL_JA_ENVIADO | estado={estado} | evidencia="
+                        f"{'ENVIO_CONFIRMADO' if confirmado else 'GRAPH_ID'}",
+                        flush=True,
+                    )
                     return False, dados_row
-                print(f"[EDNNA] Idempotência inconsistente recuperada | chamado={chamado_id} | regra={regra_id} | estado={estado} | enviado_em=ausente", flush=True)
+
+                # Registro legado/inconsistente: havia estado pós-envio e possivelmente
+                # enviado_em, mas nenhuma evidência positiva de que o Graph aceitou o envio.
+                # Liberamos a execução e limpamos somente os marcadores derivados para que
+                # a nova tentativa seja transacional e auditável.
+                print(
+                    f"[EDNNA] Idempotência inconsistente recuperada | chamado={chamado_id} "
+                    f"| regra={regra_id} | estado={estado} | enviado_em="
+                    f"{str(dados_row.get('enviado_em') or 'ausente')} | evidencia_graph=ausente "
+                    f"| nova_tentativa=liberada",
+                    flush=True,
+                )
+                conn.execute(
+                    """
+                    UPDATE acoes_operacionais
+                       SET enviado_em = NULL,
+                           prazo_resposta_em = NULL,
+                           resposta_recebida_em = NULL,
+                           erro_envio = NULL
+                     WHERE chamado_id = ? AND regra_id = ?
+                    """,
+                    (int(chamado_id), str(regra_id)),
+                )
 
         agora = _iso(_agora())
 
@@ -303,7 +344,8 @@ def adquirir_envio(
             DO UPDATE SET
                 estado = 'ENVIANDO',
                 atualizado_em = excluded.atualizado_em,
-                erro_envio = NULL
+                erro_envio = NULL,
+                envio_confirmado = 0
             """,
             (int(chamado_id), str(regra_id), agora),
         )
@@ -366,6 +408,7 @@ def confirmar_envio_real(
                    graph_message_id = ?,
                    graph_conversation_id = ?,
                    graph_internet_message_id = ?,
+                   envio_confirmado = 1,
                    resposta_graph_message_id = NULL,
                    resposta_remetente = NULL,
                    resposta_assunto = NULL,
