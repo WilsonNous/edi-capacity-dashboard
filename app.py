@@ -7,7 +7,8 @@ from version import APP_VERSION, APP_RELEASE
 from ui.operational_data import resumo, chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup
-from ednna.acompanhamento_acoes import listar_redmine_pendentes
+from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
+from ednna.redmine_outbox import reconciliar_redmine_chamado
 
 ROOT = Path(__file__).resolve().parent
 AVATAR = ROOT / 'assets' / 'ednna_avatar.png'
@@ -136,6 +137,8 @@ with op_shell:
         mapa={int(x['id']):x for x in prontos}
         cid=st.selectbox('Chamado pronto para atuação', list(mapa), format_func=lambda x:f"#{x} · {mapa[x].get('player')} · {mapa[x].get('cliente') or 'Sem cliente'}", key='home_ednna_operacao_sel_v32842')
         item=mapa[int(cid)]
+        acompanhamento_home = obter_acompanhamento(int(cid), str(item.get('regra_id') or '')) or {}
+        email_ja_enviado_home = bool(int(acompanhamento_home.get('envio_confirmado') or 0) == 1 or str(acompanhamento_home.get('graph_message_id') or '').strip() or str(acompanhamento_home.get('enviado_em') or '').strip())
         st.markdown(
             f"**Chamado:** [#{int(cid)}]({redmine_link(cid)}) &nbsp; · &nbsp; **Cliente:** {html.escape(str(item.get('cliente') or 'Sem cliente'))}"
         )
@@ -149,18 +152,41 @@ with op_shell:
                 st.write(f"**Cc:** {', '.join(rasc.get('cc') or []) or '—'}")
                 st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
                 st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32842')
-                confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32842')
-                if st.button('📨 Executar agora', type='primary', width='content', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32842'):
-                    try:
-                        res=executar_atuacao_assistida_email(pacote)
-                        if res.get('ok'):
-                            if (res.get('redmine') or {}).get('pendente'):
-                                st.warning('E-mail enviado. A atualização do Redmine ficou na fila de reconciliação e será repetida sem reenviar o e-mail.')
+                if email_ja_enviado_home:
+                    st.success('✓ E-mail já enviado — novo disparo bloqueado pela idempotência.')
+                    ev_id=str(acompanhamento_home.get('graph_message_id') or acompanhamento_home.get('graph_internet_message_id') or '').strip()
+                    ev_dt=str(acompanhamento_home.get('enviado_em') or '').strip()
+                    st.caption(f"Evidência Graph: {ev_id or 'HTTP 202 confirmado'} · envio: {ev_dt or 'registrado'}")
+                    pendente_deste=[x for x in redmine_pendentes if int(x.get('chamado_id') or 0)==int(cid)]
+                    if pendente_deste:
+                        erro_rm=str(pendente_deste[0].get('redmine_erro') or '').strip()
+                        st.warning(f"Redmine pendente. {('Último erro: ' + erro_rm) if erro_rm else 'A atualização será reconciliada sem reenviar o e-mail.'}")
+                        if st.button('🔄 Reconciliar Redmine agora', type='secondary', width='content', key=f'home_ednna_reconcile_{cid}_v32853'):
+                            rr=reconciliar_redmine_chamado(int(cid), str(item.get('regra_id') or ''))
+                            if rr.get('atualizados'):
+                                st.success('Redmine atualizado com sucesso. Nenhum novo e-mail foi enviado.')
+                                st.rerun()
                             else:
-                                st.success('E-mail enviado e Redmine atualizado. A EDNNA seguirá acompanhando o retorno.')
-                            st.session_state.pop('home_ednna_pacote_v32842',None)
-                        else: st.warning(res.get('motivo') or 'Ação não executada.')
-                    except Exception as exc: st.error(f'Falha na execução: {type(exc).__name__}: {exc}')
+                                st.error('Redmine continua pendente: ' + '; '.join(rr.get('erros') or ['consulte o log do Azure']))
+                else:
+                    confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32853')
+                    if st.button('📨 Executar agora', type='primary', width='content', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32853'):
+                        try:
+                            res=executar_atuacao_assistida_email(pacote)
+                            if res.get('ok'):
+                                email=res.get('email') or {}
+                                if email.get('sent_items_confirmed'):
+                                    st.success('E-mail confirmado em Itens Enviados pelo Microsoft Graph.')
+                                else:
+                                    st.success('Microsoft Graph aceitou o envio (HTTP 202). A EDNNA preservou a idempotência.')
+                                if (res.get('redmine') or {}).get('pendente'):
+                                    st.warning('A atualização do Redmine ficou na fila de reconciliação. O e-mail não será reenviado.')
+                                else:
+                                    st.success('Redmine atualizado. Ciclo pós-envio concluído.')
+                                st.session_state.pop('home_ednna_pacote_v32842',None)
+                                st.rerun()
+                            else: st.warning(res.get('motivo') or 'Ação não executada.')
+                        except Exception as exc: st.error(f'Falha na execução: {type(exc).__name__}: {exc}')
             else: st.info(rasc.get('motivo') or 'Executor ainda não disponível para este workflow.')
     else:
         st.caption('Nenhuma inclusão autorizada está pronta para execução assistida neste instante.')
