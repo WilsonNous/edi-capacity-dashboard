@@ -1,2 +1,2 @@
-APP_VERSION = "3.28.46"
-APP_RELEASE = "Multi-EC TICKET · e-mails completos · follow-up HTML formatado"
+APP_VERSION = "3.28.47"
+APP_RELEASE = "Redmine Gateway · pressão controlada · cache inteligente de detalhes"

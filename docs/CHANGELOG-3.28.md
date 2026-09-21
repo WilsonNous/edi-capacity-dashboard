@@ -910,3 +910,13 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Rascunhos genéricos de inclusão passam a carregar CNPJ(s) e EC(s) quando disponíveis.
 - Pós-envio genérico de adquirentes/benefícios por e-mail usa Aguardando Retorno Adquirente; VR Benefícios permanece Aguardando Retorno Cliente.
 - Mantidos CC institucionais padrão via política central de e-mail.
+
+## 3.28.47 — Redmine Gateway
+
+- Centraliza a pressão das leituras REST do Redmine em um gateway com semáforo global por processo.
+- Default conservador: `REDMINE_MAX_CONCURRENT=1`.
+- Paginação remota passa a usar `REDMINE_PAGE_WORKERS=1` por padrão.
+- Cache curto de detalhes `issue.json` (`REDMINE_DETAIL_CACHE_TTL=90`) reduz consultas repetidas em reruns e módulos concorrentes.
+- Consultas individuais passam a usar timeout/tentativas mais conservadores por padrão: `(12,45)` e 2 tentativas.
+- Diagnóstico do Redmine passa a expor métricas do gateway: requests, cache hits, espera e duração da última chamada.
+- Mantido stale-while-revalidate do painel, circuit breaker, SQLite local-first e outbox já existentes.

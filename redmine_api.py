@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import monotonic, sleep
 from typing import Iterable
@@ -49,6 +50,31 @@ _SESSION.mount("http://", _ADAPTER)
 _PAINEL_REFRESH_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="painel-refresh")
 _PAINEL_REFRESH_FUTURES: dict[str, object] = {}
 
+# ============================================================
+# REDMINE GATEWAY — controle central de pressão sobre a API
+# ============================================================
+# Todas as leituras remotas passam por este semáforo. O objetivo é evitar
+# rajadas simultâneas vindas do painel, journals, auditoria e enriquecimento.
+# O default é conservador (1 chamada por vez) e pode ser elevado por variável
+# de ambiente somente após medição da API.
+_RED_GATEWAY_MAX_CONCURRENT = max(1, int(os.getenv("REDMINE_MAX_CONCURRENT", "1")))
+_RED_GATEWAY = threading.BoundedSemaphore(_RED_GATEWAY_MAX_CONCURRENT)
+_RED_GATEWAY_WAIT_SECONDS = max(1, int(os.getenv("REDMINE_GATEWAY_WAIT_SECONDS", "30")))
+
+# Cache curto para detalhes individuais. Evita que módulos diferentes consultem
+# o mesmo issue.json em sequência durante reruns do Streamlit.
+_RED_DETAIL_CACHE_TTL = max(5, int(os.getenv("REDMINE_DETAIL_CACHE_TTL", "90")))
+_RED_DETAIL_CACHE: dict[tuple[int, str], tuple[float, dict]] = {}
+_RED_DETAIL_CACHE_LOCK = threading.Lock()
+
+_GATEWAY_DIAGNOSTICO = {
+    "max_concurrent": _RED_GATEWAY_MAX_CONCURRENT,
+    "requests": 0,
+    "cache_hits_detalhe": 0,
+    "espera_gateway_s": 0.0,
+    "ultima_duracao_s": 0.0,
+}
+
 _LAST_DIAGNOSTICO = {
     "tempo_listagem_s": 0.0,
     "tempo_detalhes_s": 0.0,
@@ -62,7 +88,9 @@ _LAST_DIAGNOSTICO = {
 
 
 def obter_diagnostico_redmine() -> dict:
-    return dict(_LAST_DIAGNOSTICO)
+    resultado = dict(_LAST_DIAGNOSTICO)
+    resultado["gateway"] = dict(_GATEWAY_DIAGNOSTICO)
+    return resultado
 
 
 def _headers() -> dict[str, str]:
@@ -121,15 +149,34 @@ def _get(
                 flush=True,
             )
 
-            response = _SESSION.get(
-                url,
-                headers=_headers(),
-                params=params,
-                timeout=timeout,
-            )
-            response.raise_for_status()
+            espera_inicio = monotonic()
+            adquirido = _RED_GATEWAY.acquire(timeout=_RED_GATEWAY_WAIT_SECONDS)
+            espera_gateway = monotonic() - espera_inicio
+            if not adquirido:
+                raise requests.exceptions.ConnectTimeout(
+                    f"Gateway Redmine ocupado por mais de {_RED_GATEWAY_WAIT_SECONDS}s"
+                )
+            try:
+                _GATEWAY_DIAGNOSTICO["requests"] += 1
+                _GATEWAY_DIAGNOSTICO["espera_gateway_s"] = round(espera_gateway, 3)
+                if espera_gateway >= 0.25:
+                    print(
+                        f"[REDMINE-GW] aguardou={espera_gateway:.2f}s | path={path} | "
+                        f"limite={_RED_GATEWAY_MAX_CONCURRENT}",
+                        flush=True,
+                    )
+                response = _SESSION.get(
+                    url,
+                    headers=_headers(),
+                    params=params,
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+            finally:
+                _RED_GATEWAY.release()
 
             duracao = monotonic() - inicio
+            _GATEWAY_DIAGNOSTICO["ultima_duracao_s"] = round(duracao, 3)
             print(
                 f"[REDMINE] OK {path} | tentativa {tentativa}/{tentativas} | "
                 f"{duracao:.2f}s",
@@ -495,14 +542,41 @@ def buscar_detalhes_chamado(
     if incluir_relacoes:
         includes.append("relations")
     params = {"include": ",".join(includes)} if includes else None
-    return _get(
+    assinatura = ",".join(sorted(includes))
+    chave_cache = (int(chamado_id), assinatura)
+    agora = monotonic()
+
+    # Consultas pontuais explícitas podem pedir dado fresco usando timeout/tentativas,
+    # mas ainda aproveitam cache curto quando não há indicação de force refresh.
+    with _RED_DETAIL_CACHE_LOCK:
+        item_cache = _RED_DETAIL_CACHE.get(chave_cache)
+        if item_cache and (agora - item_cache[0]) < _RED_DETAIL_CACHE_TTL:
+            _GATEWAY_DIAGNOSTICO["cache_hits_detalhe"] += 1
+            print(
+                f"[REDMINE-GW] detalhe cache HIT | chamado={chamado_id} | include={assinatura or '-'}",
+                flush=True,
+            )
+            return dict(item_cache[1])
+
+    issue = _get(
         f"issues/{chamado_id}.json",
         params,
-        timeout=timeout if timeout is not None else (20, 60),
-        tentativas=tentativas if tentativas is not None else 3,
+        timeout=timeout if timeout is not None else (12, 45),
+        tentativas=tentativas if tentativas is not None else 2,
         ignorar_circuit_breaker_global=consulta_pontual,
         alterar_circuit_breaker_global=not consulta_pontual,
     ).get("issue", {})
+
+    if issue:
+        with _RED_DETAIL_CACHE_LOCK:
+            _RED_DETAIL_CACHE[chave_cache] = (monotonic(), dict(issue))
+            # Limpeza simples para processo de longa duração.
+            if len(_RED_DETAIL_CACHE) > 500:
+                limite = monotonic() - (_RED_DETAIL_CACHE_TTL * 2)
+                expiradas = [k for k, v in _RED_DETAIL_CACHE.items() if v[0] < limite]
+                for k in expiradas:
+                    _RED_DETAIL_CACHE.pop(k, None)
+    return issue
 
 
 def pegar_custom_field(chamado: dict, field_id: int):
@@ -516,7 +590,7 @@ def pegar_custom_field(chamado: dict, field_id: int):
     return None
 
 
-def garantir_custom_fields(chamados: list[dict], max_workers: int = 12) -> list[dict]:
+def garantir_custom_fields(chamados: list[dict], max_workers: int = 2) -> list[dict]:
     global _LAST_DIAGNOSTICO
 
     if not chamados:
@@ -574,7 +648,7 @@ def _buscar_chamados_projetos_remoto(
     # O Redmine/nginx demonstrou sensibilidade a múltiplas conexões simultâneas
     # já na primeira página. Mantemos paralelismo apenas nas páginas seguintes,
     # de forma mais conservadora.
-    max_workers_paginas = max(1, int(os.getenv("REDMINE_PAGE_WORKERS", "2")))
+    max_workers_paginas = max(1, int(os.getenv("REDMINE_PAGE_WORKERS", "1")))
 
     resultados_por_projeto: dict[int, list[dict]] = {}
     for project_id in project_ids:
