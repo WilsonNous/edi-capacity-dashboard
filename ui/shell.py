@@ -70,6 +70,8 @@ def render_sidebar() -> str:
             unsafe_allow_html=True,
         )
 
+        st.page_link("pages/Regras.py", label="Central de Regras EDNNA", icon="🧠")
+
         st.caption(
             "Filtros e análises usam o snapshot compartilhado. "
             "Cada navegador mantém sua própria seleção."
