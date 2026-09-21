@@ -1,8 +1,46 @@
 {
-  "versao": "1.5",
+  "versao": "1.6",
   "modo": "RASCUNHO_ASSISTIDO",
   "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
   "regras": [
+    {
+      "id": "FALTA-TRIOCARD-001",
+      "nome": "TrioCard — Reenvio retroativo + restabelecimento diário",
+      "intencao": "FALTA_ARQUIVO",
+      "subtipo": "ARQUIVO_NAO_RECEBIDO",
+      "origens": [
+        "TRIOCARD",
+        "TRIO CARD"
+      ],
+      "acao": "PREPARAR_EMAIL_REENVIO_RESTABELECIMENTO",
+      "canal": "EMAIL",
+      "homologada_para_rascunho": true,
+      "executavel": true,
+      "auto_executar": false,
+      "requer_aprovacao_humana": true,
+      "requer_dados_completos": false,
+      "bloqueia_conflito": true,
+      "campos_obrigatorios": [
+        "cliente",
+        "origem",
+        "referencia",
+        "tipo_arquivo",
+        "convenio",
+        "nsa"
+      ],
+      "destinatarios": [
+        "arquivos@personalcard.com.br"
+      ],
+      "cc_padrao": [
+        "bpo@netunna.com.br",
+        "edi@netunna.com.br",
+        "consultores@netunna.com.br"
+      ],
+      "prazo_resposta_dias_uteis": 2,
+      "status_pos_envio": "Aguardando Retorno Adquirente",
+      "assunto_template": "[TRIOCARD - Falta de Arquivo - {cliente} - CN: {chamado_id}]",
+      "observacao": "Template estruturado do suporte. Extrai tipo, data inicial, último NSA, todos os Convênios/ECs e ação marcada; envio sempre assistido."
+    },
     {
       "id": "FALTA-PLUXEE-001",
       "nome": "Pluxee — Solicitação de reenvio de arquivo",

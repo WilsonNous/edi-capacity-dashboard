@@ -29,7 +29,7 @@ _EC_ROTULADO_RE = re.compile(
 # ECs podem aparecer em sequência no assunto/descrição (ex.: EC 123 - 456 - 789).
 # Aceitamos somente blocos numéricos de 5 a 13 dígitos para não confundir CNPJ (14)
 # nem códigos curtos auxiliares.
-_EC_NUMERICO_RE = re.compile(r"(?<!\d)(\d{5,13})(?!\d)")
+_EC_NUMERICO_RE = re.compile(r"(?<!\d)(\d{5,18})(?!\d)")
 
 
 def _texto_issue(issue: dict) -> str:
@@ -53,23 +53,43 @@ def _unicos(valores: list[str]) -> list[str]:
     return saida
 
 
-def _extrair_dados(issue: dict) -> dict:
-    texto = _texto_issue(issue)
-    emails = _unicos(_EMAIL_RE.findall(texto))
-    cnpjs = _unicos(_CNPJ_RE.findall(texto))
-    ecs = []
-    for valor in _EC_ROTULADO_RE.findall(texto):
-        limpo = valor.strip().strip(".,;:()[]<>")
-        # Evita transformar palavras comuns em EC quando o texto está mal formatado.
-        if any(ch.isdigit() for ch in limpo) and 3 <= len(limpo) <= 31:
-            ecs.append(limpo)
+def _texto_operacional_issue(issue: dict) -> str:
+    """Texto confiável para identificadores operacionais.
 
-    # Complemento multi-EC: quando o chamado fala explicitamente de EC/estabelecimento,
-    # captura todos os identificadores numéricos presentes no bloco, preservando ordem.
-    # CNPJs (14 dígitos) ficam de fora por construção.
-    if re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\b", texto):
-        ecs.extend(_EC_NUMERICO_RE.findall(texto))
-    return {"emails": emails, "cnpjs": cnpjs, "ecs": _unicos(ecs)}
+    EC/convênio nunca é extraído de journals, URLs ou nomes de anexos. O Redmine
+    costuma inserir IDs numéricos de screenshots/attachments no histórico e esses
+    números não podem virar estabelecimento por mera coincidência de regex.
+    """
+    return "\n".join([str(issue.get("subject") or ""), str(issue.get("description") or "")])
+
+
+def _extrair_ecs_contextuais(issue: dict) -> list[str]:
+    texto = _texto_operacional_issue(issue)
+    encontrados: list[str] = []
+
+    # Somente linhas/frases que declaram semanticamente EC/estabelecimento/convênio.
+    # Dentro desse contexto preservamos todos os identificadores de 5..13 dígitos.
+    for linha in texto.splitlines():
+        if not re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\b", linha):
+            continue
+        encontrados.extend(_EC_NUMERICO_RE.findall(linha))
+
+    # O assunto pode conter a sequência completa sem quebras de linha.
+    assunto = str(issue.get("subject") or "")
+    if re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\b", assunto):
+        encontrados.extend(_EC_NUMERICO_RE.findall(assunto))
+
+    return _unicos(encontrados)
+
+
+def _extrair_dados(issue: dict) -> dict:
+    texto_completo = _texto_issue(issue)
+    # E-mails e CNPJs podem ser úteis no histórico. ECs, porém, usam apenas
+    # assunto+descrição e exigem contexto semântico explícito.
+    emails = _unicos(_EMAIL_RE.findall(texto_completo))
+    cnpjs = _unicos(_CNPJ_RE.findall(texto_completo))
+    ecs = _extrair_ecs_contextuais(issue)
+    return {"emails": emails, "cnpjs": cnpjs, "ecs": ecs}
 
 
 

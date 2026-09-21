@@ -166,6 +166,28 @@ def _extrair_convenio_fallback(linha: pd.Series | dict) -> str:
     return ""
 
 
+def _extrair_convenios_contextuais(linha: pd.Series | dict) -> list[str]:
+    """Extrai todos os ECs/convênios apenas de campos semanticamente rotulados."""
+    texto = "\n".join([_texto(linha.get("Assunto")), _texto(linha.get("Descrição"))])
+    saida: list[str] = []
+    vistos: set[str] = set()
+    for linha_txt in texto.splitlines():
+        if not re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONV[EÊ]NIO)\b", linha_txt):
+            continue
+        for valor in re.findall(r"(?<!\d)(\d{5,18})(?!\d)", linha_txt):
+            if valor not in vistos:
+                vistos.add(valor); saida.append(valor)
+    return saida
+
+
+def _extrair_acao_falta_arquivo(linha: pd.Series | dict) -> str:
+    texto = _texto(linha.get("Descrição"))
+    marcadas = []
+    for m in re.finditer(r"(?im)^\s*\[\s*[xX]\s*\]\s*(.+?)\s*$", texto):
+        marcadas.append(m.group(1).strip())
+    return " | ".join(marcadas)
+
+
 def _campos_faltantes_regra(regra: dict, linha: pd.Series | dict) -> list[str]:
     disponiveis = _dados_disponiveis(linha)
     nomes = {
@@ -337,7 +359,34 @@ def gerar_rascunho(linha: pd.Series | dict) -> dict:
         chamado_id=chamado_id,
     )
 
-    if regra.get("id") == "FALTA-BANCO-SIMREDE-001":
+    if regra.get("id") == "FALTA-TRIOCARD-001":
+        convenios = _extrair_convenios_contextuais(linha)
+        acao_marcada = _extrair_acao_falta_arquivo(linha)
+        if not convenios:
+            return {**avaliacao, "estado": "DADOS_INCOMPLETOS", "rotulo": "Dados incompletos",
+                    "apto_rascunho": False, "destinatarios": [], "cc": [], "assunto": "", "corpo": "",
+                    "motivo": "TRIOCARD: nenhum Convênio/EC contextual foi localizado na descrição."}
+        if not acao_marcada:
+            return {**avaliacao, "estado": "DADOS_INCOMPLETOS", "rotulo": "Dados incompletos",
+                    "apto_rascunho": False, "destinatarios": [], "cc": [], "assunto": "", "corpo": "",
+                    "motivo": "TRIOCARD: nenhuma ação [X] foi marcada no template do chamado."}
+        bloco_ec = "\n".join(f"- {ec}" for ec in convenios)
+        corpo = (
+            "Olá, time TrioCard, tudo bem?\n\n"
+            f"Identificamos ausência dos arquivos de {tipos or 'VENDA'} do cliente {cliente} "
+            f"desde {referencia}.\n\n"
+            f"Tipo de arquivo: {tipos or 'VENDA'}\n"
+            f"Último NSA recebido: {nsa}\n"
+            f"Convênios / ECs:\n{bloco_ec}\n\n"
+            f"Ação necessária: {acao_marcada}.\n\n"
+            "Solicitamos, por gentileza, o reenvio retroativo dos arquivos pendentes e o "
+            "restabelecimento/ativação do envio diário, conforme indicado no chamado.\n\n"
+            "Observação: recebemos apenas um arquivo diário contendo todas as vendas.\n\n"
+            "Agradecemos e ficamos no aguardo da regularização.\n\n"
+            "Atenciosamente,\nEquipe EDI Netunna"
+        )
+
+    elif regra.get("id") == "FALTA-BANCO-SIMREDE-001":
         linhas = [
             f"Banco: {origem}",
             f"Referência: {referencia}",
