@@ -574,7 +574,7 @@ def render_ednna_workspace(
                 mapa_home = {int(x["id"]): x for x in prontos_home}
                 cid_home = st.selectbox("Escolha um chamado", list(mapa_home), format_func=lambda cid: f"#{cid} · {mapa_home[cid].get('player')} · {mapa_home[cid].get('cliente') or 'Sem cliente'}", key="ednna_home_operacao_sel_v32838")
                 item_home = mapa_home[int(cid_home)]
-                if st.button("🧾 Preparar atuação", type="primary", width="stretch", key="ednna_home_prepare_v32838"):
+                if st.button("🧾 Preparar atuação", type="primary", width="content", key="ednna_home_prepare_v32838"):
                     st.session_state["ednna_home_pacote_v32838"] = preparar_atuacao_assistida(item_home)
                 pacote_home = st.session_state.get("ednna_home_pacote_v32838")
                 if pacote_home and int(pacote_home.get("chamado_id") or 0) == int(cid_home):
@@ -586,7 +586,7 @@ def render_ednna_workspace(
                         st.write(f"**Assunto:** {rasc_home.get('assunto','')}")
                         st.text_area("Mensagem preparada", rasc_home.get("corpo", ""), height=220, disabled=True, key=f"preview_inc_{cid_home}_v32838")
                         confirmar_home = st.checkbox("Confirmo que a EDNNA pode executar esta ação externa.", key=f"confirm_inc_{cid_home}_v32838")
-                        if st.button("📨 Executar agora", type="primary", disabled=not confirmar_home, width="stretch", key=f"exec_inc_{cid_home}_v32838"):
+                        if st.button("📨 Executar agora", type="primary", disabled=not confirmar_home, width="content", key=f"exec_inc_{cid_home}_v32838"):
                             try:
                                 resultado_exec = executar_atuacao_assistida_email(pacote_home)
                                 if resultado_exec.get("ok"):

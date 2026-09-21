@@ -24,7 +24,7 @@ st.markdown("""<style>
 .rule-hero{background:#fff;border:1px solid #dfe8f4;border-radius:18px;padding:18px 22px;margin:8px 0 16px;box-shadow:0 5px 18px rgba(24,75,140,.04)}
 .rule-title{font-size:1.45rem;font-weight:900;color:#12366c}.rule-sub{color:#6f84a2;font-size:.9rem;margin-top:3px}
 [data-testid="stMetric"]{background:#fff;border:1px solid #dfe8f4;border-radius:14px;padding:10px 14px}
-div.stButton>button{border-radius:11px;font-weight:750}
+div.stButton>button{border-radius:10px!important;font-weight:750!important;min-height:38px!important;width:auto!important;padding:.4rem .8rem!important}div.stButton>button[kind="primary"]{background:#1268e8!important;color:#fff!important;border-color:#1268e8!important}div.stButton>button[kind="primary"] p{color:#fff!important}
 </style>""", unsafe_allow_html=True)
 
 cback, _ = st.columns([1, 7])
@@ -78,7 +78,7 @@ with aba1:
                 st.caption("Destinatários encontrados: " + " · ".join(recorr))
             dest = st.text_input("Destinatário confirmado", value=sugerido, key=f"central_dest_{rid}", placeholder="contato@player.com.br")
             obs = st.text_area("Observação da homologação", value=str(rev.get("observacoes") or ""), key=f"central_obs_{rid}", height=75)
-            if st.button("✅ Revisar e homologar", key=f"central_hom_{rid}", type="primary", width="stretch"):
+            if st.button("✅ Revisar e homologar", key=f"central_hom_{rid}", type="primary", width="content"):
                 try:
                     salvar_revisao_assistida(rid, destinatario_confirmado=dest, observacoes=obs, revisado_por="OPERADOR_EDNNA")
                     homologar_regra_assistida(rid, revisado_por="OPERADOR_EDNNA")
@@ -102,7 +102,7 @@ with aba2:
             st.caption("Canal: " + str(wf.get("canal") or "—") + " · Workflow: " + str(wf.get("workflow") or "—"))
             if wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
                 st.info("Esta regra já pode ser liberada para operação assistida. A confirmação humana continua obrigatória antes de ação externa.")
-                if st.button("▶️ Autorizar operação assistida", key=f"central_auth_{rid}", type="primary", width="stretch"):
+                if st.button("▶️ Autorizar operação assistida", key=f"central_auth_{rid}", type="primary", width="content"):
                     try:
                         autorizar_regra_motor(rid, modo="ASSISTIDA", autorizado_por="OPERADOR_EDNNA")
                         st.success(f"{player}: operação assistida autorizada.")
@@ -125,7 +125,7 @@ with aba3:
             a.metric("Conhecimento", "Homologado")
             b.metric("Executor", wf.get("prontidao") or "—")
             c.metric("Motor", "Assistida")
-            if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="stretch"):
+            if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="content"):
                 autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
                 st.rerun()
 

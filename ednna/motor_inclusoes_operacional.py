@@ -396,12 +396,21 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     r=gerar_rascunho_inclusao(pacote)
     if not r.get("ok"): return r
     cid=int(pacote.get("chamado_id") or 0); rid=str(pacote.get("regra_id") or "")
+    print(f"[EDNNA] Execução solicitada | chamado={cid} | player={pacote.get('player')} | regra={rid}", flush=True)
     adquirido, estado=adquirir_envio(cid,rid)
     if not adquirido:
-        return {"ok":False,"motivo":"Ação já iniciada ou enviada.","acompanhamento":estado}
+        estado_atual = str((estado or {}).get("estado") or "DESCONHECIDO")
+        enviado = bool(str((estado or {}).get("enviado_em") or "").strip())
+        motivo = "E-mail já enviado; chamado está em acompanhamento." if enviado else "Execução já está em andamento. Aguarde alguns instantes e atualize a tela."
+        print(f"[EDNNA] Execução não adquirida | chamado={cid} | regra={rid} | estado={estado_atual} | enviado={enviado}", flush=True)
+        return {"ok":False,"motivo":motivo,"estado":estado_atual,"acompanhamento":estado}
+    print(f"[EDNNA] Executor adquirido | chamado={cid} | regra={rid} | estado=EXECUTANDO", flush=True)
     try:
+        print(f"[EDNNA] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
         mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
+        print(f"[EDNNA] Graph | e-mail enviado | chamado={cid} | message_id={mail.get('message_id','') or 'n/d'}", flush=True)
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""))
+        print(f"[EDNNA] Acompanhamento | chamado={cid} | estado=AGUARDANDO_RESPOSTA", flush=True)
         # Pós-envio obrigatório: o e-mail já saiu, portanto qualquer falha no Redmine
         # vira outbox pendente e nunca provoca reenvio da mensagem.
         from ednna.redmine_outbox import registrar_ou_enfileirar
@@ -419,11 +428,14 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
             f"Assunto: {r.get('assunto') or ''}\n"
             f"Próxima etapa: {proxima}."
         )
+        print(f"[EDNNA] Redmine | atualização iniciada | chamado={cid} | status={status_pos}", flush=True)
         redmine_result = registrar_ou_enfileirar(
             chamado_id=cid, regra_id=rid, nota=nota, status_nome=status_pos,
             assigned_to_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166),
         )
+        print(f"[EDNNA] Redmine | atualização concluída | chamado={cid} | pendente={bool((redmine_result or {}).get('pendente'))}", flush=True)
         print(f"[EDNNA] Operação assistida EXECUTADA | chamado={cid} | player={pacote.get('player')} | regra={rid} | canal=EMAIL | tipo={r.get('tipo_acao')}",flush=True)
         return {"ok":True,"estado":"AGUARDANDO_RETORNO_CLIENTE" if pacote.get("player") == "VR BENEFICIOS" else "AGUARDANDO_RESPOSTA","email":mail,"acompanhamento":acomp,"redmine":redmine_result,"tipo_acao":r.get("tipo_acao")}
     except Exception as exc:
+        print(f"[EDNNA] Operação assistida ERRO | chamado={cid} | regra={rid} | erro={type(exc).__name__}: {exc}", flush=True)
         registrar_falha_envio(cid,rid,str(exc)); raise

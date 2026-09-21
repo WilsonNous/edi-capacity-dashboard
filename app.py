@@ -43,7 +43,7 @@ div.stButton>button{font-size:.82rem!important;letter-spacing:-.005em!important}
 .st-key-ednna_operation_shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:14px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}
 .st-key-ednna_operation_shell [data-testid="stMetric"]{background:#f8fbff;border:1px solid #e1eaf6;border-radius:14px;padding:9px 12px;min-height:78px}
 .st-key-ednna_operation_shell [data-testid="stMetricValue"]{font-size:1.42rem}
-.st-key-ednna_operation_shell div.stButton>button{min-height:48px!important}
+.st-key-ednna_operation_shell div.stButton>button{min-height:40px!important;width:auto!important;padding:.45rem .9rem!important;border-radius:10px!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary]{background:#1268e8!important;color:#fff!important;border-color:#1268e8!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary] p{color:#fff!important}
 </style>''', unsafe_allow_html=True)
 
 r = resumo(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
@@ -139,7 +139,7 @@ with op_shell:
         st.markdown(
             f"**Chamado:** [#{int(cid)}]({redmine_link(cid)}) &nbsp; · &nbsp; **Cliente:** {html.escape(str(item.get('cliente') or 'Sem cliente'))}"
         )
-        if st.button('🧾 Preparar atuação', type='primary', width='stretch', key='home_ednna_prepare_v32842'):
+        if st.button('🧾 Preparar atuação', type='primary', width='content', key='home_ednna_prepare_v32842'):
             st.session_state['home_ednna_pacote_v32842']=preparar_atuacao_assistida(item)
         pacote=st.session_state.get('home_ednna_pacote_v32842')
         if pacote and int(pacote.get('chamado_id') or 0)==int(cid):
@@ -150,7 +150,7 @@ with op_shell:
                 st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
                 st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32842')
                 confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32842')
-                if st.button('📨 Executar agora', type='primary', width='stretch', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32842'):
+                if st.button('📨 Executar agora', type='primary', width='content', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32842'):
                     try:
                         res=executar_atuacao_assistida_email(pacote)
                         if res.get('ok'):

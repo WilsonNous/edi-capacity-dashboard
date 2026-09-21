@@ -255,15 +255,37 @@ def adquirir_envio(
 
         if row is not None:
             estado = str(row["estado"] or "")
+            dados_row = dict(row)
 
-            if estado in {
-                "ENVIANDO",
-                "AGUARDANDO_RESPOSTA",
-                "PRAZO_VENCIDO",
-                "RESPOSTA_RECEBIDA",
-            }:
-                conn.execute("ROLLBACK")
-                return False, dict(row)
+            # v3.28.49: não confundir uma tentativa abandonada com e-mail enviado.
+            # ENVIANDO sem evidência real pode ficar preso após rerun/restart.
+            # Após alguns minutos liberamos nova tentativa de forma segura.
+            if estado == "ENVIANDO":
+                enviado_em = str(dados_row.get("enviado_em") or "").strip()
+                atualizado_em = str(dados_row.get("atualizado_em") or "").strip()
+                stale = False
+                if not enviado_em and atualizado_em:
+                    try:
+                        dt = datetime.fromisoformat(atualizado_em.replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=TZ_BRASIL)
+                        stale = (_agora() - dt.astimezone(TZ_BRASIL)).total_seconds() >= 300
+                    except Exception:
+                        stale = False
+                if not stale:
+                    conn.execute("ROLLBACK")
+                    print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EXECUCAO_EM_ANDAMENTO | estado={estado}", flush=True)
+                    return False, dados_row
+                print(f"[EDNNA] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
+
+            elif estado in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA"}:
+                # Estados pós-envio só bloqueiam quando existe evidência de envio.
+                # Registros antigos/corrompidos sem enviado_em não podem congelar a operação.
+                if str(dados_row.get("enviado_em") or "").strip():
+                    conn.execute("ROLLBACK")
+                    print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EMAIL_JA_ENVIADO | estado={estado}", flush=True)
+                    return False, dados_row
+                print(f"[EDNNA] Idempotência inconsistente recuperada | chamado={chamado_id} | regra={regra_id} | estado={estado} | enviado_em=ausente", flush=True)
 
         agora = _iso(_agora())
 
