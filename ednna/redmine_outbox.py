@@ -36,3 +36,29 @@ def reconciliar_redmine_pendentes(limite:int=10) -> dict:
     if itens:
         print(f"[EDNNA] Redmine reconciliação | consultados={len(itens)} | atualizados={ok} | pendentes={pend}", flush=True)
     return {"consultados":len(itens),"atualizados":ok,"pendentes":pend}
+
+
+def reconciliar_redmine_chamado(chamado_id:int, regra_id:str="") -> dict:
+    """Força a reconciliação de um chamado sem tocar no envio de e-mail."""
+    itens=[x for x in listar_redmine_pendentes() if int(x.get("chamado_id") or 0)==int(chamado_id)]
+    if regra_id:
+        itens=[x for x in itens if str(x.get("regra_id") or "")==str(regra_id)]
+    if not itens:
+        return {"consultados":0,"atualizados":[],"pendentes":[],"mensagem":"Nenhuma atualização Redmine pendente para este chamado."}
+    ok=[]; pend=[]; erros=[]
+    for item in itens:
+        cid=int(item.get('chamado_id') or 0); rid=str(item.get('regra_id') or '')
+        try:
+            registrar_email_e_status_chamado(
+                chamado_id=cid, nota=str(item.get('redmine_pendente_nota') or ''),
+                status_nome=str(item.get('redmine_pendente_status') or 'Aguardando Retorno Cliente'),
+                assigned_to_id=item.get('redmine_pendente_assigned_to_id'))
+            concluir_redmine_pendente(cid,rid,str(item.get('redmine_pendente_status') or ''))
+            ok.append(cid)
+            print(f"[EDNNA] Redmine reconciliação MANUAL | OK | chamado={cid} | regra={rid}", flush=True)
+        except Exception as exc:
+            erro=f"{type(exc).__name__}: {exc}"
+            agendar_redmine_pendente(cid,rid,nota=str(item.get('redmine_pendente_nota') or ''),status_nome=str(item.get('redmine_pendente_status') or ''),assigned_to_id=item.get('redmine_pendente_assigned_to_id'),erro=erro)
+            pend.append(cid); erros.append(erro)
+            print(f"[EDNNA] Redmine reconciliação MANUAL | PENDENTE | chamado={cid} | regra={rid} | {erro}", flush=True)
+    return {"consultados":len(itens),"atualizados":ok,"pendentes":pend,"erros":erros}

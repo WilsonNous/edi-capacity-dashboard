@@ -408,8 +408,27 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     try:
         print(f"[EDNNA] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
         mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
-        print(f"[EDNNA] Graph | e-mail enviado | chamado={cid} | message_id={mail.get('message_id','') or 'n/d'}", flush=True)
-        acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""))
+        print(f"[EDNNA] Graph | HTTP 202 aceito | chamado={cid}", flush=True)
+        # v3.28.53: além do HTTP 202, procurar a cópia real em Sent Items.
+        # Falha desta leitura NÃO reenvia o e-mail: o HTTP 202 continua sendo prova de aceitação.
+        try:
+            from ednna.email_sender import confirmar_email_em_sent_items
+            evidencia=confirmar_email_em_sent_items(remetente=r["remetente"], chamado_id=cid, assunto=r["assunto"])
+            if evidencia.get("confirmado"):
+                mail["message_id"]=evidencia.get("message_id","") or mail.get("message_id","")
+                mail["conversation_id"]=evidencia.get("conversation_id","") or mail.get("conversation_id","")
+                mail["internet_message_id"]=evidencia.get("internet_message_id","") or mail.get("internet_message_id","")
+                mail["sent_datetime"]=evidencia.get("sent_datetime","")
+                mail["sent_items_confirmed"]=True
+                print(f"[EDNNA] Graph | SENT_ITEMS_CONFIRMED | chamado={cid} | message_id={mail.get('message_id') or 'n/d'} | enviado_em={mail.get('sent_datetime') or 'n/d'}", flush=True)
+            else:
+                mail["sent_items_confirmed"]=False
+                print(f"[EDNNA] Graph | SENT_ITEMS_PENDING | chamado={cid} | HTTP202=confirmado", flush=True)
+        except Exception as sent_exc:
+            mail["sent_items_confirmed"]=False
+            mail["sent_items_warning"]=f"{type(sent_exc).__name__}: {sent_exc}"
+            print(f"[EDNNA] Graph | SENT_ITEMS_CHECK_ERROR | chamado={cid} | {type(sent_exc).__name__}: {sent_exc}", flush=True)
+        acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""),enviado_em_real=mail.get("sent_datetime",""))
         print(f"[EDNNA] Acompanhamento | chamado={cid} | estado=AGUARDANDO_RESPOSTA", flush=True)
         # Pós-envio obrigatório: o e-mail já saiu, portanto qualquer falha no Redmine
         # vira outbox pendente e nunca provoca reenvio da mensagem.

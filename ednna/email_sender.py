@@ -399,3 +399,22 @@ def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: 
     if enviado.status_code != 202:
         raise EmailSendError("Falha ao enviar follow-up pelo Microsoft Graph: " f"HTTP {enviado.status_code} - {enviado.text[:800]}")
     return {"ok": True, "status_code": enviado.status_code, "message_id_origem": message_id, "draft_id": draft_id, "formato":"HTML"}
+
+
+def confirmar_email_em_sent_items(*, remetente:str, chamado_id:int=0, assunto:str="") -> dict:
+    """Confirma a existência física do envio em Sent Items e devolve evidência auditável."""
+    item={}
+    if chamado_id:
+        item=localizar_email_enviado_por_chamado(remetente=remetente, chamado_id=int(chamado_id))
+    if not item and assunto:
+        item=localizar_email_enviado(remetente=remetente, assunto=assunto)
+    if not item:
+        return {"confirmado":False}
+    return {
+        "confirmado":True,
+        "message_id":str(item.get("id") or ""),
+        "conversation_id":str(item.get("conversationId") or ""),
+        "internet_message_id":str(item.get("internetMessageId") or ""),
+        "sent_datetime":str(item.get("sentDateTime") or ""),
+        "subject":str(item.get("subject") or ""),
+    }
