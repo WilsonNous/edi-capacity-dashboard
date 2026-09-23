@@ -52,6 +52,28 @@ m4.metric("Autorizadas no motor", len(autorizadas))
 
 st.caption("Fluxo: 1) revisar e homologar → 2) autorizar como assistida ou automática. Automática só fica disponível quando o workflow possui executor implementado.")
 
+# v3.28.58 — aceleração controlada: um único comando promove para AUTOMATICA
+# somente regras já HOMOLOGADAS cujo executor está realmente disponível.
+# Regras sem executor continuam bloqueadas; nenhuma homologação é criada aqui.
+aptas_auto = [r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao") == "ASSISTIDA_DISPONIVEL"]
+pendentes_auto = [r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper() != "AUTOMATICA"]
+if pendentes_auto:
+    st.warning(f"⚡ {len(pendentes_auto)} regra(s) homologada(s) com executor disponível ainda não estão em modo automático.")
+    if st.button("⚡ Colocar TODAS as homologadas aptas em AUTOMÁTICO", type="primary", key="central_auto_todas", width="content"):
+        ok, erros = 0, []
+        for rr in pendentes_auto:
+            rid = str(rr.get("regra_id") or "")
+            try:
+                autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Autorização em lote explícita: executar automaticamente todas as regras já homologadas e com executor disponível.")
+                ok += 1
+            except Exception as exc:
+                erros.append(f"{rr.get('player')}: {exc}")
+        if ok:
+            st.success(f"{ok} regra(s) promovida(s) para execução automática.")
+        if erros:
+            st.error("Não foi possível ativar: " + " | ".join(erros))
+        st.rerun()
+
 aba1, aba2, aba3 = st.tabs([f"1 · Revisar e homologar ({len(revisar)})", f"2 · Autorizar motor ({len(bloqueadas)})", f"Regras ativas ({len(autorizadas)})"])
 
 with aba1:
