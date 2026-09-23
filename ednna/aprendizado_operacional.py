@@ -568,10 +568,8 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
         raise ValueError("Somente regra homologada pode ser autorizada para operação.")
     aprendido = obter_aprendizado(regra_id) or {}
     workflow = obter_workflow(aprendido.get("player"))
-    if modo == "AUTOMATICA":
-        raise ValueError("Execução automática de inclusões permanece bloqueada nesta versão. Autorize em modo ASSISTIDA.")
-    if modo == "ASSISTIDA" and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
-        raise ValueError("O executor deste workflow ainda não está disponível para operação assistida.")
+    if modo in {"ASSISTIDA", "AUTOMATICA"} and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
+        raise ValueError("O executor deste workflow ainda não está disponível para operação.")
     agora = agora_brasil_iso()
     with conectar() as conn:
         conn.execute("""INSERT INTO autorizacoes_motor

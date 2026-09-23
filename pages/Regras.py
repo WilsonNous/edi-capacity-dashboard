@@ -41,8 +41,8 @@ if not regras:
 
 hom = [r for r in regras if r.get("estado_revisao") == "HOMOLOGADA"]
 revisar = [r for r in regras if r.get("estado_revisao") != "HOMOLOGADA"]
-autorizadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") == "ASSISTIDA"]
-bloqueadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") != "ASSISTIDA"]
+autorizadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") in {"ASSISTIDA", "AUTOMATICA"}]
+bloqueadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") == "BLOQUEADA"]
 
 m1,m2,m3,m4 = st.columns(4)
 m1.metric("Regras conhecidas", len(regras))
@@ -50,7 +50,7 @@ m2.metric("A revisar / homologar", len(revisar))
 m3.metric("Homologadas", len(hom))
 m4.metric("Autorizadas no motor", len(autorizadas))
 
-st.caption("Fluxo correto: 1) revisar e homologar → 2) autorizar operação assistida. Uma regra ainda não homologada não aparece como autorizável.")
+st.caption("Fluxo: 1) revisar e homologar → 2) autorizar como assistida ou automática. Automática só fica disponível quando o workflow possui executor implementado.")
 
 aba1, aba2, aba3 = st.tabs([f"1 · Revisar e homologar ({len(revisar)})", f"2 · Autorizar motor ({len(bloqueadas)})", f"Regras ativas ({len(autorizadas)})"])
 
@@ -101,14 +101,24 @@ with aba2:
             c.metric("Motor", "Bloqueado")
             st.caption("Canal: " + str(wf.get("canal") or "—") + " · Workflow: " + str(wf.get("workflow") or "—"))
             if wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
-                st.info("Esta regra já pode ser liberada para operação assistida. A confirmação humana continua obrigatória antes de ação externa.")
-                if st.button("▶️ Autorizar operação assistida", key=f"central_auth_{rid}", type="primary", width="content"):
-                    try:
-                        autorizar_regra_motor(rid, modo="ASSISTIDA", autorizado_por="OPERADOR_EDNNA")
-                        st.success(f"{player}: operação assistida autorizada.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(str(exc))
+                st.info("Executor disponível. Escolha se a regra exige confirmação humana ou se a EDNNA pode executar automaticamente.")
+                c_ass, c_auto = st.columns(2)
+                with c_ass:
+                    if st.button("▶️ Autorizar assistida", key=f"central_auth_{rid}", type="primary", width="content"):
+                        try:
+                            autorizar_regra_motor(rid, modo="ASSISTIDA", autorizado_por="OPERADOR_EDNNA")
+                            st.success(f"{player}: operação assistida autorizada.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(str(exc))
+                with c_auto:
+                    if st.button("⚡ Autorizar automática", key=f"central_auto_{rid}", width="content"):
+                        try:
+                            autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Autorização explícita para execução automática de regra homologada.")
+                            st.success(f"{player}: execução automática autorizada.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(str(exc))
             else:
                 falt = wf.get("executores_faltantes") or []
                 st.warning("Não pode ser ativada ainda: o executor deste workflow não está disponível." + ((" Falta: " + " · ".join(falt)) if falt else ""))
@@ -120,11 +130,12 @@ with aba3:
         rid = str(rr.get("regra_id") or "")
         player = str(rr.get("player") or "Player")
         wf = rr.get("workflow") or obter_workflow(player)
-        with st.expander(f"{player} · {rid} · ASSISTIDA", expanded=False):
+        modo = str((rr.get("autorizacao_motor") or {}).get("modo") or "ASSISTIDA")
+        with st.expander(f"{player} · {rid} · {modo}", expanded=False):
             a,b,c = st.columns(3)
             a.metric("Conhecimento", "Homologado")
             b.metric("Executor", wf.get("prontidao") or "—")
-            c.metric("Motor", "Assistida")
+            c.metric("Motor", modo.title())
             if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="content"):
                 autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
                 st.rerun()

@@ -187,7 +187,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             continue
         contadores["homologadas"] += 1
         aut = obter_autorizacao_motor(str(regra.get("regra_id") or ""))
-        if str(aut.get("modo") or "BLOQUEADA") != "ASSISTIDA":
+        modo_motor = str(aut.get("modo") or "BLOQUEADA").upper()
+        if modo_motor not in {"ASSISTIDA", "AUTOMATICA"}:
             contadores["nao_autorizadas"] += 1
             itens.append({**candidato, "player": player, "regra_id": regra.get("regra_id"), "estado_motor": "REGRA_HOMOLOGADA_NAO_AUTORIZADA", "acao_sugerida": "Autorizar motor"})
             continue
@@ -510,14 +511,21 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         if str(item.get("estado_motor") or "") != "PRONTO_OPERACAO_ASSISTIDA":
             resumo["ignorados"] += 1; continue
         rid=str(item.get("regra_id") or "")
-        if not rid or not regra_possui_envio_confirmado(rid):
+        aut = obter_autorizacao_motor(rid)
+        modo_motor = str(aut.get("modo") or "BLOQUEADA").upper()
+        # AUTOMATICA é autorização humana explícita. Para compatibilidade, uma
+        # regra ASSISTIDA que já possua envio confirmado também pode ser promovida
+        # pelo histórico, como nas versões anteriores.
+        confianca_historica = regra_possui_envio_confirmado(rid)
+        if modo_motor != "AUTOMATICA" and not (modo_motor == "ASSISTIDA" and confianca_historica):
             resumo["ignorados"] += 1; continue
         resumo["elegiveis"] += 1
         pacote=preparar_atuacao_assistida(item)
         if not pacote.get("ok"):
             resumo["ignorados"] += 1; continue
         try:
-            print(f"[EDNNA] Inclusão promovida por histórico confirmado | chamado={pacote.get('chamado_id')} | regra={rid} | modo=AUTOMATICO",flush=True)
+            origem_auto = "AUTORIZACAO_EXPLICITA" if modo_motor == "AUTOMATICA" else "HISTORICO_CONFIRMADO"
+            print(f"[EDNNA] Inclusão automática | chamado={pacote.get('chamado_id')} | regra={rid} | origem={origem_auto}",flush=True)
             resultado=executar_atuacao_assistida_email(pacote)
             if resultado.get("ok"):
                 resumo["executados"] += 1
