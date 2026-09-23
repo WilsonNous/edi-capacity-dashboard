@@ -198,8 +198,21 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         estado = str(plano.get("estado") or "")
         wf = plano.get("workflow") or obter_workflow(player)
 
-        # E-mail assistido exige destinatário humano confirmado na homologação.
-        destinatario = str(regra.get("destinatario_confirmado") or "").strip()
+        # v3.28.58 — uma regra HOMOLOGADA deve reaproveitar o destinatário que
+        # sustentou a própria homologação. Prioridade: confirmação humana ->
+        # padrão declarativo do workflow -> evidência operacional aprendida.
+        # O aprendizado continua enriquecendo a regra, mas não volta a bloquear
+        # uma regra que já foi homologada com evidência suficiente.
+        payload_regra = regra.get("payload") or {}
+        destinos_aprendidos = list(payload_regra.get("destinatarios_operacionais") or [])
+        if not destinos_aprendidos:
+            destinos_aprendidos = list(payload_regra.get("destinatarios_recorrentes") or [])
+        destinatario = str(
+            regra.get("destinatario_confirmado")
+            or wf.get("destinatario_padrao")
+            or (destinos_aprendidos[0] if destinos_aprendidos else "")
+            or ""
+        ).strip()
         if player == "VR BENEFICIOS":
             # VR: a ação é dirigida ao CLIENTE, nunca à VR. Preferimos contatos
             # externos encontrados no chamado e rejeitamos domínios Netunna/VR.
