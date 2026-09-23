@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import sleep
 from zoneinfo import ZoneInfo
 
@@ -258,6 +258,57 @@ def obter_status_id_por_nome(
     return cache_id
 
 
+
+def _adicionar_dias_uteis_data(base, dias: int):
+    atual = base
+    restantes = max(0, int(dias or 0))
+    while restantes > 0:
+        atual += timedelta(days=1)
+        if atual.weekday() < 5:
+            restantes -= 1
+    return atual
+
+
+def _obter_issue_redmine(chamado_id: int, *, incluir_journals: bool = False) -> dict:
+    params = {"include": "journals"} if incluir_journals else {}
+    resposta = requests.get(
+        f"{REDMINE_URL}/issues/{int(chamado_id)}.json",
+        headers=_headers(), params=params, timeout=(20, 60),
+    )
+    if resposta.status_code != 200:
+        raise RedmineWriteError(
+            f"Falha ao consultar chamado antes da atualização: HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+    return (resposta.json() or {}).get("issue") or {}
+
+
+def _normalizar_datas_workflow(chamado_id: int, data_inicio: str = "", data_fim: str = "") -> tuple[str, str]:
+    """Contrato permanente EDNNA/Redmine: nunca transicionar status com datas vazias.
+
+    Preserva datas existentes. Quando ausentes, usa a data da atuação como início e
+    o prazo informado pela regra como fim. Na ausência total de prazo, usa 2 dias
+    úteis, evitando o HTTP 422 do workflow do projeto EDI.
+    """
+    issue = _obter_issue_redmine(chamado_id)
+    inicio = _data_redmine(data_inicio) if str(data_inicio or '').strip() else str(issue.get('start_date') or '').strip()
+    fim = _data_redmine(data_fim) if str(data_fim or '').strip() else str(issue.get('due_date') or '').strip()
+    hoje = datetime.now(TZ_BRASIL).date()
+    if not inicio:
+        inicio = hoje.isoformat()
+    if not fim:
+        fim = _adicionar_dias_uteis_data(hoje, int(os.getenv('EDNNA_REDMINE_PRAZO_PADRAO_DIAS_UTEIS','2') or 2)).isoformat()
+    print(f"[EDNNA] Redmine pre-flight | chamado={chamado_id} | start_date={inicio} | due_date={fim} | validacao=OK", flush=True)
+    return inicio, fim
+
+
+def nota_marcador_ja_existe(chamado_id: int, marcador: str) -> bool:
+    marcador = str(marcador or '').strip()
+    if not marcador:
+        return False
+    issue = _obter_issue_redmine(chamado_id, incluir_journals=True)
+    return any(marcador in str(j.get('notes') or '') for j in (issue.get('journals') or []))
+
+
 def alterar_status_chamado(
     *,
     chamado_id: int,
@@ -278,19 +329,12 @@ def alterar_status_chamado(
         f"{int(chamado_id)}.json"
     )
 
+    data_inicio, data_fim = _normalizar_datas_workflow(chamado_id, data_inicio, data_fim)
     issue_payload = {
         "status_id": status_id,
+        "start_date": data_inicio,
+        "due_date": data_fim,
     }
-
-    if data_inicio:
-        issue_payload["start_date"] = _data_redmine(
-            data_inicio
-        )
-
-    if data_fim:
-        issue_payload["due_date"] = _data_redmine(
-            data_fim
-        )
 
     resposta = requests.put(
         url,
@@ -373,7 +417,8 @@ def registrar_email_evidencia_e_status_chamado(
     """Faz upload e vincula o mesmo token ao chamado com retry/backoff."""
     upload = upload_arquivo_redmine(conteudo=evidencia, filename=evidencia_filename, content_type=evidencia_content_type, tentativas=tentativas)
     status_id = obter_status_id_por_nome(status_nome)
-    payload = {"notes": nota, "status_id": status_id, "uploads": [{"token": upload["token"], "filename": upload["filename"], "content_type": upload["content_type"], "description": "Evidência original do retorno da adquirente preservada pela EDNNA"}]}
+    data_inicio, data_fim = _normalizar_datas_workflow(chamado_id)
+    payload = {"notes": nota, "status_id": status_id, "start_date": data_inicio, "due_date": data_fim, "uploads": [{"token": upload["token"], "filename": upload["filename"], "content_type": upload["content_type"], "description": "Evidência original do retorno da adquirente preservada pela EDNNA"}]}
     if assigned_to_id is not None:
         payload["assigned_to_id"] = int(assigned_to_id)
     esperas = [0, 2, 5]
@@ -428,23 +473,16 @@ def registrar_email_e_status_chamado(
         f"{int(chamado_id)}.json"
     )
 
+    data_inicio, data_fim = _normalizar_datas_workflow(chamado_id, data_inicio, data_fim)
     issue_payload = {
         "notes": nota,
         "status_id": status_id,
+        "start_date": data_inicio,
+        "due_date": data_fim,
     }
 
     if assigned_to_id is not None:
         issue_payload["assigned_to_id"] = int(assigned_to_id)
-
-    if data_inicio:
-        issue_payload["start_date"] = _data_redmine(
-            data_inicio
-        )
-
-    if data_fim:
-        issue_payload["due_date"] = _data_redmine(
-            data_fim
-        )
 
     resposta = requests.put(
         url,

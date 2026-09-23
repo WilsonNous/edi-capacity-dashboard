@@ -280,6 +280,35 @@ def listar_mensagens_conversa(
 
 
 
+
+def _assunto_referencia_chamado(assunto: str, chamado_id: int) -> bool:
+    texto = str(assunto or '')
+    cid = str(int(chamado_id))
+    padroes = [
+        rf"#\s*{re.escape(cid)}\b",
+        rf"\bCN\s*[:#-]?\s*{re.escape(cid)}\b",
+        rf"\[\s*{re.escape(cid)}\s*\]",
+    ]
+    return any(re.search(p, texto, flags=re.IGNORECASE) for p in padroes)
+
+
+def listar_emails_enviados_por_chamado(*, remetente: str, chamado_id: int, top: int = 500) -> list[dict]:
+    """Recupera a trilha REAL em Sent Items para reconstrução do Redmine.
+
+    Inclui corpo, destinatários e data/hora; reconhece #ID e o padrão CN: ID.
+    """
+    dados = _graph_get(
+        f"{GRAPH_BASE_URL}/users/{remetente}/mailFolders/sentitems/messages",
+        params={
+            "$select": "id,subject,conversationId,internetMessageId,sentDateTime,from,toRecipients,ccRecipients,body,bodyPreview",
+            "$orderby": "sentDateTime desc",
+            "$top": str(max(25, min(int(top or 500), 500))),
+        },
+    )
+    itens = [x for x in (dados.get('value') or []) if _assunto_referencia_chamado(str(x.get('subject') or ''), int(chamado_id))]
+    itens.sort(key=lambda x: str(x.get('sentDateTime') or ''))
+    return itens
+
 def localizar_email_enviado_por_chamado(*, remetente: str, chamado_id: int) -> dict:
     """Reconciliação: localiza na pasta Enviados a mensagem mais recente contendo #ID no assunto."""
     dados = _graph_get(
@@ -290,9 +319,8 @@ def localizar_email_enviado_por_chamado(*, remetente: str, chamado_id: int) -> d
             "$top": "250",
         },
     )
-    alvo = f"#{int(chamado_id)}"
     for item in dados.get("value", []) or []:
-        if alvo in str(item.get("subject", "") or ""):
+        if _assunto_referencia_chamado(str(item.get("subject", "") or ""), int(chamado_id)):
             return item
     return {}
 
