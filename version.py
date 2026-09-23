@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.28.56"
-APP_RELEASE = "Estado transacional único · reconciliação prioritária · sem reatuação após envio"
+APP_VERSION = "3.28.57"
+APP_RELEASE = "Regras homologadas acionáveis · autorização automática explícita · workflow SENFF"
