@@ -458,3 +458,46 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     except Exception as exc:
         print(f"[EDNNA] Operação assistida ERRO | chamado={cid} | regra={rid} | erro={type(exc).__name__}: {exc}", flush=True)
         registrar_falha_envio(cid,rid,str(exc)); raise
+
+
+def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
+    """Executa inclusões já comprovadas anteriormente pela mesma regra.
+
+    Critério de confiança: a regra precisa estar homologada/autorizada, o chamado
+    precisa estar realmente em primeira atuação e a mesma regra precisa possuir
+    ao menos um envio confirmado pelo Graph no histórico operacional.
+    """
+    from ednna.acompanhamento_acoes import regra_possui_envio_confirmado
+    habilitado = str(os.getenv("EDNNA_INCLUSOES_AUTO", "true") or "true").strip().casefold() in {"1","true","sim","yes","on"}
+    resumo={"habilitado":habilitado,"avaliados":0,"elegiveis":0,"executados":0,"ignorados":0,"erros":0,"detalhes":[]}
+    if not habilitado or snapshot is None or not isinstance(snapshot,pd.DataFrame) or snapshot.empty:
+        return resumo
+    fila=avaliar_fila_inclusoes(snapshot)
+    limite=max(1,int(os.getenv("EDNNA_INCLUSOES_AUTO_MAX_PER_CYCLE","5") or 5))
+    for item in fila.get("itens",[]):
+        if resumo["executados"] >= limite: break
+        resumo["avaliados"] += 1
+        if str(item.get("estado_motor") or "") != "PRONTO_OPERACAO_ASSISTIDA":
+            resumo["ignorados"] += 1; continue
+        rid=str(item.get("regra_id") or "")
+        if not rid or not regra_possui_envio_confirmado(rid):
+            resumo["ignorados"] += 1; continue
+        resumo["elegiveis"] += 1
+        pacote=preparar_atuacao_assistida(item)
+        if not pacote.get("ok"):
+            resumo["ignorados"] += 1; continue
+        try:
+            print(f"[EDNNA] Inclusão promovida por histórico confirmado | chamado={pacote.get('chamado_id')} | regra={rid} | modo=AUTOMATICO",flush=True)
+            resultado=executar_atuacao_assistida_email(pacote)
+            if resultado.get("ok"):
+                resumo["executados"] += 1
+            else:
+                resumo["ignorados"] += 1
+            resumo["detalhes"].append({"chamado":pacote.get("chamado_id"),"regra":rid,"resultado":resultado.get("estado") or resultado.get("motivo")})
+        except Exception as exc:
+            resumo["erros"] += 1
+            resumo["detalhes"].append({"chamado":pacote.get("chamado_id"),"regra":rid,"erro":f"{type(exc).__name__}: {exc}"})
+            print(f"[EDNNA] Inclusão automática | ERRO | chamado={pacote.get('chamado_id')} | regra={rid} | {type(exc).__name__}: {exc}",flush=True)
+    if resumo["elegiveis"] or resumo["executados"] or resumo["erros"]:
+        print(f"[EDNNA] Inclusões automáticas | elegiveis={resumo['elegiveis']} | executados={resumo['executados']} | erros={resumo['erros']}",flush=True)
+    return resumo

@@ -636,6 +636,26 @@ def listar_redmine_pendentes() -> list[dict]:
     return [dict(x) for x in rows]
 
 
+
+def regra_possui_envio_confirmado(regra_id: str) -> bool:
+    """Retorna True quando a mesma regra já teve ao menos um envio aceito pelo Graph.
+
+    É a memória operacional usada para promover regras já comprovadas a execução
+    automática, sem confundir rascunho, erro ou tentativa abandonada com sucesso.
+    """
+    inicializar_acompanhamento()
+    with _conectar() as conn:
+        row = conn.execute(
+            """SELECT 1 FROM acoes_operacionais
+                 WHERE regra_id = ?
+                   AND (COALESCE(envio_confirmado,0)=1
+                        OR COALESCE(graph_message_id,'') <> ''
+                        OR COALESCE(graph_internet_message_id,'') <> '')
+                 LIMIT 1""",
+            (str(regra_id),),
+        ).fetchone()
+    return row is not None
+
 def listar_acoes_aguardando_resposta() -> list[dict]:
     inicializar_acompanhamento()
 

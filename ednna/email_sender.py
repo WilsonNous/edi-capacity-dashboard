@@ -351,11 +351,11 @@ def _texto_para_html(texto: str) -> str:
 
 
 def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: str) -> dict:
-    """Responde a todos preservando formatação e a conversa original.
+    """Responde a todos diretamente pelo Graph, sem criar rascunho.
 
-    O endpoint replyAll com `comment` pode achatar quebras de linha em alguns
-    clientes Outlook. Criamos o rascunho Reply All, preservamos o corpo citado
-    e inserimos o comentário como HTML antes de enviar.
+    Usa /replyAll, que é compatível com Mail.Send e evita a exigência de
+    Mail.ReadWrite do createReplyAll. O HTTP 202 é a evidência transacional
+    de aceitação do envio; a confirmação em Sent Items é enriquecimento.
     """
     remetente = str(remetente or os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
     message_id = str(message_id or "").strip()
@@ -368,38 +368,28 @@ def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: 
         raise EmailConfigError("Comentário do follow-up está vazio.")
 
     token = obter_token_graph()
-    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    criado=requests.post(
-        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{message_id}/createReplyAll",
-        headers=headers, json={}, timeout=30,
+    resposta = requests.post(
+        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{message_id}/replyAll",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"comment": comentario},
+        timeout=30,
     )
-    if criado.status_code not in (200, 201):
-        raise EmailSendError("Falha ao criar Reply All: " f"HTTP {criado.status_code} - {criado.text[:800]}")
-    draft=criado.json()
-    draft_id=str(draft.get("id") or "").strip()
-    if not draft_id:
-        raise EmailSendError("Microsoft Graph não retornou o ID do rascunho de follow-up.")
-
-    # O createReplyAll já traz a conversa citada no corpo. Mantemos esse conteúdo
-    # e apenas inserimos a mensagem formatada da EDNNA antes dele.
-    body=draft.get("body") or {}
-    original=str(body.get("content") or "")
-    html_novo=_texto_para_html(comentario) + "<br>" + original
-    atualizado=requests.patch(
-        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{draft_id}",
-        headers=headers, json={"body":{"contentType":"HTML","content":html_novo}}, timeout=30,
+    if resposta.status_code != 202:
+        raise EmailSendError(
+            "Falha ao responder Reply All pelo Microsoft Graph: "
+            f"HTTP {resposta.status_code} - {resposta.text[:800]}"
+        )
+    print(
+        f"[EDNNA] Follow-up Graph | REPLY_ALL_ACCEPTED | message_id_origem={message_id}",
+        flush=True,
     )
-    if atualizado.status_code not in (200, 204):
-        raise EmailSendError("Falha ao formatar follow-up: " f"HTTP {atualizado.status_code} - {atualizado.text[:800]}")
-
-    enviado=requests.post(
-        f"{GRAPH_BASE_URL}/users/{remetente}/messages/{draft_id}/send",
-        headers=headers, timeout=30,
-    )
-    if enviado.status_code != 202:
-        raise EmailSendError("Falha ao enviar follow-up pelo Microsoft Graph: " f"HTTP {enviado.status_code} - {enviado.text[:800]}")
-    return {"ok": True, "status_code": enviado.status_code, "message_id_origem": message_id, "draft_id": draft_id, "formato":"HTML"}
-
+    return {
+        "ok": True,
+        "status_code": resposta.status_code,
+        "message_id_origem": message_id,
+        "modo": "replyAll",
+        "envio_confirmado": True,
+    }
 
 def confirmar_email_em_sent_items(*, remetente:str, chamado_id:int=0, assunto:str="") -> dict:
     """Confirma a existência física do envio em Sent Items e devolve evidência auditável."""

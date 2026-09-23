@@ -826,6 +826,30 @@ def executar_monitoramento_respostas() -> dict:
                 flush=True,
             )
 
+    # v3.28.54 — executor automático também roda no worker de background.
+    # Assim a EDNNA trabalha mesmo sem alguém abrir/recarregar a tela Streamlit.
+    try:
+        if _bool_env("EDNNA_AUTO_EXECUTE", True):
+            import pandas as pd
+            from ednna.classificador_demandas import enriquecer_dataframe_com_classificacoes
+            from ednna.executor_automatico import executar_acoes_automaticas
+            snapshot_auto = carregar_snapshot_chamados()
+            if snapshot_auto:
+                frame_auto = enriquecer_dataframe_com_classificacoes(pd.DataFrame(snapshot_auto))
+                resumo_auto = executar_acoes_automaticas(frame_auto)
+                resumo["execucao_automatica"] = resumo_auto
+                from ednna.motor_inclusoes_operacional import executar_inclusoes_automaticas
+                resumo["inclusoes_automaticas"] = executar_inclusoes_automaticas(pd.DataFrame(snapshot_auto))
+                if int(resumo_auto.get("enviados",0) or 0) or int(resumo_auto.get("redmine_pendente",0) or 0):
+                    print(
+                        "[EDNNA] Executor background | "
+                        f"enviados={resumo_auto.get('enviados',0)} | redmine_ok={resumo_auto.get('redmine_ok',0)} | "
+                        f"redmine_pendente={resumo_auto.get('redmine_pendente',0)} | erros={resumo_auto.get('erros_envio',0)}",
+                        flush=True,
+                    )
+    except Exception as exc:
+        print(f"[EDNNA] Executor background | falha geral | {type(exc).__name__}: {exc}", flush=True)
+
     # v3.28.38 — continuidade: após confirmar que não houve resposta, avalia follow-ups vencidos.
     try:
         from ednna.followup_engine import avaliar_followups, executar_followup

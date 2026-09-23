@@ -1,7 +1,7 @@
 {
-  "versao": "1.6",
-  "modo": "RASCUNHO_ASSISTIDO",
-  "principio": "A EDNNA entende. O catálogo autoriza. O motor propõe. O humano aprova.",
+  "versao": "1.7",
+  "modo": "OPERACAO_HIBRIDA_AUTOMATICA",
+  "principio": "Regras executáveis com envio confirmado anterior podem operar automaticamente; toda atuação deve registrar evidência e atualizar o Redmine.",
   "regras": [
     {
       "id": "FALTA-TRIOCARD-001",
@@ -60,7 +60,11 @@
         "reembolso.estabelecimentos.br@sales.pluxee.com.br",
         "relacionamento.estabelecimentos.br@care.pluxee.com.br"
       ],
-      "cc_padrao": [],
+      "cc_padrao": [
+        "bpo@netunna.com.br",
+        "edi@netunna.com.br",
+        "consultores@netunna.com.br"
+      ],
       "assunto_template": "[ PLUXEE - Falta de Arquivo - {cliente} - #{chamado_id} ]",
       "observacao": "Regra homologada apenas para geração de rascunho. Não envia e-mail e não altera o Redmine."
     },
@@ -80,7 +84,7 @@
       ],
       "cc_padrao": [
         "bpo@netunna.com.br",
-        "suporte@netunna.com.br",
+        "edi@netunna.com.br",
         "consultores@netunna.com.br"
       ],
       "prazo_resposta_dias_uteis": 1,
@@ -156,7 +160,7 @@
       ],
       "cc_padrao": [
         "bpo@netunna.com.br",
-        "suporte@netunna.com.br",
+        "edi@netunna.com.br",
         "consultores@netunna.com.br"
       ],
       "saudacao": "Olá, Time SIMREDE, tudo bem?",
@@ -197,7 +201,7 @@
       ],
       "cc_padrao": [
         "bpo@netunna.com.br",
-        "suporte@netunna.com.br",
+        "edi@netunna.com.br",
         "consultores@netunna.com.br"
       ],
       "saudacao": "Olá, Time GETNET, tudo bem?",

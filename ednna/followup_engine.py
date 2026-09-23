@@ -4,9 +4,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from ednna.acompanhamento_acoes import listar_acoes_aguardando_resposta
+from ednna.acompanhamento_acoes import listar_acoes_aguardando_resposta, marcar_redmine_atualizado, marcar_status_redmine
 from ednna.email_sender import responder_todos_email_graph
 from ednna.email_identity import finalizar_email
+from ednna.redmine_outbox import registrar_ou_enfileirar
 
 TZ = ZoneInfo("America/Sao_Paulo")
 
@@ -93,7 +94,32 @@ def executar_followup(item:dict) -> dict:
     if item.get("estado_followup") != "FOLLOWUP_PRONTO":
         return {"ok":False,"estado":item.get("estado_followup"),"motivo":"Follow-up ainda não está elegível."}
     remetente=str(os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br") or "").strip()
-    resultado=responder_todos_email_graph(remetente=remetente,message_id=str(item.get("graph_message_id") or ""),comentario=str(item.get("texto_followup") or ""))
-    registrar_followup(int(item["chamado_id"]),str(item["regra_id"]))
-    print(f"[EDNNA] Follow-up enviado | chamado={item['chamado_id']} | regra={item['regra_id']} | numero={item['proximo_followup']}",flush=True)
-    return {**resultado,"chamado_id":item["chamado_id"],"regra_id":item["regra_id"],"numero":item["proximo_followup"]}
+    chamado_id=int(item["chamado_id"]); regra_id=str(item["regra_id"]); numero=int(item["proximo_followup"])
+    texto=str(item.get("texto_followup") or "")
+    resultado=responder_todos_email_graph(
+        remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto
+    )
+    registrar_followup(chamado_id,regra_id)
+
+    # Follow-up também é atuação operacional: sempre gera journal no Redmine e
+    # mantém o chamado no estado de espera correspondente. Se o Redmine falhar,
+    # a atualização entra na outbox sem repetir o e-mail.
+    status_nome=str(item.get("redmine_status_nome") or item.get("redmine_pendente_status") or "").strip()
+    if not status_nome:
+        status_nome = "Aguardando Retorno Cliente" if "VR-BENEFICIOS" in regra_id.upper() else "Aguardando Retorno Adquirente"
+    nota=(
+        f"*EDNNA — Follow-up {numero} enviado*\n\n"
+        f"{texto.strip()}\n\n----\n\n"
+        "*Acompanhamento EDNNA:* aguardando retorno após nova cobrança."
+    )
+    redmine=registrar_ou_enfileirar(
+        chamado_id=chamado_id, regra_id=regra_id, nota=nota, status_nome=status_nome
+    )
+    if redmine.get("ok"):
+        marcar_redmine_atualizado(chamado_id,regra_id)
+        marcar_status_redmine(chamado_id,regra_id,status_nome)
+    print(
+        f"[EDNNA] Follow-up enviado | chamado={chamado_id} | regra={regra_id} | numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}",
+        flush=True,
+    )
+    return {**resultado,"chamado_id":chamado_id,"regra_id":regra_id,"numero":numero,"redmine":redmine}

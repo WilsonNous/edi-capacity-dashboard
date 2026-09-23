@@ -13,6 +13,7 @@ from ednna.acompanhamento_acoes import (
     registrar_falha_envio,
     registrar_falha_redmine,
     registrar_responsabilidade_ednna,
+    regra_possui_envio_confirmado,
 )
 from ednna.email_sender import (
     enviar_email_graph,
@@ -24,9 +25,9 @@ from ednna.motor_acoes import (
 )
 from ednna.redmine_writer import (
     montar_nota_email_enviado,
-    registrar_email_e_status_chamado,
     atribuir_chamado_ednna,
 )
+from ednna.redmine_outbox import registrar_ou_enfileirar
 
 
 def _bool_env(
@@ -138,20 +139,21 @@ def executar_acoes_automaticas(
             row
         ) or {}
 
-        if not (
-            regra.get(
-                "auto_executar",
-                False,
-            )
-            and regra.get(
-                "executavel",
-                False,
-            )
-        ):
-            resumo[
-                "ignorados"
-            ] += 1
+        executavel = bool(regra.get("executavel", False))
+        auto_catalogo = bool(regra.get("auto_executar", False))
+        auto_por_historico = (
+            _bool_env("EDNNA_AUTO_TRUST_PREVIOUS_SEND", True)
+            and executavel
+            and regra_possui_envio_confirmado(str(regra.get("id", "") or ""))
+        )
+        if not (executavel and (auto_catalogo or auto_por_historico)):
+            resumo["ignorados"] += 1
             continue
+        if auto_por_historico and not auto_catalogo:
+            print(
+                f"[EDNNA] Regra promovida por histórico confirmado | regra={regra.get('id')} | modo=AUTOMATICO",
+                flush=True,
+            )
 
         chamado_id = _chamado_int(
             row.get("#")
@@ -252,109 +254,59 @@ def executar_acoes_automaticas(
 
             continue
 
+        status_pos_envio = str(
+            regra.get("status_pos_envio", "Aguardando Retorno Cliente")
+            or "Aguardando Retorno Cliente"
+        )
+        assigned_to_id = None
         try:
             responsabilidade = atribuir_chamado_ednna(chamado_id=chamado_id)
+            assigned_to_id = responsabilidade.get("ednna_user_id")
             registrar_responsabilidade_ednna(
                 chamado_id, regra_id,
                 responsabilidade.get("responsavel_anterior_id"),
                 responsabilidade.get("responsavel_anterior_nome", ""),
             )
-            nota = montar_nota_email_enviado(
-                remetente=rascunho.get(
-                    "remetente",
-                    "edi@netunna.com.br",
-                ),
-                para=rascunho.get(
-                    "destinatarios",
-                    [],
-                ),
-                cc=rascunho.get(
-                    "cc",
-                    [],
-                ),
-                assunto=rascunho.get(
-                    "assunto",
-                    "",
-                ),
-                corpo=rascunho.get(
-                    "corpo",
-                    "",
-                ),
-                enviado_em=acompanhamento.get(
-                    "enviado_em",
-                    "",
-                ),
-                prazo_resposta_em=acompanhamento.get(
-                    "prazo_resposta_em",
-                    "",
-                ),
-            )
-
-            registrar_email_e_status_chamado(
-                chamado_id=chamado_id,
-                nota=nota,
-                status_nome=str(
-                    regra.get(
-                        "status_pos_envio",
-                        "Aguardando Retorno Cliente",
-                    )
-                    or "Aguardando Retorno Cliente"
-                ),
-                data_inicio=acompanhamento.get(
-                    "enviado_em",
-                    "",
-                ),
-                data_fim=acompanhamento.get(
-                    "prazo_resposta_em",
-                    "",
-                ),
-            )
-
-            marcar_redmine_atualizado(
-                chamado_id,
-                regra_id,
-            )
-
-            marcar_status_redmine(
-                chamado_id,
-                regra_id,
-                str(
-                    regra.get(
-                        "status_pos_envio",
-                        "Aguardando Retorno Cliente",
-                    )
-                    or "Aguardando Retorno Cliente"
-                ),
-            )
-
-            resumo[
-                "redmine_ok"
-            ] += 1
-
         except Exception as exc:
-            registrar_falha_redmine(
-                chamado_id,
-                regra_id,
-                str(
-                    exc
-                ),
+            # A atribuição não pode apagar a evidência nem impedir journal/status.
+            print(
+                f"[EDNNA] Redmine atribuição | PENDENTE | chamado={chamado_id} | {type(exc).__name__}: {exc}",
+                flush=True,
             )
 
-            resumo[
-                "redmine_pendente"
-            ] += 1
-
-            resumo[
-                "detalhes"
-            ].append(
-                {
-                    "chamado": chamado_id,
-                    "regra": regra_id,
-                    "etapa": "REDMINE",
-                    "erro": str(
-                        exc
-                    ),
-                }
+        nota = montar_nota_email_enviado(
+            remetente=rascunho.get("remetente", "edi@netunna.com.br"),
+            para=rascunho.get("destinatarios", []),
+            cc=rascunho.get("cc", []),
+            assunto=rascunho.get("assunto", ""),
+            corpo=rascunho.get("corpo", ""),
+            enviado_em=acompanhamento.get("enviado_em", ""),
+            prazo_resposta_em=acompanhamento.get("prazo_resposta_em", ""),
+        )
+        resultado_redmine = registrar_ou_enfileirar(
+            chamado_id=chamado_id,
+            regra_id=regra_id,
+            nota=nota,
+            status_nome=status_pos_envio,
+            assigned_to_id=assigned_to_id,
+        )
+        if resultado_redmine.get("ok"):
+            marcar_redmine_atualizado(chamado_id, regra_id)
+            marcar_status_redmine(chamado_id, regra_id, status_pos_envio)
+            resumo["redmine_ok"] += 1
+            print(
+                f"[EDNNA] Ciclo transacional | OK | chamado={chamado_id} | email=OK | redmine=OK | status={status_pos_envio}",
+                flush=True,
+            )
+        else:
+            resumo["redmine_pendente"] += 1
+            resumo["detalhes"].append({
+                "chamado": chamado_id, "regra": regra_id, "etapa": "REDMINE",
+                "erro": resultado_redmine.get("erro", "Atualização enfileirada"),
+            })
+            print(
+                f"[EDNNA] Ciclo transacional | PARCIAL | chamado={chamado_id} | email=OK | redmine=PENDENTE",
+                flush=True,
             )
 
     return resumo
