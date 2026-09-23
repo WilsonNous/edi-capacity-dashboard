@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.28.57"
-APP_RELEASE = "Regras homologadas acionáveis · autorização automática explícita · workflow SENFF"
+APP_VERSION = "3.28.58"
+APP_RELEASE = "Todas as regras homologadas acionáveis · destinatário herdado da homologação · ativação automática em lote"
