@@ -27,3 +27,12 @@
 1. Número de chamado permanece clicável.
 2. Cliente, tipo/origem e usuário devem ser exibidos por nome; IDs são apenas fallback técnico e não apresentação final.
 3. Cards e botões seguem proporções consistentes em todas as telas da EDNNA.
+
+
+## Máquina de estados / precedência operacional
+
+1. Um chamado só pode ocupar um estado operacional principal por vez.
+2. A precedência é: `REDMINE_PENDENTE` > `FOLLOWUP_PRONTO` > `AGUARDANDO_RESPOSTA` > `PRONTO_PARA_ATUACAO`.
+3. Existindo envio confirmado/pendência pós-envio, o chamado nunca volta para `Posso agir`, mesmo se o snapshot Redmine ainda estiver `Aberto`.
+4. `Preparar atuação` é exclusivo de primeira atuação sem evidência de envio anterior.
+5. Reconciliação Redmine nunca envia e-mail.

@@ -18,6 +18,7 @@ from ednna.planejador_inclusoes import descobrir_candidatos_inclusao, preparar_o
 from ednna.workflows_inclusao import obter_workflow
 from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
 from ednna.sincronizador import normalizar_marca_alteracao
+from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -129,13 +130,42 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         "historico_pendente": 0,
     }
 
+    # Estado transacional tem precedência sobre a descoberta do motor.
+    # Um chamado com e-mail já enviado não pode voltar para "Posso agir" só
+    # porque o snapshot do Redmine ainda está como Aberto (ex.: PUT pendente).
+    try:
+        pendentes_redmine_ids = {int(x.get("chamado_id") or 0) for x in listar_redmine_pendentes()}
+    except Exception as exc:
+        pendentes_redmine_ids = set()
+        print(f"[EDNNA] Motor inclusões | aviso ao ler Redmine pendente | {type(exc).__name__}: {exc}", flush=True)
+    try:
+        aguardando_resposta_ids = {int(x.get("chamado_id") or 0) for x in listar_acoes_aguardando_resposta()}
+    except Exception as exc:
+        aguardando_resposta_ids = set()
+        print(f"[EDNNA] Motor inclusões | aviso ao ler acompanhamentos | {type(exc).__name__}: {exc}", flush=True)
+
     for candidato in inventario.get("candidatos", []) or []:
+        cid_candidato = int(candidato["id"])
         players = candidato.get("players") or []
         if len(players) != 1:
             itens.append({**candidato, "estado_motor": "PLAYER_AMBIGUO", "acao_sugerida": "Revisar player"})
             continue
         player = str(players[0])
-        row = _row_por_id(snapshot, int(candidato["id"]))
+        row = _row_por_id(snapshot, cid_candidato)
+
+        # Precedência operacional única:
+        # REDMINE_PENDENTE > AGUARDANDO_RESPOSTA > primeira atuação.
+        # Isso também corrige a interface: o botão Preparar atuação deixa de
+        # existir para chamados que já tiveram envio confirmado.
+        if cid_candidato in pendentes_redmine_ids:
+            contadores["continuidade"] += 1
+            itens.append({**candidato, "player": player, "estado_motor": "REDMINE_PENDENTE", "acao_sugerida": "Reconciliar Redmine"})
+            continue
+        if cid_candidato in aguardando_resposta_ids:
+            contadores["continuidade"] += 1
+            itens.append({**candidato, "player": player, "estado_motor": "AGUARDANDO_RESPOSTA", "acao_sugerida": "Acompanhar retorno"})
+            continue
+
         elegibilidade = _elegibilidade_primeira_atuacao(row)
         if not elegibilidade.get("elegivel"):
             contadores["continuidade"] += 1

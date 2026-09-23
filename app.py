@@ -133,6 +133,11 @@ with op_shell:
     op3.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
     op4.metric('Redmine pendente', len(redmine_pendentes))
     prontos=[x for x in fila_home.get('itens',[]) if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA']
+    # Defesa de interface: a fonte transacional vence a fila do motor. Mesmo que
+    # algum snapshot esteja defasado, jamais oferecemos nova atuação a chamado
+    # que já esteja aguardando reconciliação Redmine.
+    ids_rm_pendentes={int(x.get('chamado_id') or 0) for x in redmine_pendentes}
+    prontos=[x for x in prontos if int(x.get('id') or 0) not in ids_rm_pendentes]
     if prontos:
         mapa={int(x['id']):x for x in prontos}
         cid=st.selectbox('Chamado pronto para atuação', list(mapa), format_func=lambda x:f"#{x} · {mapa[x].get('player')} · {mapa[x].get('cliente') or 'Sem cliente'}", key='home_ednna_operacao_sel_v32842')
@@ -203,6 +208,22 @@ with op_shell:
                     except Exception as exc: st.error(f'Falha no follow-up: {type(exc).__name__}: {exc}')
     if redmine_pendentes:
         st.warning(f"Há {len(redmine_pendentes)} atualização(ões) pós-envio aguardando reconciliação com o Redmine. Os e-mails não serão reenviados.")
+        with st.expander(f"🔄 Reconciliação Redmine · {len(redmine_pendentes)} pendente(s)", expanded=True):
+            vistos=set()
+            for pend in redmine_pendentes:
+                cidp=int(pend.get('chamado_id') or 0); ridp=str(pend.get('regra_id') or '')
+                chave=(cidp,ridp)
+                if chave in vistos: continue
+                vistos.add(chave)
+                st.write(f"**Chamado [#{cidp}]({redmine_link(cidp)})** · `{ridp}`")
+                erro=str(pend.get('redmine_erro') or '').strip()
+                if erro: st.caption(f"Último erro: {erro}")
+                if st.button('🔄 Reconciliar agora', key=f'home_rm_pending_{cidp}_{ridp}_v32856'):
+                    rr=reconciliar_redmine_chamado(cidp,ridp)
+                    if rr.get('atualizados'):
+                        st.success(f"Chamado #{cidp}: histórico/status reconciliados sem novo e-mail."); st.rerun()
+                    else:
+                        st.error('Redmine continua pendente: ' + '; '.join(rr.get('erros') or ['consulte o log do Azure']))
 
 
 st.markdown('<div class="section-shell"><div class="module-title">O que você quer fazer?</div><div class="module-sub">Cada botão abre somente o módulo escolhido.</div>', unsafe_allow_html=True)
