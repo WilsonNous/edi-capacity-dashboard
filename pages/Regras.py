@@ -15,6 +15,8 @@ from ednna.aprendizado_operacional import (
     autorizar_regra_motor,
 )
 from ednna.workflows_inclusao import obter_workflow
+from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
+from ui.operational_data import chamados_ativos_df, redmine_link
 
 st.set_page_config(page_title="EDNNA · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 
@@ -32,12 +34,23 @@ with cback:
     if st.button("← Painel EDI", width="stretch"):
         st.switch_page("pages/Painel_EDI.py")
 
-st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDNNA</div><div class="rule-sub">Uma tela só para revisar, homologar, autorizar e suspender regras. Homologação aprova o conhecimento; autorização libera o uso assistido pelo motor.</div></div>', unsafe_allow_html=True)
+st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDNNA</div><div class="rule-sub">Veja a regra, os chamados que ela encontrou e o motivo de cada estado. Depois decida, conscientemente, o que permanece assistido e o que a EDNNA pode executar sozinha.</div></div>', unsafe_allow_html=True)
 
 regras = listar_regras_operacionais()
 if not regras:
     st.info("Nenhuma regra operacional foi aprendida ainda.")
     st.stop()
+
+# Diagnóstico operacional usa o mesmo snapshot da Home; nenhuma ação externa é executada aqui.
+df_ativos = chamados_ativos_df()
+snapshot_regras = pd.DataFrame()
+if not df_ativos.empty:
+    snapshot_regras = df_ativos.rename(columns={
+        'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
+        'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
+    }).copy()
+diag_regras = diagnosticar_regras_operacionais(snapshot_regras) if not snapshot_regras.empty else {'regras': []}
+diag_por_id = {str(x.get('regra_id') or ''): x for x in (diag_regras.get('regras') or [])}
 
 hom = [r for r in regras if r.get("estado_revisao") == "HOMOLOGADA"]
 revisar = [r for r in regras if r.get("estado_revisao") != "HOMOLOGADA"]
@@ -152,15 +165,36 @@ with aba3:
         rid = str(rr.get("regra_id") or "")
         player = str(rr.get("player") or "Player")
         wf = rr.get("workflow") or obter_workflow(player)
-        modo = str((rr.get("autorizacao_motor") or {}).get("modo") or "ASSISTIDA")
-        with st.expander(f"{player} · {rid} · {modo}", expanded=False):
-            a,b,c = st.columns(3)
+        modo = str((rr.get("autorizacao_motor") or {}).get("modo") or "ASSISTIDA").upper()
+        dg = diag_por_id.get(rid) or {}
+        situacao = str(dg.get("situacao") or "SEM_DIAGNOSTICO")
+        total_demanda = int(dg.get("total_chamados") or 0)
+        with st.expander(f"{player} · {rid} · {modo} · {situacao.replace('_',' ')} · {total_demanda} chamado(s)", expanded=(modo == "ASSISTIDA")):
+            a,b,c,d = st.columns(4)
             a.metric("Conhecimento", "Homologado")
             b.metric("Executor", wf.get("prontidao") or "—")
             c.metric("Motor", modo.title())
-            if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="content"):
-                autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
-                st.rerun()
+            d.metric("Chamados ativos", total_demanda)
+            st.info(str(dg.get("motivo") or "Diagnóstico operacional indisponível."))
+            chamados_dg = dg.get("chamados") or []
+            if chamados_dg:
+                st.markdown("**Chamados encontrados para esta regra**")
+                for ch in chamados_dg:
+                    cid = int(ch.get("id") or 0)
+                    st.markdown(f"- [#{cid}]({redmine_link(cid)}) · {html.escape(str(ch.get('cliente') or 'Cliente não informado'))} · **{html.escape(str(ch.get('motivo') or 'Revisar'))}** · próxima ação: {html.escape(str(ch.get('acao_sugerida') or 'Revisar'))}")
+            else:
+                st.caption("Nenhum chamado ativo compatível. A regra está disponível, mas não há demanda para ela neste momento.")
+            ca, cb = st.columns(2)
+            with ca:
+                if modo == "ASSISTIDA" and wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
+                    if st.button("⚡ Tornar AUTOMÁTICA", key=f"central_promote_{rid}", type="primary", width="content"):
+                        autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Promoção explícita após revisão dos chamados e do diagnóstico operacional na Central de Regras v3.28.59.")
+                        st.success(f"{player}: a EDNNA está autorizada a executar esta regra automaticamente.")
+                        st.rerun()
+            with cb:
+                if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="content"):
+                    autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
+                    st.rerun()
 
 st.divider()
 rows=[]

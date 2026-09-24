@@ -5,7 +5,7 @@ import streamlit as st
 import pandas as pd
 from version import APP_VERSION, APP_RELEASE
 from ui.operational_data import resumo, chamados_ativos_df, redmine_link
-from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
+from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnosticar_regras_operacionais, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
@@ -116,7 +116,7 @@ st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="
 # Operação real também na Home bonita da EDNNA — o backend deixa de ser obrigatório.
 op_shell = st.container(key='ednna_operation_shell')
 with op_shell:
-    st.markdown('<div class="module-title">🦾 Operação da EDNNA</div><div class="module-sub">Ações prontas, acompanhamento e execução assistida.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="module-title">🦾 Trabalho de hoje</div><div class="module-sub">A EDNNA mostra primeiro o que pode fazer, o que precisa de você e o que já está acompanhando.</div>', unsafe_allow_html=True)
     snapshot_motor = pd.DataFrame()
     if not df.empty:
         snapshot_motor = df.rename(columns={
@@ -127,11 +127,33 @@ with op_shell:
     follow_home = avaliar_followups()
     try: redmine_pendentes = listar_redmine_pendentes()
     except Exception: redmine_pendentes = []
-    op1,op2,op3,op4=st.columns(4)
-    op1.metric('Posso agir', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
-    op2.metric('Aguardando retorno', int(follow_home.get('total',0) or 0))
-    op3.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
-    op4.metric('Redmine pendente', len(redmine_pendentes))
+    diagnostico_home = diagnosticar_regras_operacionais(snapshot_motor) if not snapshot_motor.empty else {'regras': [], 'fila': fila_home}
+    regras_diag = diagnostico_home.get('regras') or []
+    precisa_voce = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','AGUARDANDO_VERIFICACAO_HISTORICO','PLAYER_AMBIGUO'})
+    problemas_ident = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'PLAYER_AMBIGUO','REGRA_NAO_HOMOLOGADA'})
+    op1,op2,op3,op4,op5=st.columns(5)
+    op1.metric('Prontos para executar', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
+    op2.metric('Precisam de você', precisa_voce)
+    op3.metric('Aguardando resposta', int(follow_home.get('total',0) or 0))
+    op4.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
+    op5.metric('Problemas de identificação', problemas_ident)
+
+    assistidas_diag=[x for x in regras_diag if x.get('modo')=='ASSISTIDA']
+    if assistidas_diag:
+        with st.expander(f"👤 Regras assistidas · {len(assistidas_diag)} — veja os chamados e decida o que automatizar", expanded=True):
+            st.caption('Aqui fica claro se a regra está sem demanda ou se existe chamado bloqueado, pronto ou já em acompanhamento. A mudança para automático continua exigindo autorização explícita na Central de Regras.')
+            for dg in assistidas_diag:
+                icone={'PRONTA':'🟢','SEM_DEMANDA':'⚪','PRECISA_DE_VOCE':'🟡','ERRO_TECNICO':'🔴','IDENTIFICACAO':'🔴','EM_ACOMPANHAMENTO':'🔵'}.get(dg.get('situacao'),'⚫')
+                st.markdown(f"**{icone} {html.escape(str(dg.get('player')))}** · `{html.escape(str(dg.get('regra_id')))}` · **{html.escape(str(dg.get('situacao')).replace('_',' '))}** — {html.escape(str(dg.get('motivo')))}")
+                if dg.get('chamados'):
+                    for ch in dg.get('chamados')[:8]:
+                        cid_d=int(ch.get('id') or 0)
+                        st.markdown(f"&nbsp;&nbsp;↳ [#{cid_d}]({redmine_link(cid_d)}) · {html.escape(str(ch.get('cliente') or 'Cliente não informado'))} · **{html.escape(str(ch.get('motivo')))}** · próxima ação: {html.escape(str(ch.get('acao_sugerida')))}")
+                else:
+                    st.caption('Sem chamado ativo correspondente neste momento.')
+            if st.button('⚙️ Abrir Central de Regras para tornar automáticas', key='home_go_rules_32859', width='content'):
+                st.switch_page('pages/Regras.py')
+
     prontos=[x for x in fila_home.get('itens',[]) if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA']
     # Defesa de interface: a fonte transacional vence a fila do motor. Mesmo que
     # algum snapshot esteja defasado, jamais oferecemos nova atuação a chamado

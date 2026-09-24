@@ -268,6 +268,77 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
     return {"resumo": contadores, "itens": itens}
 
 
+
+def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
+    """Traduz o estado técnico do motor para uma visão operacional por regra.
+
+    A pergunta respondida aqui é simples: a regra tem demanda agora? Se tem,
+    quais chamados estão associados e o que impede (ou permite) a atuação?
+    Esta função não executa nenhuma ação externa.
+    """
+    from ednna.aprendizado_operacional import listar_regras_operacionais
+
+    fila = avaliar_fila_inclusoes(snapshot) if isinstance(snapshot, pd.DataFrame) and not snapshot.empty else {"resumo": {}, "itens": []}
+    itens = list(fila.get("itens") or [])
+    regras = [r for r in (listar_regras_operacionais() or []) if str(r.get("estado_revisao") or "") == "HOMOLOGADA"]
+    diagnosticos = []
+
+    rotulos = {
+        "PRONTO_OPERACAO_ASSISTIDA": ("PRONTA", "Chamado pronto para atuação"),
+        "AGUARDANDO_DADOS": ("PRECISA_DE_VOCE", "Faltam dados obrigatórios no chamado"),
+        "AGUARDANDO_DESTINATARIO": ("PRECISA_DE_VOCE", "Falta destinatário confiável"),
+        "AGUARDANDO_EXECUTOR": ("ERRO_TECNICO", "Executor técnico ainda não disponível"),
+        "REGRA_HOMOLOGADA_NAO_AUTORIZADA": ("PRECISA_DE_VOCE", "Regra homologada, mas ainda não autorizada no motor"),
+        "REGRA_NAO_HOMOLOGADA": ("IDENTIFICACAO", "Demanda identificada, regra ainda não homologada"),
+        "PLAYER_AMBIGUO": ("IDENTIFICACAO", "Player/adquirente ambíguo"),
+        "AGUARDANDO_VERIFICACAO_HISTORICO": ("PRECISA_DE_VOCE", "Histórico precisa ser sincronizado antes de agir"),
+        "REDMINE_PENDENTE": ("REDMINE_PENDENTE", "E-mail/ação já ocorreu; falta reconciliar Redmine"),
+        "AGUARDANDO_RESPOSTA": ("AGUARDANDO_RESPOSTA", "EDNNA já atuou e aguarda retorno"),
+        "CONTINUIDADE_ESTADO_REDMINE": ("CONTINUIDADE", "Chamado já está em continuidade no Redmine"),
+        "CONTINUIDADE_ATUACAO_PREVIA": ("CONTINUIDADE", "Há evidência de atuação anterior"),
+    }
+
+    for regra in regras:
+        player = str(regra.get("player") or "").strip()
+        rid = str(regra.get("regra_id") or "").strip()
+        aut = obter_autorizacao_motor(rid)
+        modo = str(aut.get("modo") or "BLOQUEADA").upper()
+        wf = regra.get("workflow") or obter_workflow(player)
+        relacionados = [x for x in itens if str(x.get("player") or "").strip().upper() == player.upper() or str(x.get("regra_id") or "") == rid]
+        estados = {}
+        chamados = []
+        for item in relacionados:
+            est = str(item.get("estado_motor") or "DESCONHECIDO")
+            estados[est] = estados.get(est, 0) + 1
+            categoria, motivo = rotulos.get(est, ("REVISAO", "Revisar diagnóstico do motor"))
+            chamados.append({
+                "id": int(item.get("id") or 0), "cliente": item.get("cliente") or "",
+                "estado_motor": est, "categoria": categoria, "motivo": motivo,
+                "acao_sugerida": item.get("acao_sugerida") or "Revisar",
+            })
+        if not relacionados:
+            situacao, motivo = "SEM_DEMANDA", "Regra pronta, mas não há chamado ativo compatível neste snapshot"
+        elif estados.get("PRONTO_OPERACAO_ASSISTIDA"):
+            situacao, motivo = "PRONTA", f"{estados['PRONTO_OPERACAO_ASSISTIDA']} chamado(s) pronto(s) para atuação"
+        elif any(k in estados for k in ("AGUARDANDO_DADOS","AGUARDANDO_DESTINATARIO","REGRA_HOMOLOGADA_NAO_AUTORIZADA","AGUARDANDO_VERIFICACAO_HISTORICO")):
+            situacao, motivo = "PRECISA_DE_VOCE", "Existe demanda, mas há uma pendência operacional antes da atuação"
+        elif estados.get("AGUARDANDO_EXECUTOR"):
+            situacao, motivo = "ERRO_TECNICO", "Existe demanda, mas falta executor técnico"
+        elif any(k in estados for k in ("PLAYER_AMBIGUO","REGRA_NAO_HOMOLOGADA")):
+            situacao, motivo = "IDENTIFICACAO", "Existe demanda com problema de identificação/classificação"
+        elif any(k in estados for k in ("AGUARDANDO_RESPOSTA","REDMINE_PENDENTE","CONTINUIDADE_ESTADO_REDMINE","CONTINUIDADE_ATUACAO_PREVIA")):
+            situacao, motivo = "EM_ACOMPANHAMENTO", "A demanda já passou da primeira atuação e está em continuidade"
+        else:
+            situacao, motivo = "REVISAO", "Há demanda, mas o estado precisa de revisão"
+        diagnosticos.append({
+            "player": player, "regra_id": rid, "modo": modo, "workflow": wf.get("workflow") or "NAO_CLASSIFICADO",
+            "canal": wf.get("canal") or "NAO_IDENTIFICADO", "prontidao_executor": wf.get("prontidao") or "SEM_WORKFLOW",
+            "situacao": situacao, "motivo": motivo, "total_chamados": len(relacionados),
+            "estados": estados, "chamados": chamados,
+            "pode_automatizar": bool(wf.get("prontidao") == "ASSISTIDA_DISPONIVEL" and modo in {"ASSISTIDA","AUTOMATICA"}),
+        })
+    return {"regras": diagnosticos, "fila": fila}
+
 def preparar_atuacao_assistida(item: dict) -> dict:
     """Gera um pacote de atuação para confirmação humana, sem ação externa."""
     estado = str(item.get("estado_motor") or "")
