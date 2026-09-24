@@ -525,6 +525,7 @@ def buscar_detalhes_chamado(
     chamado_id: int,
     incluir_journals: bool = False,
     incluir_relacoes: bool = False,
+    incluir_anexos: bool = False,
     *,
     consulta_pontual: bool = False,
     timeout: int | tuple | None = None,
@@ -541,6 +542,8 @@ def buscar_detalhes_chamado(
         includes.append("journals")
     if incluir_relacoes:
         includes.append("relations")
+    if incluir_anexos:
+        includes.append("attachments")
     params = {"include": ",".join(includes)} if includes else None
     assinatura = ",".join(sorted(includes))
     chave_cache = (int(chamado_id), assinatura)
@@ -951,3 +954,36 @@ def issue_para_linha(
         "Tempo estimado": chamado.get("estimated_hours"),
         "% concluído": chamado.get("done_ratio"),
     }
+
+
+def baixar_anexo_redmine(url_ou_path: str, *, timeout: int | tuple = (20, 90), tentativas: int = 3) -> bytes:
+    """Baixa um attachment usando a mesma autenticação/gateway do Redmine.
+
+    Aceita content_url devolvida pela API ou caminho relativo. Não altera o
+    circuit breaker por falha HTTP do arquivo e nunca grava o conteúdo fora
+    do chamador.
+    """
+    alvo = str(url_ou_path or "").strip()
+    if not alvo:
+        raise ValueError("URL do anexo não informada.")
+    url = alvo if alvo.lower().startswith(("http://", "https://")) else f"{REDMINE_URL}/{alvo.lstrip('/')}"
+    esperas = [0, 2, 5]
+    ultimo = None
+    for tentativa in range(1, max(1, int(tentativas)) + 1):
+        if tentativa > 1:
+            sleep(esperas[min(tentativa - 1, len(esperas) - 1)])
+        adquirido = _RED_GATEWAY.acquire(timeout=_RED_GATEWAY_WAIT_SECONDS)
+        if not adquirido:
+            ultimo = requests.exceptions.ConnectTimeout("Gateway Redmine ocupado ao baixar anexo")
+            continue
+        try:
+            resposta = _SESSION.get(url, headers=_headers(), timeout=timeout)
+            resposta.raise_for_status()
+            return resposta.content
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError) as exc:
+            ultimo = exc
+        finally:
+            _RED_GATEWAY.release()
+    if ultimo:
+        raise ultimo
+    raise RuntimeError("Falha inesperada ao baixar anexo do Redmine.")

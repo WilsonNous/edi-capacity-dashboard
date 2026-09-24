@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.28.59"
-APP_RELEASE = "Operação orientada à ação · diagnóstico por regra · chamados assistidos visíveis · promoção controlada para automático"
+APP_VERSION = "3.29.0"
+APP_RELEASE = "Base de Conhecimento do Cliente · Blueprint incremental · anexos Redmine · fundação para VR, Greencard e bancos"
