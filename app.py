@@ -113,148 +113,45 @@ for nome,n,note,kind in people:
 st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="redmine-note">Os IDs individuais de chamados permanecem clicáveis nas telas de Equipe e Atendimentos.</div></div>', unsafe_allow_html=True)
 
 
-# Operação real também na Home bonita da EDNNA — o backend deixa de ser obrigatório.
-op_shell = st.container(key='ednna_operation_shell')
-with op_shell:
-    st.markdown('<div class="module-title">🦾 Trabalho de hoje</div><div class="module-sub">A EDNNA mostra primeiro o que pode fazer, o que precisa de você e o que já está acompanhando.</div>', unsafe_allow_html=True)
-    snapshot_motor = pd.DataFrame()
-    if not df.empty:
-        snapshot_motor = df.rename(columns={
-            'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
-            'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
-        }).copy()
-    fila_home = avaliar_fila_inclusoes(snapshot_motor) if not snapshot_motor.empty else {'resumo':{},'itens':[]}
-    follow_home = avaliar_followups()
-    try: redmine_pendentes = listar_redmine_pendentes()
-    except Exception: redmine_pendentes = []
-    diagnostico_home = diagnosticar_regras_operacionais(snapshot_motor) if not snapshot_motor.empty else {'regras': [], 'fila': fila_home}
-    regras_diag = diagnostico_home.get('regras') or []
-    precisa_voce = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','AGUARDANDO_VERIFICACAO_HISTORICO','PLAYER_AMBIGUO'})
-    problemas_ident = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'PLAYER_AMBIGUO','REGRA_NAO_HOMOLOGADA'})
-    op1,op2,op3,op4,op5=st.columns(5)
-    op1.metric('Prontos para executar', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
-    op2.metric('Precisam de você', precisa_voce)
-    op3.metric('Aguardando resposta', int(follow_home.get('total',0) or 0))
-    op4.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
-    op5.metric('Problemas de identificação', problemas_ident)
-
-    assistidas_diag=[x for x in regras_diag if x.get('modo')=='ASSISTIDA']
-    if assistidas_diag:
-        with st.expander(f"👤 Regras assistidas · {len(assistidas_diag)} — veja os chamados e decida o que automatizar", expanded=True):
-            st.caption('Aqui fica claro se a regra está sem demanda ou se existe chamado bloqueado, pronto ou já em acompanhamento. A mudança para automático continua exigindo autorização explícita na Central de Regras.')
-            for dg in assistidas_diag:
-                icone={'PRONTA':'🟢','SEM_DEMANDA':'⚪','PRECISA_DE_VOCE':'🟡','ERRO_TECNICO':'🔴','IDENTIFICACAO':'🔴','EM_ACOMPANHAMENTO':'🔵'}.get(dg.get('situacao'),'⚫')
-                st.markdown(f"**{icone} {html.escape(str(dg.get('player')))}** · `{html.escape(str(dg.get('regra_id')))}` · **{html.escape(str(dg.get('situacao')).replace('_',' '))}** — {html.escape(str(dg.get('motivo')))}")
-                if dg.get('chamados'):
-                    for ch in dg.get('chamados')[:8]:
-                        cid_d=int(ch.get('id') or 0)
-                        st.markdown(f"&nbsp;&nbsp;↳ [#{cid_d}]({redmine_link(cid_d)}) · {html.escape(str(ch.get('cliente') or 'Cliente não informado'))} · **{html.escape(str(ch.get('motivo')))}** · próxima ação: {html.escape(str(ch.get('acao_sugerida')))}")
-                else:
-                    st.caption('Sem chamado ativo correspondente neste momento.')
-            if st.button('⚙️ Abrir Central de Regras para tornar automáticas', key='home_go_rules_32859', width='content'):
-                st.switch_page('pages/Regras.py')
-
-    prontos=[x for x in fila_home.get('itens',[]) if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA']
-    # Defesa de interface: a fonte transacional vence a fila do motor. Mesmo que
-    # algum snapshot esteja defasado, jamais oferecemos nova atuação a chamado
-    # que já esteja aguardando reconciliação Redmine.
-    ids_rm_pendentes={int(x.get('chamado_id') or 0) for x in redmine_pendentes}
-    prontos=[x for x in prontos if int(x.get('id') or 0) not in ids_rm_pendentes]
-    if prontos:
-        mapa={int(x['id']):x for x in prontos}
-        cid=st.selectbox('Chamado pronto para atuação', list(mapa), format_func=lambda x:f"#{x} · {mapa[x].get('player')} · {mapa[x].get('cliente') or 'Sem cliente'}", key='home_ednna_operacao_sel_v32842')
-        item=mapa[int(cid)]
-        acompanhamento_home = obter_acompanhamento(int(cid), str(item.get('regra_id') or '')) or {}
-        email_ja_enviado_home = bool(int(acompanhamento_home.get('envio_confirmado') or 0) == 1 or str(acompanhamento_home.get('graph_message_id') or '').strip() or str(acompanhamento_home.get('enviado_em') or '').strip())
-        st.markdown(
-            f"**Chamado:** [#{int(cid)}]({redmine_link(cid)}) &nbsp; · &nbsp; **Cliente:** {html.escape(str(item.get('cliente') or 'Sem cliente'))}"
-        )
-        if st.button('🧾 Preparar atuação', type='primary', width='content', key='home_ednna_prepare_v32842'):
-            st.session_state['home_ednna_pacote_v32842']=preparar_atuacao_assistida(item)
-        pacote=st.session_state.get('home_ednna_pacote_v32842')
-        if pacote and int(pacote.get('chamado_id') or 0)==int(cid):
-            rasc=gerar_rascunho_inclusao(pacote)
-            if rasc.get('ok'):
-                st.write(f"**Para:** {', '.join(rasc.get('para') or [])}")
-                st.write(f"**Cc:** {', '.join(rasc.get('cc') or []) or '—'}")
-                st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
-                st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32842')
-                if email_ja_enviado_home:
-                    st.success('✓ E-mail já enviado — novo disparo bloqueado pela idempotência.')
-                    ev_id=str(acompanhamento_home.get('graph_message_id') or acompanhamento_home.get('graph_internet_message_id') or '').strip()
-                    ev_dt=str(acompanhamento_home.get('enviado_em') or '').strip()
-                    st.caption(f"Evidência Graph: {ev_id or 'HTTP 202 confirmado'} · envio: {ev_dt or 'registrado'}")
-                    pendente_deste=[x for x in redmine_pendentes if int(x.get('chamado_id') or 0)==int(cid)]
-                    if pendente_deste:
-                        erro_rm=str(pendente_deste[0].get('redmine_erro') or '').strip()
-                        st.warning(f"Redmine pendente. {('Último erro: ' + erro_rm) if erro_rm else 'A atualização será reconciliada sem reenviar o e-mail.'}")
-                        if st.button('🔄 Reconciliar Redmine agora', type='secondary', width='content', key=f'home_ednna_reconcile_{cid}_v32853'):
-                            rr=reconciliar_redmine_chamado(int(cid), str(item.get('regra_id') or ''))
-                            if rr.get('atualizados'):
-                                st.success('Redmine atualizado com sucesso. Nenhum novo e-mail foi enviado.')
-                                st.rerun()
-                            else:
-                                st.error('Redmine continua pendente: ' + '; '.join(rr.get('erros') or ['consulte o log do Azure']))
-                else:
-                    confirma=st.checkbox('Revisei destinatários, Cc, assunto e mensagem. Autorizo esta execução.', key=f'home_ednna_confirm_{cid}_v32853')
-                    if st.button('📨 Executar agora', type='primary', width='content', disabled=not confirma, key=f'home_ednna_exec_{cid}_v32853'):
-                        try:
-                            res=executar_atuacao_assistida_email(pacote)
-                            if res.get('ok'):
-                                email=res.get('email') or {}
-                                if email.get('sent_items_confirmed'):
-                                    st.success('E-mail confirmado em Itens Enviados pelo Microsoft Graph.')
-                                else:
-                                    st.success('Microsoft Graph aceitou o envio (HTTP 202). A EDNNA preservou a idempotência.')
-                                if (res.get('redmine') or {}).get('pendente'):
-                                    st.warning('A atualização do Redmine ficou na fila de reconciliação. O e-mail não será reenviado.')
-                                else:
-                                    st.success('Redmine atualizado. Ciclo pós-envio concluído.')
-                                st.session_state.pop('home_ednna_pacote_v32842',None)
-                                st.rerun()
-                            else: st.warning(res.get('motivo') or 'Ação não executada.')
-                        except Exception as exc: st.error(f'Falha na execução: {type(exc).__name__}: {exc}')
-            else: st.info(rasc.get('motivo') or 'Executor ainda não disponível para este workflow.')
-    else:
-        st.caption('Nenhuma inclusão autorizada está pronta para execução assistida neste instante.')
-
-    fups=[x for x in follow_home.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
-    if fups:
-        with st.expander(f"📨 Continuidade · {len(fups)} follow-up(s) pronto(s)", expanded=False):
-            for fup in fups[:5]:
-                cidf=int(fup.get('chamado_id') or 0)
-                st.write(f"**#{cidf} · follow-up {fup.get('proximo_followup')}**")
-                st.text_area('Mensagem de acompanhamento', fup.get('texto_followup') or '', height=150, disabled=True, key=f'home_fup_preview_{cidf}_{fup.get("regra_id")}_v32842')
-                if st.button('Enviar follow-up agora', key=f'home_fup_exec_{cidf}_{fup.get("regra_id")}_v32842'):
-                    try: executar_followup(fup); st.success(f'Follow-up do chamado #{cidf} enviado.'); st.rerun()
-                    except Exception as exc: st.error(f'Falha no follow-up: {type(exc).__name__}: {exc}')
-    if redmine_pendentes:
-        st.warning(f"Há {len(redmine_pendentes)} atualização(ões) pós-envio aguardando reconciliação com o Redmine. Os e-mails não serão reenviados.")
-        with st.expander(f"🔄 Reconciliação Redmine · {len(redmine_pendentes)} pendente(s)", expanded=True):
-            vistos=set()
-            for pend in redmine_pendentes:
-                cidp=int(pend.get('chamado_id') or 0); ridp=str(pend.get('regra_id') or '')
-                chave=(cidp,ridp)
-                if chave in vistos: continue
-                vistos.add(chave)
-                st.write(f"**Chamado [#{cidp}]({redmine_link(cidp)})** · `{ridp}`")
-                erro=str(pend.get('redmine_erro') or '').strip()
-                if erro: st.caption(f"Último erro: {erro}")
-                if st.button('🔄 Reconciliar agora', key=f'home_rm_pending_{cidp}_{ridp}_v32856'):
-                    rr=reconciliar_redmine_chamado(cidp,ridp)
-                    if rr.get('atualizados'):
-                        st.success(f"Chamado #{cidp}: histórico/status reconciliados sem novo e-mail."); st.rerun()
-                    else:
-                        st.error('Redmine continua pendente: ' + '; '.join(rr.get('erros') or ['consulte o log do Azure']))
-
-
-st.markdown('<div class="section-shell"><div class="module-title">O que você quer fazer?</div><div class="module-sub">Cada botão abre somente o módulo escolhido.</div>', unsafe_allow_html=True)
-cols=st.columns(5)
-labels=[('📊  Painel EDI','pages/Painel_EDI.py'),('🧠  Aprendizado e homologação','pages/Aprendizado.py'),('📥  Atendimentos da EDNNA','pages/Atendimentos.py'),('⚡  Automações','pages/Automacoes.py'),('👥  Equipe e capacidade','pages/Equipe.py')]
-for col,(label,page) in zip(cols,labels):
-    with col:
-        if st.button(label,width='stretch'):
-            if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
-            st.switch_page(page)
+# v3.29.1 — Home intencionalmente leve.
+# Operação, regras e conhecimento possuem telas próprias; a Home não executa
+# motores nem consulta serviços externos ao ser aberta ou ao retornar de outra página.
+st.markdown(
+    '<div class="section-shell"><div class="module-title">Acesso rápido</div>'
+    '<div class="module-sub">A Home abre com o último snapshot local. Escolha o assunto; dados externos são atualizados somente dentro do módulo correspondente.</div>',
+    unsafe_allow_html=True,
+)
+nav_rows = [
+    [
+        ('🦾  Operação de hoje','pages/Operacao.py'),
+        ('🧠  Central de Regras','pages/Regras.py'),
+        ('📚  Conhecimento do cliente','pages/Conhecimento.py'),
+        ('📥  Atendimentos','pages/Atendimentos.py'),
+    ],
+    [
+        ('🔬  Aprendizado','pages/Aprendizado.py'),
+        ('⚡  Automações','pages/Automacoes.py'),
+        ('👥  Equipe e capacidade','pages/Equipe.py'),
+        ('📊  Painel EDI','pages/Painel_EDI.py'),
+    ],
+]
+for linha in nav_rows:
+    cols = st.columns(len(linha))
+    for col,(label,page) in zip(cols,linha):
+        with col:
+            if st.button(label,width='stretch',key=f'nav_{page}'):
+                if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
+                st.switch_page(page)
 st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown(
+    '<div class="section-shell"><div class="module-title">Como a EDNNA carrega</div>'
+    '<div class="module-sub">Interface primeiro, dados depois — sem bloquear a navegação.</div>'
+    '<div class="insight-grid">'
+    '<div class="insight"><b>1 · Imediato</b>Home e navegação usam SQLite/cache local.</div>'
+    '<div class="insight"><b>2 · Sob demanda</b>Cada módulo calcula apenas o que precisa.</div>'
+    '<div class="insight"><b>3 · Segundo plano</b>Redmine e demais fontes atualizam snapshots sem travar a Home.</div>'
+    '</div></div>',
+    unsafe_allow_html=True,
+)
 st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · Netunna &nbsp;&nbsp;|&nbsp;&nbsp; Inteligência que trabalha com você.</div>', unsafe_allow_html=True)
