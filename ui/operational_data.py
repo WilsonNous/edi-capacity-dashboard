@@ -159,3 +159,42 @@ def redmine_link(issue_id):
 def com_links_redmine(df):
     if df is None or df.empty or 'id' not in df.columns: return df
     out=df.copy(); out['Chamado']=out['id'].apply(redmine_link); return out
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def resumo_trabalho_ednna():
+    """Indicadores locais do trabalho efetivamente absorvido pela EDNNA.
+
+    Não consulta Redmine/Graph. A Home pode abrir imediatamente e mostrar o
+    último estado persistido no SQLite; os workers atualizam estes números.
+    """
+    p=_db('ednna.db')
+    out=dict(atuacoes=0,acompanhando=0,followups=0,redmine_pendente=0,
+             regras_automaticas=0,blueprints=0,clientes_conhecidos=0,participantes=0)
+    if not p.exists(): return out
+    try:
+        con=sqlite3.connect(str(p)); con.row_factory=sqlite3.Row
+        tabelas={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if 'acoes_operacionais' in tabelas:
+            cols={r[1] for r in con.execute('PRAGMA table_info(acoes_operacionais)').fetchall()}
+            prova="COALESCE(graph_message_id,'')<>'' OR COALESCE(enviado_em,'')<>''"
+            if 'envio_confirmado' in cols: prova="COALESCE(envio_confirmado,0)=1 OR " + prova
+            out['atuacoes']=int(con.execute(f"SELECT COUNT(*) FROM acoes_operacionais WHERE {prova}").fetchone()[0] or 0)
+            out['acompanhando']=int(con.execute("SELECT COUNT(*) FROM acoes_operacionais WHERE estado IN ('AGUARDANDO_RESPOSTA','FOLLOWUP_ENVIADO','RESPOSTA_RECEBIDA')").fetchone()[0] or 0)
+            if 'followup_count' in cols:
+                out['followups']=int(con.execute("SELECT COALESCE(SUM(followup_count),0) FROM acoes_operacionais").fetchone()[0] or 0)
+            if 'redmine_pendente_status' in cols:
+                out['redmine_pendente']=int(con.execute("SELECT COUNT(*) FROM acoes_operacionais WHERE COALESCE(redmine_pendente_status,'')<>''").fetchone()[0] or 0)
+            elif 'redmine_erro' in cols:
+                out['redmine_pendente']=int(con.execute("SELECT COUNT(*) FROM acoes_operacionais WHERE COALESCE(redmine_erro,'')<>'' AND COALESCE(redmine_atualizado_em,'')='' ").fetchone()[0] or 0)
+        if 'autorizacoes_motor' in tabelas:
+            out['regras_automaticas']=int(con.execute("SELECT COUNT(*) FROM autorizacoes_motor WHERE modo='AUTOMATICA'").fetchone()[0] or 0)
+        if 'blueprint_documentos' in tabelas:
+            out['blueprints']=int(con.execute("SELECT COUNT(*) FROM blueprint_documentos").fetchone()[0] or 0)
+            out['clientes_conhecidos']=int(con.execute("SELECT COUNT(DISTINCT cliente) FROM blueprint_documentos").fetchone()[0] or 0)
+        if 'blueprint_participantes' in tabelas:
+            out['participantes']=int(con.execute("SELECT COUNT(DISTINCT email) FROM blueprint_participantes WHERE ativo=1").fetchone()[0] or 0)
+        con.close()
+    except Exception as exc:
+        print(f'[EDNNA] Resumo trabalho local indisponível | {type(exc).__name__}: {exc}', flush=True)
+    return out
