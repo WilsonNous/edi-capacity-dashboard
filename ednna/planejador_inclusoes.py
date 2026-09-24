@@ -79,6 +79,24 @@ def _extrair_ecs_contextuais(issue: dict) -> list[str]:
     if re.search(r"(?i)\b(?:EC|ESTABELECIMENTO|CONVENIO|CONVÊNIO|FILIACAO|FILIAÇÃO)\b", assunto):
         encontrados.extend(_EC_NUMERICO_RE.findall(assunto))
 
+    # v3.29.5 — alguns players informam o EC em uma linha própria, no formato
+    # "VERO - 041131200978800". A frase anterior do chamado já estabelece o
+    # contexto de inclusão de estabelecimento, mas o identificador não repete a
+    # palavra "estabelecimento" na mesma linha. Só aceitamos este formato quando
+    # a linha começa por um alias conhecido de player e descartamos blocos de 14
+    # dígitos (CNPJ), preservando a proteção contra números soltos/anexos.
+    aliases = sorted(
+        {str(alias) for valores in PLAYER_ALIASES.values() for alias in valores},
+        key=len, reverse=True,
+    )
+    alias_re = "|".join(re.escape(a) for a in aliases)
+    player_ec_re = re.compile(
+        rf"(?im)^\s*(?:{alias_re})\s*[-:–—]\s*(\d{{5,18}})\s*[.;,]?\s*$"
+    )
+    for valor in player_ec_re.findall(texto):
+        if len(re.sub(r"\D", "", valor)) != 14:
+            encontrados.append(valor)
+
     return _unicos(encontrados)
 
 
