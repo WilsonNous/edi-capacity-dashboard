@@ -569,3 +569,24 @@ def analisar_contexto_operacional(chamado_id: int, *, force: bool = False) -> di
         "qualidade_contexto": _qualidade_contexto(universo),
         "modo": "SOMENTE_LEITURA",
     }
+
+
+def sincronizar_conhecimento_blueprint(chamado_id: int, *, force_contexto: bool = False) -> dict:
+    """Sincroniza Blueprints presentes no universo relacionado ao chamado.
+
+    Usa a raiz BP/Novo Cliente e suas relações já conhecidas. O conhecimento é
+    incremental: documentos antigos não são apagados e anexos já importados não
+    são baixados novamente.
+    """
+    contexto = analisar_contexto_operacional(int(chamado_id), force=force_contexto)
+    cliente = str(contexto.get("cliente") or "").strip()
+    ids = {int(chamado_id)}
+    if contexto.get("blueprint_id"):
+        ids.add(int(contexto["blueprint_id"]))
+    for evento in contexto.get("eventos", []) or []:
+        if evento.get("id"):
+            ids.add(int(evento["id"]))
+    if not cliente:
+        return {"status":"SEM_CLIENTE", "chamado_id":int(chamado_id)}
+    from ednna.blueprint_knowledge import sincronizar_blueprints_chamados
+    return sincronizar_blueprints_chamados(cliente, sorted(ids))
