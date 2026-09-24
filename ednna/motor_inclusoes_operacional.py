@@ -50,6 +50,8 @@ def _dados_snapshot(row: dict) -> dict:
         "emails": list(extraidos.get("emails") or []),
         "cliente": str(row.get("Clientes", "") or ""),
         "assunto": str(row.get("Assunto", "") or ""),
+        "descricao": str(row.get("Descrição", "") or ""),
+        "tipo_demanda": str(row.get("Tipo", "") or ""),
         "estado_redmine": str(row.get("Estado", "") or ""),
         "fonte": "SNAPSHOT_ATIVO",
     }
@@ -370,6 +372,10 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "emails": dados.get("emails") or [],
         "emails_blueprint": dados.get("emails_blueprint") or [],
         "contato_cliente_principal": dados.get("contato_cliente_principal") or "",
+        "blueprint_id": (item.get("plano") or {}).get("blueprint_id") or dados.get("blueprint_id"),
+        "assunto": dados.get("assunto") or "",
+        "descricao": dados.get("descricao") or "",
+        "tipo_demanda": dados.get("tipo_demanda") or "",
         "etapas": wf.get("etapas") or [],
         "confirmacao_obrigatoria": True,
         "executou_acao_externa": False,
@@ -383,9 +389,16 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     if not pacote.get("ok"):
         return {"ok": False, "motivo": "Pacote operacional inválido."}
     canal = str(pacote.get("canal") or "")
+    player=str(pacote.get("player") or "")
+    if player == "GREENCARD" and canal == "DOCUMENTO+EMAIL":
+        from ednna.greencard_workflow import preparar_primeira_etapa
+        r = preparar_primeira_etapa(pacote)
+        if r.get("ok"):
+            r["remetente"] = os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br")
+            r["cc"] = aplicar_cc_padrao(r.get("para") or [])
+        return r
     if canal != "EMAIL":
         return {"ok": False, "motivo": f"Executor direto ainda não disponível para canal {canal}."}
-    player=str(pacote.get("player") or "")
     destinatario = str(pacote.get("destinatario") or "").strip()
     if player == "VEROCHEQUE" and not destinatario:
         destinatario = "conciliacao@verocard.com.br"
@@ -538,7 +551,7 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     print(f"[EDNNA] Executor adquirido | chamado={cid} | regra={rid} | estado=EXECUTANDO", flush=True)
     try:
         print(f"[EDNNA] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
-        mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"])
+        mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"],anexos=r.get("anexos") or [])
         print(f"[EDNNA] Graph | HTTP 202 aceito | chamado={cid}", flush=True)
         # v3.28.53: além do HTTP 202, procurar a cópia real em Sent Items.
         # Falha desta leitura NÃO reenvia o e-mail: o HTTP 202 continua sendo prova de aceitação.
@@ -561,6 +574,14 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
             print(f"[EDNNA] Graph | SENT_ITEMS_CHECK_ERROR | chamado={cid} | {type(sent_exc).__name__}: {sent_exc}", flush=True)
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""),enviado_em_real=mail.get("sent_datetime",""))
         print(f"[EDNNA] Acompanhamento | chamado={cid} | estado=AGUARDANDO_RESPOSTA", flush=True)
+        if pacote.get("player") == "GREENCARD":
+            try:
+                from ednna.greencard_workflow import registrar_estado, registrar_movimentacao_bp
+                registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
+                bp_res=registrar_movimentacao_bp(pacote, f"Chamado #{cid}: formulário Greencard pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE.")
+                print(f"[EDNNA] Greencard | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
+            except Exception as gc_exc:
+                print(f"[EDNNA] Greencard | persistência/BP pendente | chamado={cid} | {type(gc_exc).__name__}: {gc_exc}", flush=True)
         # Pós-envio obrigatório: o e-mail já saiu, portanto qualquer falha no Redmine
         # vira outbox pendente e nunca provoca reenvio da mensagem.
         from ednna.redmine_outbox import registrar_ou_enfileirar
@@ -645,7 +666,15 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         # regra ASSISTIDA que já possua envio confirmado também pode ser promovida
         # pelo histórico, como nas versões anteriores.
         confianca_historica = regra_possui_envio_confirmado(rid)
-        if modo_motor != "AUTOMATICA" and not (modo_motor == "ASSISTIDA" and confianca_historica):
+        # Workflows documentais (Greencard) só entram no worker quando o operador
+        # marcou explicitamente AUTOMATICA. Um envio assistido anterior não promove
+        # sozinho um processo que envolve documento/assinatura.
+        player_item = str(item.get("player") or "").upper()
+        if player_item == "GREENCARD":
+            autorizado_auto = (modo_motor == "AUTOMATICA")
+        else:
+            autorizado_auto = modo_motor == "AUTOMATICA" or (modo_motor == "ASSISTIDA" and confianca_historica)
+        if not autorizado_auto:
             resumo["ignorados"] += 1; continue
         resumo["elegiveis"] += 1
         pacote=preparar_atuacao_assistida(item)

@@ -333,10 +333,15 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         descricao = str(row.get("Descrição", "") or "")
         texto = "\n".join([tipo, assunto, descricao])
         norm = texto.upper()
-        if "INCLUS" not in norm and "HABILITA" not in norm:
+        # O motor nasceu para inclusões. Greencard é o primeiro workflow composto
+        # em que Abertura de Relacionamento e Inclusão compartilham o mesmo
+        # orquestrador documental. Não ampliamos abertura genericamente para
+        # evitar classificar workflows bancários como inclusão.
+        abertura_greencard = ("GREENCARD" in norm or "GREEN CARD" in norm) and "ABERTURA" in norm and "RELACION" in norm
+        if "INCLUS" not in norm and "HABILITA" not in norm and not abertura_greencard:
             continue
         # Evita trazer outros trackers que apenas mencionam uma inclusão no texto.
-        if "INCLUS" not in tipo.upper() and "INCLUS" not in assunto.upper() and "HABILITA" not in assunto.upper():
+        if "INCLUS" not in tipo.upper() and "INCLUS" not in assunto.upper() and "HABILITA" not in assunto.upper() and not abertura_greencard:
             continue
 
         # Reusa o catálogo de aliases do contexto histórico, mantendo uma única

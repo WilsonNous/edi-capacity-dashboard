@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import base64
 from typing import Iterable
 
 import requests
@@ -95,6 +96,7 @@ def enviar_email_graph(
     cc: list[str],
     assunto: str,
     corpo: str,
+    anexos: list[dict] | None = None,
 ) -> dict:
     remetente = str(
         remetente
@@ -136,6 +138,13 @@ def enviar_email_graph(
                 "ccRecipients": _destinatarios(
                     cc
                 ),
+                **({"attachments": [
+                    {"@odata.type": "#microsoft.graph.fileAttachment",
+                     "name": str(a.get("filename") or "anexo.bin"),
+                     "contentType": str(a.get("content_type") or "application/octet-stream"),
+                     "contentBytes": base64.b64encode(bytes(a.get("conteudo") or b"")).decode("ascii")}
+                    for a in (anexos or []) if a.get("conteudo")
+                ]} if anexos else {}),
             },
             "saveToSentItems": True,
         },

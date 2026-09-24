@@ -68,22 +68,28 @@ with avcol:
         st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
 with copycol:
     st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas. <b>{trabalho['regras_automaticas']}</b> já estão autorizadas para atuação automática.</div></div>''', unsafe_allow_html=True)
-    ins=[]
-    if r['total']:
-        pct=round(r['terceiros']/r['total']*100)
-        if pct>=40: ins.append((f'{pct}%', 'dependem de terceiros'))
-    if not df.empty and 'responsavel' in df.columns:
-        vc=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts()
-        # usuário Redmine da EDNNA é operacional; não usar como pessoa para apontamento de concentração
-        vc_humana=vc[~vc.index.astype(str).str.lower().str.contains(r'ednna.*automa', regex=True)]
-        if len(vc_humana):
-            nome,n=vc_humana.index[0],int(vc_humana.iloc[0]); pct=round(n/len(df)*100)
-            if pct>=30: ins.append((str(nome).split()[0], f'concentra {pct}%'))
-    if r['revisao']: ins.append((f"{r['revisao']} procedimento" + ('' if r['revisao']==1 else 's'), 'pronto' + ('' if r['revisao']==1 else 's') + ' para decisão'))
-    if trabalho['atuacoes']: ins.append((f"{trabalho['atuacoes']} atuações", 'já absorvidas pela EDNNA'))
-    if ins:
-        cells=''.join(f'<div class="insight"><b>{html.escape(a)}</b>{html.escape(b)}</div>' for a,b in ins[:3])
-        st.markdown(f'<div class="insight-card"><div class="insight-title"><span>💡 Leitura da EDNNA</span><span style="font-weight:700;color:#1268e8">fotografia atual</span></div><div class="insight-grid">{cells}</div></div>', unsafe_allow_html=True)
+    # v3.30.0 — Leitura operacional: só mostra situação, trabalho da EDNNA e decisão humana.
+    # Não mistura mais concentração por responsável/capacidade com a leitura principal.
+    pct_terceiros = round(r['terceiros']/r['total']*100) if r['total'] else 0
+    acompanhando = int(trabalho.get('acompanhando', 0) or 0)
+    decisoes = int(r.get('revisao', 0) or 0)
+    ins = [
+        (str(r['terceiros']), f'aguardam terceiros · {pct_terceiros}% da carteira'),
+        (str(acompanhando), 'estão comigo · acompanhamento EDNNA'),
+        (str(decisoes), 'precisam de você · decisões pendentes'),
+    ]
+    cells=''.join(f'<div class="insight"><b>{html.escape(a)}</b>{html.escape(b)}</div>' for a,b in ins)
+    if decisoes:
+        leitura = f"A maior parte da carteira está aguardando terceiros. Estou acompanhando {acompanhando} chamados e encontrei {decisoes} decisão" + ("" if decisoes == 1 else "ões") + " que ainda precisa" + ("" if decisoes == 1 else "m") + " de você."
+    elif acompanhando:
+        leitura = f"Estou acompanhando {acompanhando} chamados. No momento, não há decisões de regra esperando por você."
+    else:
+        leitura = "A operação está acompanhada. No momento, não há decisões de regra esperando por você."
+    st.markdown(
+        f'<div class="insight-card"><div class="insight-title"><span>💡 Leitura da EDNNA</span><span style="font-weight:700;color:#1268e8">agora</span></div>'
+        f'<div class="insight-grid">{cells}</div><div style="margin-top:9px;padding-top:8px;border-top:1px solid #dce7f5;font-size:.76rem;line-height:1.4;color:#476787">{html.escape(leitura)}</div></div>',
+        unsafe_allow_html=True,
+    )
 with opscol:
     st.markdown('<div class="ops-panel"><div class="ops-head"><span>〽 Estado da operação</span><span class="ops-pill">✚ Em acompanhamento</span></div>', unsafe_allow_html=True)
     k1,k2=st.columns(2); k3,k4=st.columns(2)

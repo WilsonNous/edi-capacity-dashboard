@@ -122,6 +122,8 @@ with op_shell:
                 cc_edit = st.text_input('Cc', ', '.join(rasc.get('cc') or []), key=f'home_ednna_cc_{cid}_v3293')
                 assunto_edit = st.text_input('Assunto', rasc.get('assunto') or '', key=f'home_ednna_assunto_{cid}_v3293')
                 corpo_edit = st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=300, key=f'home_ednna_preview_{cid}_v3293')
+                if rasc.get('anexos'):
+                    st.info('📎 Anexo(s) preparado(s): ' + ', '.join(str(a.get('filename') or 'anexo') for a in rasc.get('anexos') or []))
                 pacote['email_override'] = {
                     'para':[x.strip() for x in para_edit.replace(';', ',').split(',') if x.strip()],
                     'cc':[x.strip() for x in cc_edit.replace(';', ',').split(',') if x.strip()],
