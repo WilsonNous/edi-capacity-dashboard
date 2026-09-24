@@ -4,7 +4,7 @@ import re
 import streamlit as st
 import pandas as pd
 from version import APP_VERSION, APP_RELEASE
-from ui.operational_data import resumo, chamados_ativos_df, redmine_link
+from ui.operational_data import resumo, resumo_trabalho_ednna, chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnosticar_regras_operacionais, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
@@ -47,7 +47,7 @@ div.stButton>button{font-size:.82rem!important;letter-spacing:-.005em!important}
 .st-key-ednna_operation_shell div.stButton>button{min-height:40px!important;width:auto!important;padding:.45rem .9rem!important;border-radius:10px!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary]{background:#1268e8!important;color:#fff!important;border-color:#1268e8!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary] p{color:#fff!important}
 </style>''', unsafe_allow_html=True)
 
-r = resumo(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
+r = resumo(); trabalho = resumo_trabalho_ednna(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
 if r['revisao'] == 1: title = 'Tenho 1 decisão para você.'
 elif r['revisao'] > 1: title = f"Tenho {r['revisao']} decisões para você."
 elif r['aprendendo'] > 0: title = 'Estou aprendendo enquanto você trabalha.'
@@ -67,7 +67,7 @@ with avcol:
         st.image(str(AVATAR), width='stretch')
         st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
 with copycol:
-    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas.</div></div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas. <b>{trabalho['regras_automaticas']}</b> já estão autorizadas para atuação automática.</div></div>''', unsafe_allow_html=True)
     ins=[]
     if r['total']:
         pct=round(r['terceiros']/r['total']*100)
@@ -80,13 +80,14 @@ with copycol:
             nome,n=vc_humana.index[0],int(vc_humana.iloc[0]); pct=round(n/len(df)*100)
             if pct>=30: ins.append((str(nome).split()[0], f'concentra {pct}%'))
     if r['revisao']: ins.append((f"{r['revisao']} procedimento" + ('' if r['revisao']==1 else 's'), 'pronto' + ('' if r['revisao']==1 else 's') + ' para decisão'))
+    if trabalho['atuacoes']: ins.append((f"{trabalho['atuacoes']} atuações", 'já absorvidas pela EDNNA'))
     if ins:
         cells=''.join(f'<div class="insight"><b>{html.escape(a)}</b>{html.escape(b)}</div>' for a,b in ins[:3])
         st.markdown(f'<div class="insight-card"><div class="insight-title"><span>💡 Leitura da EDNNA</span><span style="font-weight:700;color:#1268e8">fotografia atual</span></div><div class="insight-grid">{cells}</div></div>', unsafe_allow_html=True)
 with opscol:
     st.markdown('<div class="ops-panel"><div class="ops-head"><span>〽 Estado da operação</span><span class="ops-pill">✚ Em acompanhamento</span></div>', unsafe_allow_html=True)
     k1,k2=st.columns(2); k3,k4=st.columns(2)
-    data=[(k1,'Chamados ativos',r['total'],'carteira ativa do Redmine',''),(k2,'Equipe / Atuação',r['em_atuacao'],'fora de espera por terceiros',''),(k3,'Aguardando terceiros',r['terceiros'],'dependência externa',''),(k4,'EDNNA',r['revisao']+r['aprendendo'],'regras em atenção','ednna')]
+    data=[(k1,'Chamados ativos',r['total'],'carteira ativa do Redmine',''),(k2,'Equipe / Atuação',r['em_atuacao'],'fora de espera por terceiros',''),(k3,'Aguardando terceiros',r['terceiros'],'dependência externa',''),(k4,'EDNNA',trabalho['acompanhando'],'chamados sob acompanhamento','ednna')]
     for col,label,num,note,klass in data:
         with col: st.markdown(f'<div class="kpi {klass}"><div class="klabel">{label}</div><div class="knum">{num}</div><div class="knote">{note}</div></div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -102,7 +103,7 @@ if not df.empty and 'responsavel' in df.columns:
     if len(ednna_user): people.append((str(ednna_user.index[0]),int(ednna_user.iloc[0]),'chamados · usuário Redmine','redmine_ai'))
 while len(people)<4: people.append(('Sem responsável',0,'chamados','humano'))
 people=people[:4]
-people.append(('EDNNA',r['revisao']+r['aprendendo'],'regras em atenção · inteligência','intel'))
+people.append(('EDNNA',trabalho['atuacoes'],'atuações absorvidas · inteligência','intel'))
 html_people=[]
 for nome,n,note,kind in people:
     if kind=='redmine_ai': initials='⚙'; ptype='Usuário operacional Redmine'; cls='ai'
@@ -112,6 +113,19 @@ for nome,n,note,kind in people:
     html_people.append(f'<div class="person"><div class="person-top"><div class="initial {cls}">{html.escape(initials)}</div><div><div class="pname">{html.escape(nome)}</div><div class="ptype">{html.escape(ptype)}</div></div></div><div class="pnum">{n}</div><div class="pnote">{html.escape(note)}</div></div>')
 st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="redmine-note">Os IDs individuais de chamados permanecem clicáveis nas telas de Equipe e Atendimentos.</div></div>', unsafe_allow_html=True)
 
+
+# v3.29.4 — números que demonstram o trabalho absorvido pela inteligência.
+st.markdown('<div class="section-shell"><div class="section-title">✦ O que estou fazendo por você</div><div class="section-sub">Indicadores locais do trabalho já absorvido pela EDNNA. Sem consulta externa para abrir esta tela.</div>', unsafe_allow_html=True)
+t1,t2,t3,t4=st.columns(4)
+for col,label,num,note in [
+    (t1,'Atuações executadas',trabalho['atuacoes'],'envios confirmados / operações persistidas'),
+    (t2,'Em acompanhamento',trabalho['acompanhando'],'retornos que estou acompanhando'),
+    (t3,'Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados para agir'),
+    (t4,'Conhecimento',trabalho['blueprints'],f"Blueprints · {trabalho['clientes_conhecidos']} cliente(s)"),
+]:
+    with col: st.metric(label,num,help=note)
+st.caption(f"Follow-ups executados: {trabalho['followups']} · Redmine pendente de reconciliação: {trabalho['redmine_pendente']} · Contatos conhecidos em Blueprint: {trabalho['participantes']}")
+st.markdown('</div>', unsafe_allow_html=True)
 
 # v3.29.1 — Home intencionalmente leve.
 # Operação, regras e conhecimento possuem telas próprias; a Home não executa
