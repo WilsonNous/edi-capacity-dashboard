@@ -114,16 +114,18 @@ for nome,n,note,kind in people:
 st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="redmine-note">Os IDs individuais de chamados permanecem clicáveis nas telas de Equipe e Atendimentos.</div></div>', unsafe_allow_html=True)
 
 
-# v3.29.4 — números que demonstram o trabalho absorvido pela inteligência.
+# v3.29.5 — mesma linguagem visual de "Quem está com o quê?".
 st.markdown('<div class="section-shell"><div class="section-title">✦ O que estou fazendo por você</div><div class="section-sub">Indicadores locais do trabalho já absorvido pela EDNNA. Sem consulta externa para abrir esta tela.</div>', unsafe_allow_html=True)
-t1,t2,t3,t4=st.columns(4)
-for col,label,num,note in [
-    (t1,'Atuações executadas',trabalho['atuacoes'],'envios confirmados / operações persistidas'),
-    (t2,'Em acompanhamento',trabalho['acompanhando'],'retornos que estou acompanhando'),
-    (t3,'Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados para agir'),
-    (t4,'Conhecimento',trabalho['blueprints'],f"Blueprints · {trabalho['clientes_conhecidos']} cliente(s)"),
-]:
-    with col: st.metric(label,num,help=note)
+impacto_cards = [
+    ('✓','Atuações executadas',trabalho['atuacoes'],'envios confirmados · operações persistidas'),
+    ('↻','Em acompanhamento',trabalho['acompanhando'],'retornos acompanhados pela inteligência'),
+    ('⚡','Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados para agir'),
+    ('▣','Conhecimento',trabalho['blueprints'],f"Blueprints · {trabalho['clientes_conhecidos']} cliente(s)"),
+]
+html_impacto=[]
+for icone,label,num,note in impacto_cards:
+    html_impacto.append(f'<div class="person"><div class="person-top"><div class="initial ai">{html.escape(icone)}</div><div><div class="pname">{html.escape(label)}</div><div class="ptype">Trabalho absorvido pela EDNNA</div></div></div><div class="pnum">{num}</div><div class="pnote">{html.escape(note)}</div></div>')
+st.markdown('<div class="people-grid">'+''.join(html_impacto)+'</div>', unsafe_allow_html=True)
 st.caption(f"Follow-ups executados: {trabalho['followups']} · Redmine pendente de reconciliação: {trabalho['redmine_pendente']} · Contatos conhecidos em Blueprint: {trabalho['participantes']}")
 st.markdown('</div>', unsafe_allow_html=True)
 
