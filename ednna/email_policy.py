@@ -31,3 +31,21 @@ def aplicar_cc_padrao(para: list[str] | None, cc: list[str] | None = None) -> li
         vistos.add(email)
         saida.append(email)
     return saida
+
+
+def aplicar_cc_cliente(para: list[str] | None, cc: list[str] | None, cliente: str) -> list[str]:
+    """CC institucional + contato principal do cliente vindo do Blueprint local."""
+    base = aplicar_cc_padrao(para, cc)
+    try:
+        from ednna.blueprint_knowledge import emails_cliente_blueprint
+        contatos = emails_cliente_blueprint(cliente, limite=1)
+    except Exception as exc:
+        print(f"[EDNNA] Blueprint CC | cliente={cliente} | indisponivel | {type(exc).__name__}: {exc}", flush=True)
+        contatos = []
+    para_norm={str(x).strip().lower() for x in (para or []) if str(x).strip()}
+    vistos={str(x).strip().lower() for x in base}
+    for email in contatos:
+        e=str(email or '').strip().lower()
+        if _EMAIL_RE.match(e) and e not in para_norm and e not in vistos:
+            base.append(e); vistos.add(e)
+    return base

@@ -7,14 +7,38 @@ from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnosticar_regras_operacionais, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup
-from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
+from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
 
 setup('🦾 Operação de hoje')
-st.caption('A tela abre a partir do snapshot local. O motor operacional é calculado somente aqui — voltar para a EDNNA não dispara nova análise.')
+st.caption('A tela abre imediatamente com dados locais. O diagnóstico pesado só roda quando você pedir atualização da fila.')
 
 # snapshot local compartilhado
 df = chamados_ativos_df()
+try:
+    _aguardando_local = listar_acoes_aguardando_resposta()
+except Exception:
+    _aguardando_local = []
+try:
+    _redmine_local = listar_redmine_pendentes()
+except Exception:
+    _redmine_local = []
+
+st.markdown("### Fotografia imediata")
+c1,c2,c3=st.columns(3)
+c1.metric("Chamados ativos", len(df))
+c2.metric("Aguardando resposta", len(_aguardando_local))
+c3.metric("Redmine pendente", len(_redmine_local))
+st.caption("Estes números vêm do SQLite/cache local e aparecem sem consultar o Redmine.")
+
+if st.button("🔄 Atualizar fila operacional", type="primary", width="content", key="op_refresh_3292"):
+    st.session_state["op_calcular_3292"] = True
+
+if not st.session_state.get("op_calcular_3292"):
+    st.info("A tela está pronta. Clique em **Atualizar fila operacional** para recalcular regras, chamados prontos, pendências e diagnósticos. Voltar para a EDNNA não executa esse cálculo novamente.")
+    footer()
+    st.stop()
+
 # Operação real também na Home bonita da EDNNA — o backend deixa de ser obrigatório.
 op_shell = st.container(key='ednna_operation_shell')
 with op_shell:
@@ -25,11 +49,27 @@ with op_shell:
             'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
             'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
         }).copy()
-    fila_home = avaliar_fila_inclusoes(snapshot_motor) if not snapshot_motor.empty else {'resumo':{},'itens':[]}
-    follow_home = avaliar_followups()
+    
+    try:
+        with st.spinner('Calculando fila operacional a partir do snapshot local...'):
+            fila_home = avaliar_fila_inclusoes(snapshot_motor) if not snapshot_motor.empty else {'resumo':{},'itens':[]}
+    except Exception as exc:
+        st.error(f'Falha ao calcular fila operacional: {type(exc).__name__}: {exc}')
+        fila_home={'resumo':{},'itens':[]}
+    
+    try:
+        follow_home = avaliar_followups()
+    except Exception as exc:
+        st.warning(f'Follow-up indisponível neste ciclo: {type(exc).__name__}: {exc}')
+        follow_home={'total':0,'prontos':0,'itens':[]}
     try: redmine_pendentes = listar_redmine_pendentes()
     except Exception: redmine_pendentes = []
-    diagnostico_home = diagnosticar_regras_operacionais(snapshot_motor) if not snapshot_motor.empty else {'regras': [], 'fila': fila_home}
+    
+    try:
+        diagnostico_home = diagnosticar_regras_operacionais(snapshot_motor) if not snapshot_motor.empty else {'regras': [], 'fila': fila_home}
+    except Exception as exc:
+        st.warning(f'Diagnóstico por regra indisponível neste ciclo: {type(exc).__name__}: {exc}')
+        diagnostico_home={'regras': [], 'fila': fila_home}
     regras_diag = diagnostico_home.get('regras') or []
     precisa_voce = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','AGUARDANDO_VERIFICACAO_HISTORICO','PLAYER_AMBIGUO'})
     problemas_ident = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'PLAYER_AMBIGUO','REGRA_NAO_HOMOLOGADA'})

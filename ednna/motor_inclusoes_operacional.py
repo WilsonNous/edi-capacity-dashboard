@@ -10,7 +10,8 @@ e-mail, NÃO chama APIs e NÃO altera Redmine. Ela prepara o braço operacional.
 from typing import Any
 import os
 from ednna.email_identity import finalizar_email
-from ednna.email_policy import aplicar_cc_padrao
+from ednna.email_policy import aplicar_cc_padrao, aplicar_cc_cliente
+from ednna.blueprint_knowledge import emails_cliente_blueprint
 import pandas as pd
 
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
@@ -194,6 +195,12 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             continue
         contadores["autorizadas"] += 1
         dados = _dados_snapshot(row)
+        # v3.29.2 — a Base de Conhecimento passa a enriquecer as regras sem
+        # depender de nova consulta ao Redmine. Blueprint é fonte confiável local.
+        cliente_bp = str(dados.get("cliente") or "").strip()
+        contatos_bp = emails_cliente_blueprint(cliente_bp, limite=10) if cliente_bp else []
+        dados["emails_blueprint"] = contatos_bp
+        dados["contato_cliente_principal"] = contatos_bp[0] if contatos_bp else ""
         plano = preparar_operacao_inclusao(int(candidato["id"]), player, dados=dados)
         estado = str(plano.get("estado") or "")
         wf = plano.get("workflow") or obter_workflow(player)
@@ -217,7 +224,7 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             # VR: a ação é dirigida ao CLIENTE, nunca à VR. Preferimos contatos
             # externos encontrados no chamado e rejeitamos domínios Netunna/VR.
             candidatos_cliente = [
-                str(e).strip() for e in (dados.get("emails") or [])
+                str(e).strip() for e in ([*(dados.get("emails_blueprint") or []), *(dados.get("emails") or [])])
                 if str(e).strip() and not str(e).lower().endswith("@netunna.com.br")
                 and not str(e).lower().endswith("@vr.com.br")
             ]
@@ -361,6 +368,8 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "estabelecimentos": dados.get("estabelecimento") or [],
         "cnpjs": dados.get("cnpjs") or [],
         "emails": dados.get("emails") or [],
+        "emails_blueprint": dados.get("emails_blueprint") or [],
+        "contato_cliente_principal": dados.get("contato_cliente_principal") or "",
         "etapas": wf.get("etapas") or [],
         "confirmacao_obrigatoria": True,
         "executou_acao_externa": False,
@@ -414,7 +423,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         corpo=finalizar_email("\n".join(linhas))
         return {
             "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
-            "para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,
+            "para":([str(e) for e in (pacote.get("emails_blueprint") or []) if str(e).strip()] or [destinatario]),"cc":aplicar_cc_padrao(([str(e) for e in (pacote.get("emails_blueprint") or []) if str(e).strip()] or [destinatario])),"assunto":assunto,"corpo":corpo,
             "prazo_resposta_dias_uteis":2,"tipo_acao":"ORIENTAR_CLIENTE_PORTAL_VR",
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
@@ -435,7 +444,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         linhas += [f"- {ec}" for ec in ecs]
         linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
         corpo=finalizar_email("\n".join(linhas))
-        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_TICKET","status_pos_envio":"Aguardando Retorno Adquirente"}
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_cliente([destinatario], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_TICKET","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     if player == "VALECARD":
         if not cnpjs or not ecs:
@@ -452,7 +461,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "Estamos à disposição para quaisquer esclarecimentos.",
         ]
         corpo=finalizar_email("\n".join(linhas))
-        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["atendimentograndesredes@valecard.com.br"],"cc":aplicar_cc_padrao(["atendimentograndesredes@valecard.com.br"]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":3,"tipo_acao":"SOLICITAR_INCLUSAO_VALECARD","status_pos_envio":"Aguardando Retorno Adquirente"}
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["atendimentograndesredes@valecard.com.br"],"cc":aplicar_cc_cliente(["atendimentograndesredes@valecard.com.br"], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":3,"tipo_acao":"SOLICITAR_INCLUSAO_VALECARD","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     if player == "POLICARD":
         if not cnpjs or not ecs:
@@ -469,12 +478,12 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "Estamos à disposição para quaisquer esclarecimentos.",
         ]
         corpo=finalizar_email("\n".join(linhas))
-        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["grandesredesup@upbrasil.com"],"cc":aplicar_cc_padrao(["grandesredesup@upbrasil.com"]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_POLICARD","status_pos_envio":"Aguardando Retorno Adquirente"}
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["grandesredesup@upbrasil.com"],"cc":aplicar_cc_cliente(["grandesredesup@upbrasil.com"], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_POLICARD","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     if player == "VEROCHEQUE":
         # Procedimento operacional confirmado pela Verocheque: modelo fixo de
         # conciliação + autorização do responsável do estabelecimento.
-        externos=[e for e in (pacote.get("emails") or []) if str(e).strip() and not str(e).lower().endswith("@netunna.com.br") and not str(e).lower().endswith("@verocard.com.br")]
+        externos=[e for e in ([*(pacote.get("emails_blueprint") or []), *(pacote.get("emails") or [])]) if str(e).strip() and not str(e).lower().endswith("@netunna.com.br") and not str(e).lower().endswith("@verocard.com.br")]
         responsavel = externos[0] if externos else "[PENDENTE: e-mail do responsável do estabelecimento]"
         cnpj = cnpjs[0] if cnpjs else (ecs[0] if ecs else "[PENDENTE: CNPJ]")
         assunto=f"[VEROCHEQUE - Inclusão de estabelecimento - {cliente} - CN: {cid}]"
@@ -493,7 +502,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         if responsavel.startswith("[PENDENTE"):
             return {"ok":False,"motivo":"VEROCHEQUE: falta identificar o e-mail do responsável do estabelecimento antes do envio.","estado":"AGUARDANDO_DADOS"}
         corpo=finalizar_email("\n".join(linhas))
-        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["conciliacao@verocard.com.br"],"cc":aplicar_cc_padrao(["conciliacao@verocard.com.br", responsavel]) + ([responsavel] if responsavel not in aplicar_cc_padrao(["conciliacao@verocard.com.br", responsavel]) else []),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_VEROCHEQUE","status_pos_envio":"Aguardando Retorno Adquirente"}
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["conciliacao@verocard.com.br"],"cc":aplicar_cc_cliente(["conciliacao@verocard.com.br"], [responsavel], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_VEROCHEQUE","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     assunto=f"[{player} - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
     linhas=[f"Olá, time {player}, tudo bem?","","Por gentileza, solicitamos a inclusão no tráfego atual de arquivos para nosso cliente comum " + cliente + ".","",]
@@ -502,7 +511,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     if ecs: linhas += ["Estabelecimento(s)/EC(s): " + ", ".join(ecs)]
     linhas += ["", "Estamos à disposição para quaisquer esclarecimentos."]
     corpo = finalizar_email("\n".join(linhas))
-    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_padrao([destinatario]),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Adquirente"}
+    return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_cliente([destinatario], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO","status_pos_envio":"Aguardando Retorno Adquirente"}
 
 def executar_atuacao_assistida_email(pacote: dict) -> dict:
     """Executa somente pacote EMAIL previamente preparado e confirmado na UI."""
@@ -588,6 +597,34 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
     if not habilitado or snapshot is None or not isinstance(snapshot,pd.DataFrame) or snapshot.empty:
         return resumo
     fila=avaliar_fila_inclusoes(snapshot)
+    # v3.29.2 — worker pode enriquecer a Base de Conhecimento em background.
+    # A UI continua rápida; somente o worker consulta relações/anexos quando um
+    # cliente ainda não possui contatos locais e a regra pode precisar deles.
+    try:
+        from ednna.blueprint_knowledge import emails_cliente_blueprint
+        from ednna.contexto_relacionamentos import sincronizar_conhecimento_blueprint
+        sincronizados=0
+        for _item in fila.get("itens", []):
+            if sincronizados >= 3:
+                break
+            _estado=str(_item.get("estado_motor") or "")
+            if _estado not in {"PRONTO_OPERACAO_ASSISTIDA","AGUARDANDO_DESTINATARIO","AGUARDANDO_DADOS"}:
+                continue
+            _dados=_item.get("dados_motor") or {}
+            _cliente=str(_dados.get("cliente") or "").strip()
+            _cid=int(_item.get("id") or 0)
+            if not _cliente or not _cid or emails_cliente_blueprint(_cliente, limite=1):
+                continue
+            try:
+                sincronizar_conhecimento_blueprint(_cid, force_contexto=False)
+                sincronizados += 1
+                print(f"[EDNNA] Blueprint background | chamado={_cid} | cliente={_cliente} | sincronizado", flush=True)
+            except Exception as _exc:
+                print(f"[EDNNA] Blueprint background | chamado={_cid} | cliente={_cliente} | falha={type(_exc).__name__}: {_exc}", flush=True)
+        if sincronizados:
+            fila=avaliar_fila_inclusoes(snapshot)
+    except Exception as _exc:
+        print(f"[EDNNA] Blueprint background | enriquecimento indisponivel | {type(_exc).__name__}: {_exc}", flush=True)
     limite=max(1,int(os.getenv("EDNNA_INCLUSOES_AUTO_MAX_PER_CYCLE","5") or 5))
     for item in fila.get("itens",[]):
         if resumo["executados"] >= limite: break

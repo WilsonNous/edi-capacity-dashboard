@@ -211,6 +211,43 @@ def listar_participantes(cliente: str) -> list[dict]:
     return list(out.values())
 
 
+
+def selecionar_contatos_cliente(cliente: str, limite: int = 1, area_preferida: str = "FINANCEIRO") -> list[dict]:
+    """Seleciona contatos confiáveis do Blueprint preservando a ordem do documento.
+
+    Para CC operacional usamos limite=1 (contato principal). Para workflows
+    dirigidos ao cliente, como VR Benefícios, o chamador pode solicitar mais.
+    Prioriza a área Financeiro e participantes marcados para andamento/status.
+    Nunca consulta Redmine: esta função usa somente a base local.
+    """
+    _init()
+    cliente = str(cliente or "").strip()
+    if not cliente:
+        return []
+    with conectar() as c:
+        c.row_factory = __import__('sqlite3').Row
+        rows = c.execute("""SELECT p.*, d.nome_arquivo AS fonte_arquivo, d.attachment_id, d.importado_em
+          FROM blueprint_participantes p JOIN blueprint_documentos d ON d.id=p.documento_id
+          WHERE p.cliente=? AND p.ativo=1
+          ORDER BY d.importado_em DESC, p.id ASC""", (cliente,)).fetchall()
+    unicos=[]; vistos=set()
+    for r in rows:
+        d=dict(r); email=str(d.get('email') or '').strip().lower()
+        if not email or email in vistos: continue
+        vistos.add(email); unicos.append(d)
+    pref=_norm(area_preferida)
+    def score(x):
+        area=_norm(x.get('area'))
+        andamento=_norm(x.get('andamento')) in {'SIM','S','YES','TRUE','1'}
+        status=_norm(x.get('status_report')) in {'SIM','S','YES','TRUE','1'}
+        return (0 if area==pref else 1, 0 if andamento else 1, 0 if status else 1)
+    unicos.sort(key=score)
+    return unicos[:max(1,int(limite or 1))]
+
+
+def emails_cliente_blueprint(cliente: str, limite: int = 1) -> list[str]:
+    return [str(x.get('email') or '').strip().lower() for x in selecionar_contatos_cliente(cliente, limite=limite) if str(x.get('email') or '').strip()]
+
 def resumo_conhecimento(cliente: str) -> dict:
     _init()
     with conectar() as c:
