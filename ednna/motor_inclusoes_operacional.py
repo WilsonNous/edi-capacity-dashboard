@@ -519,6 +519,13 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     from ednna.email_sender import enviar_email_graph
     r=gerar_rascunho_inclusao(pacote)
     if not r.get("ok"): return r
+    # Permite ajuste humano do rascunho na operação assistida sem alterar a regra
+    # homologada. A execução automática continua usando o template oficial.
+    override = pacote.get("email_override") or {}
+    if isinstance(override, dict):
+        for campo in ("para", "cc", "assunto", "corpo"):
+            if campo in override and override.get(campo) not in (None, ""):
+                r[campo] = override.get(campo)
     cid=int(pacote.get("chamado_id") or 0); rid=str(pacote.get("regra_id") or "")
     print(f"[EDNNA] Execução solicitada | chamado={cid} | player={pacote.get('player')} | regra={rid}", flush=True)
     adquirido, estado=adquirir_envio(cid,rid)
@@ -558,18 +565,18 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
         # vira outbox pendente e nunca provoca reenvio da mensagem.
         from ednna.redmine_outbox import registrar_ou_enfileirar
         status_pos = str(r.get("status_pos_envio") or "Aguardando Retorno Cliente")
-        if pacote.get("player") == "VR BENEFICIOS":
-            descricao = "orientação operacional enviada ao cliente para habilitação da NETUNNA no Portal VR"
-            proxima = "aguardar confirmação do cliente e, após a habilitação, acompanhar a chegada dos primeiros arquivos"
-        else:
-            descricao = f"ação operacional enviada por e-mail ({r.get('tipo_acao') or 'INCLUSAO'})"
-            proxima = "aguardar retorno e manter o acompanhamento pela EDNNA"
-        nota = (
-            f"EDNNA - {descricao}.\n\n"
-            f"Para: {', '.join(r.get('para') or [])}\n"
-            f"Cc: {', '.join(r.get('cc') or [])}\n"
-            f"Assunto: {r.get('assunto') or ''}\n"
-            f"Próxima etapa: {proxima}."
+        # O journal é evidência operacional: registra a mensagem integral que
+        # acabou de ser enviada, e não apenas um resumo. Isso mantém Redmine e
+        # Graph auditáveis com o mesmo conteúdo.
+        from ednna.redmine_writer import montar_nota_email_enviado
+        nota = montar_nota_email_enviado(
+            remetente=r.get("remetente", "edi@netunna.com.br"),
+            para=list(r.get("para") or []),
+            cc=list(r.get("cc") or []),
+            assunto=str(r.get("assunto") or ""),
+            corpo=str(r.get("corpo") or ""),
+            enviado_em=str(mail.get("sent_datetime") or acomp.get("enviado_em") or ""),
+            prazo_resposta_em=str(acomp.get("prazo_resposta_em") or ""),
         )
         print(f"[EDNNA] Redmine | atualização iniciada | chamado={cid} | status={status_pos}", flush=True)
         redmine_result = registrar_ou_enfileirar(

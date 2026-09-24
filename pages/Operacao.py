@@ -117,10 +117,17 @@ with op_shell:
         if pacote and int(pacote.get('chamado_id') or 0)==int(cid):
             rasc=gerar_rascunho_inclusao(pacote)
             if rasc.get('ok'):
-                st.write(f"**Para:** {', '.join(rasc.get('para') or [])}")
-                st.write(f"**Cc:** {', '.join(rasc.get('cc') or []) or '—'}")
-                st.write(f"**Assunto:** {rasc.get('assunto') or ''}")
-                st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=220, disabled=True, key=f'home_ednna_preview_{cid}_v32842')
+                st.caption('Modo assistido: você pode ajustar destinatários, assunto e corpo antes do envio. A regra homologada não é alterada por esse ajuste pontual.')
+                para_edit = st.text_input('Para', ', '.join(rasc.get('para') or []), key=f'home_ednna_para_{cid}_v3293')
+                cc_edit = st.text_input('Cc', ', '.join(rasc.get('cc') or []), key=f'home_ednna_cc_{cid}_v3293')
+                assunto_edit = st.text_input('Assunto', rasc.get('assunto') or '', key=f'home_ednna_assunto_{cid}_v3293')
+                corpo_edit = st.text_area('Mensagem que será enviada', rasc.get('corpo') or '', height=300, key=f'home_ednna_preview_{cid}_v3293')
+                pacote['email_override'] = {
+                    'para':[x.strip() for x in para_edit.replace(';', ',').split(',') if x.strip()],
+                    'cc':[x.strip() for x in cc_edit.replace(';', ',').split(',') if x.strip()],
+                    'assunto':assunto_edit.strip(),
+                    'corpo':corpo_edit,
+                }
                 if email_ja_enviado_home:
                     st.success('✓ E-mail já enviado — novo disparo bloqueado pela idempotência.')
                     ev_id=str(acompanhamento_home.get('graph_message_id') or acompanhamento_home.get('graph_internet_message_id') or '').strip()
@@ -166,9 +173,11 @@ with op_shell:
             for fup in fups[:5]:
                 cidf=int(fup.get('chamado_id') or 0)
                 st.write(f"**#{cidf} · follow-up {fup.get('proximo_followup')}**")
-                st.text_area('Mensagem de acompanhamento', fup.get('texto_followup') or '', height=150, disabled=True, key=f'home_fup_preview_{cidf}_{fup.get("regra_id")}_v32842')
-                if st.button('Enviar follow-up agora', key=f'home_fup_exec_{cidf}_{fup.get("regra_id")}_v32842'):
-                    try: executar_followup(fup); st.success(f'Follow-up do chamado #{cidf} enviado.'); st.rerun()
+                texto_fup = st.text_area('Mensagem de acompanhamento', fup.get('texto_followup') or '', height=180, key=f'home_fup_preview_{cidf}_{fup.get("regra_id")}_v3293')
+                if st.button('Enviar follow-up agora', key=f'home_fup_exec_{cidf}_{fup.get("regra_id")}_v3293'):
+                    try:
+                        fup_exec=dict(fup); fup_exec['texto_followup']=texto_fup
+                        executar_followup(fup_exec); st.success(f'Follow-up do chamado #{cidf} enviado.'); st.rerun()
                     except Exception as exc: st.error(f'Falha no follow-up: {type(exc).__name__}: {exc}')
     if redmine_pendentes:
         st.warning(f"Há {len(redmine_pendentes)} atualização(ões) pós-envio aguardando reconciliação com o Redmine. Os e-mails não serão reenviados.")
