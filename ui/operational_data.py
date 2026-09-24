@@ -2,6 +2,7 @@ from __future__ import annotations
 import json, sqlite3
 from pathlib import Path
 import pandas as pd
+import streamlit as st
 from painel_cache import obter_metadado_json, conectar as conectar_painel
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -71,6 +72,7 @@ def chamados_df():
     except Exception:return pd.DataFrame()
 
 
+@st.cache_data(ttl=20, show_spinner=False)
 def chamados_ativos_df():
     """
     Carteira operacional ATIVA.
@@ -124,6 +126,7 @@ def chamados_ativos_df():
         df=df.copy(); df['_fonte_operacional']='ednna.db/fallback'
     return df
 
+@st.cache_data(ttl=20, show_spinner=False)
 def regras_df():
     p=_db('ednna.db')
     if not p.exists(): return pd.DataFrame()
