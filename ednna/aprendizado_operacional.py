@@ -581,3 +581,46 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
             (regra_id, modo, autorizado_por, agora, str(observacoes or ''), agora))
     print(f"[EDNNA] Motor | regra={regra_id} | autorização={modo} | workflow={workflow.get('workflow')}", flush=True)
     return obter_autorizacao_motor(regra_id)
+
+
+def garantir_greencard_pronta() -> dict:
+    """v3.31.1 — deixa GREENCARD pronta em modo ASSISTIDA.
+
+    Migração idempotente e específica, solicitada pela operação. Não dispara
+    e-mail nem executa o workflow. Apenas garante o patrimônio da regra, sua
+    homologação e a autorização assistida. A promoção para AUTOMATICA continua
+    sendo uma decisão explícita posterior, pois o fluxo envolve documento
+    assinado e validação humana.
+    """
+    regra_id = "INCLUSAO-GREENCARD-001"
+    agora = agora_brasil_iso()
+    workflow = obter_workflow("GREENCARD")
+    with conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
+            regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
+            estado TEXT NOT NULL, completude INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
+        row = conn.execute("SELECT regra_id FROM aprendizados_operacionais WHERE upper(player)='GREENCARD' AND operacao='INCLUSAO' ORDER BY atualizado_em DESC LIMIT 1").fetchone()
+        if row:
+            regra_id = str(row["regra_id"])
+        else:
+            payload = {
+                "regra_id": regra_id, "player": "GREENCARD", "operacao": "INCLUSAO",
+                "estado": "REGRA_PRONTA", "completude": 100,
+                "procedimento_confirmado": True, "workflow": workflow,
+                "variaveis": ["cliente","cnpjs","participantes","estabelecimento"],
+                "fontes": {"autoridade": "PROCEDIMENTO_HOMOLOGADO_OPERACAO"},
+                "aprendido_em": agora,
+            }
+            conn.execute("""INSERT INTO aprendizados_operacionais
+                (regra_id,player,operacao,estado,completude,payload_json,atualizado_em)
+                VALUES (?,?,?,?,?,?,?)""",
+                (regra_id,"GREENCARD","INCLUSAO","REGRA_PRONTA",100,json.dumps(payload,ensure_ascii=False),agora))
+    rev = obter_revisao(regra_id)
+    if rev.get("estado") != "HOMOLOGADA":
+        salvar_revisao_assistida(regra_id, observacoes="Procedimento Greencard homologado: preencher formulário com Base de Conhecimento, enviar ao cliente para complemento/assinatura, validar retorno, encaminhar à Greencard, acompanhar arquivos e registrar movimentação no BP principal.", revisado_por="MIGRACAO_EDNNA_3_31_1")
+        homologar_regra_assistida(regra_id, revisado_por="MIGRACAO_EDNNA_3_31_1")
+    aut = obter_autorizacao_motor(regra_id)
+    if str(aut.get("modo") or "BLOQUEADA").upper() == "BLOQUEADA":
+        autorizar_regra_motor(regra_id, modo="ASSISTIDA", autorizado_por="MIGRACAO_EDNNA_3_31_1", observacoes="Greencard pronta para operação assistida; promoção automática permanece decisão explícita.")
+    return {"regra_id": regra_id, "revisao": obter_revisao(regra_id), "autorizacao": obter_autorizacao_motor(regra_id)}

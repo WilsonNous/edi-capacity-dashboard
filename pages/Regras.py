@@ -13,6 +13,7 @@ from ednna.aprendizado_operacional import (
     homologar_regra_assistida,
     obter_autorizacao_motor,
     autorizar_regra_motor,
+    garantir_greencard_pronta,
 )
 from ednna.workflows_inclusao import obter_workflow
 from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
@@ -38,6 +39,11 @@ st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regr
 
 if st.button('🧩 Ensinar nova regra à EDNNA', width='content'):
     st.switch_page('pages/Construtor_Regras.py')
+
+try:
+    garantir_greencard_pronta()
+except Exception as exc:
+    st.warning(f"Greencard ainda não pôde ser preparada automaticamente: {exc}")
 
 regras = listar_regras_operacionais()
 if not regras:

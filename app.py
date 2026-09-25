@@ -9,6 +9,12 @@ from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnostic
 from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
+from ednna.aprendizado_operacional import garantir_greencard_pronta
+
+try:
+    garantir_greencard_pronta()
+except Exception as _greencard_bootstrap_exc:
+    print(f"[EDNNA] Bootstrap Greencard pendente: {_greencard_bootstrap_exc}", flush=True)
 
 ROOT = Path(__file__).resolve().parent
 AVATAR = ROOT / 'assets' / 'ednna_avatar.png'
@@ -27,10 +33,10 @@ st.markdown('''<style>
 .st-key-hero_shell{background:#fff;border:1px solid #e0e9f5;border-radius:22px;padding:10px 14px;box-shadow:0 8px 26px rgba(24,75,140,.06);margin-bottom:0}.st-key-hero_shell>div{gap:.65rem}.hero-copy{padding:20px 12px 12px 5px}.greet{font-size:1rem;color:#173f79;margin-bottom:4px}.hero-title{font-size:2rem;font-weight:950;line-height:1.08;color:#0d326d;margin:6px 0 12px}.hero-text{font-size:1rem;color:#59708f;line-height:1.48;max-width:680px}.hero-text b{color:#1268e8}.avatar-wrap{text-align:center;padding:4px 0}.avatar-wrap img{border-radius:18px;box-shadow:0 12px 28px rgba(19,105,232,.15);animation:ednnaFloat 3.4s ease-in-out infinite}.avatar-state{display:inline-block;margin-top:6px;padding:5px 10px;border-radius:999px;background:#eef5ff;color:#1769d2;font-size:.72rem;font-weight:800}@keyframes ednnaFloat{50%{transform:translateY(-5px)}}
 .ops-panel{background:#fbfdff;border:1px solid #edf2f8;border-radius:18px;padding:13px;height:100%}.ops-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:900;color:#17386b}.ops-pill{font-size:.72rem;color:#16834a;background:#eaf9f0;padding:6px 10px;border-radius:999px}.kpi{background:#fff;border:1px solid #e1eaf6;border-radius:15px;padding:13px 14px;min-height:103px;box-shadow:0 2px 8px rgba(24,75,140,.03)}.klabel{font-size:.78rem;color:#526b8c}.knum{font-size:1.72rem;font-weight:950;color:#0d326d;line-height:1.05;margin:5px 0}.knote{font-size:.72rem;color:#8093ae}.kpi.ednna .knum{color:#1268e8}
 .insight-card{background:#f2f7ff;border:1px solid #e1ebf8;border-radius:14px;padding:9px 12px;margin-top:14px}.insight-title{display:flex;justify-content:space-between;align-items:center;font-size:.82rem;font-weight:900;color:#17386b;margin-bottom:8px}.insight-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0}.insight{padding:1px 12px;border-right:1px solid #dce7f5;font-size:.74rem;color:#59708f}.insight:first-child{padding-left:0}.insight:last-child{border-right:0}.insight b{display:block;color:#0d326d;font-size:.88rem;margin-bottom:1px}
-.section-shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:15px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}.section-title{font-size:1.12rem;font-weight:950;color:#102f62}.section-sub{font-size:.76rem;color:#7790b2;margin:2px 0 11px}.people-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.person{background:#fff;border:1px solid #dfe8f4;border-radius:14px;padding:12px 13px;min-height:95px}.person-top{display:flex;align-items:center;gap:9px}.initial{width:34px;height:34px;border-radius:50%;background:#e7f0ff;color:#173f79;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.75rem;flex:0 0 auto}.initial.ai{background:#edf4ff;color:#1268e8}.pname{font-weight:900;font-size:.82rem;color:#17386b;line-height:1.12}.ptype{font-size:.66rem;color:#8093ae;margin-top:2px}.pnum{font-size:1.35rem;font-weight:950;color:#1268e8;line-height:1.05;margin-top:8px}.pnote{font-size:.68rem;color:#8093ae}
+.section-shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:15px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}.section-title{font-size:1.12rem;font-weight:950;color:#102f62}.section-sub{font-size:.76rem;color:#7790b2;margin:2px 0 11px}.people-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.impact-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.person{background:#fff;border:1px solid #dfe8f4;border-radius:14px;padding:12px 13px;min-height:95px}.person-top{display:flex;align-items:center;gap:9px}.initial{width:34px;height:34px;border-radius:50%;background:#e7f0ff;color:#173f79;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.75rem;flex:0 0 auto}.initial.ai{background:#edf4ff;color:#1268e8}.pname{font-weight:900;font-size:.82rem;color:#17386b;line-height:1.12}.ptype{font-size:.66rem;color:#8093ae;margin-top:2px}.pnum{font-size:1.35rem;font-weight:950;color:#1268e8;line-height:1.05;margin-top:8px}.pnote{font-size:.68rem;color:#8093ae}
 .module-title{font-size:1.1rem;font-weight:950;color:#102f62;margin:0 0 2px}.module-sub{font-size:.72rem;color:#8093ae;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:70px!important;font-weight:850!important;border:1px solid #dce7f4!important;background:#fff!important;color:#17386b!important;box-shadow:0 2px 8px rgba(24,75,140,.03)!important}div.stButton>button:hover{border-color:#1268e8!important;color:#1268e8!important;transform:translateY(-1px)}
 .foot{text-align:center;color:#8ba0bd;font-size:.68rem;margin-top:14px}.redmine-note{font-size:.67rem;color:#8ba0bd;text-align:right;margin-top:6px}
-@media(max-width:1000px){.people-grid{grid-template-columns:repeat(2,1fr)}.insight-grid{grid-template-columns:1fr}.insight{border-right:0;border-bottom:1px solid #dce7f5;padding:6px 0}.insight:last-child{border-bottom:0}.hero-title{font-size:1.65rem}}
+@media(max-width:1000px){.people-grid,.impact-grid{grid-template-columns:repeat(2,1fr)}.insight-grid{grid-template-columns:1fr}.insight{border-right:0;border-bottom:1px solid #dce7f5;padding:6px 0}.insight:last-child{border-bottom:0}.hero-title{font-size:1.65rem}}
 
 :root{--ed-blue:#1268e8;--ed-navy:#0b2d61;--ed-muted:#6f84a2}
 html,body,[class*="css"],.stApp{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
@@ -125,14 +131,15 @@ st.markdown('<div class="section-shell"><div class="section-title">✦ O que est
 impacto_cards = [
     ('✓','Atuações executadas',trabalho['atuacoes'],'envios confirmados · operações persistidas'),
     ('↻','Em acompanhamento',trabalho['acompanhando'],'retornos acompanhados pela inteligência'),
+    ('↗','Follow-ups',trabalho['followups'],'cobranças executadas automaticamente'),
     ('⚡','Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados para agir'),
-    ('▣','Conhecimento',trabalho['blueprints'],f"Blueprints · {trabalho['clientes_conhecidos']} cliente(s)"),
+    ('▣','Conhecimento',trabalho['clientes_conhecidos'],f"clientes · {trabalho['blueprints']} registros · {trabalho['participantes']} contatos"),
+    ('⟳','Redmine pendente',trabalho['redmine_pendente'],'reconciliações aguardando processamento'),
 ]
 html_impacto=[]
 for icone,label,num,note in impacto_cards:
     html_impacto.append(f'<div class="person"><div class="person-top"><div class="initial ai">{html.escape(icone)}</div><div><div class="pname">{html.escape(label)}</div><div class="ptype">Trabalho absorvido pela EDNNA</div></div></div><div class="pnum">{num}</div><div class="pnote">{html.escape(note)}</div></div>')
-st.markdown('<div class="people-grid">'+''.join(html_impacto)+'</div>', unsafe_allow_html=True)
-st.caption(f"Follow-ups executados: {trabalho['followups']} · Redmine pendente de reconciliação: {trabalho['redmine_pendente']} · Contatos conhecidos em Blueprint: {trabalho['participantes']}")
+st.markdown('<div class="impact-grid">'+''.join(html_impacto)+'</div>', unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
 # v3.29.1 — Home intencionalmente leve.
