@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 """Fila operacional assistida de inclusões — v3.28.37.
 
