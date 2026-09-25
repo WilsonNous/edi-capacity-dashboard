@@ -77,6 +77,15 @@ def obter_workflow(player: str) -> dict:
     p = str(player or "").strip().upper()
     cfg = dict(WORKFLOWS.get(p) or {})
     if not cfg:
+        # v3.31.0 — regras ensinadas e homologadas podem fornecer um workflow
+        # declarativo sem exigir alteração do código-fonte. A autorização de
+        # execução continua separada e explícita na Central de Regras.
+        try:
+            from ednna.construtor_regras import obter_workflow_treinavel
+            cfg = dict(obter_workflow_treinavel(p) or {})
+        except Exception:
+            cfg = {}
+    if not cfg:
         return {"player": p, "workflow":"NAO_CLASSIFICADO", "canal":"NAO_IDENTIFICADO", "executor":"NAO_IMPLEMENTADO", "etapas":[], "prontidao":"SEM_WORKFLOW"}
     cfg["player"] = p
     # v3.28.35 — workflows definidos pela operação têm autoridade humana confirmada.

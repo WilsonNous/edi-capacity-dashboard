@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.30.2"
-APP_RELEASE = "Rotacard orquestrada · SICREDI via Blueprint · follow-up automático"
+APP_VERSION = "3.31.0"
+APP_RELEASE = "EDNNA treinável · Construtor de Regras · laboratório seguro"

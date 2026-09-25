@@ -36,6 +36,9 @@ with cback:
 
 st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDNNA</div><div class="rule-sub">Veja a regra, os chamados que ela encontrou e o motivo de cada estado. Depois decida, conscientemente, o que permanece assistido e o que a EDNNA pode executar sozinha.</div></div>', unsafe_allow_html=True)
 
+if st.button('🧩 Ensinar nova regra à EDNNA', width='content'):
+    st.switch_page('pages/Construtor_Regras.py')
+
 regras = listar_regras_operacionais()
 if not regras:
     st.info("Nenhuma regra operacional foi aprendida ainda.")

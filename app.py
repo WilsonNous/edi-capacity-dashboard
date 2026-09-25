@@ -147,6 +147,7 @@ nav_rows = [
     [
         ('🦾  Operação de hoje','pages/Operacao.py'),
         ('🧠  Central de Regras','pages/Regras.py'),
+        ('🧩  Ensinar regra','pages/Construtor_Regras.py'),
         ('📚  Conhecimento do cliente','pages/Conhecimento.py'),
         ('📥  Atendimentos','pages/Atendimentos.py'),
     ],
