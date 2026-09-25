@@ -852,14 +852,14 @@ def executar_monitoramento_respostas() -> dict:
 
     # v3.28.38 — continuidade: após confirmar que não houve resposta, avalia follow-ups vencidos.
     try:
-        from ednna.followup_engine import avaliar_followups, executar_followup
+        from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
         followups = avaliar_followups()
         resumo["followups_prontos"] = int(followups.get("prontos", 0) or 0)
         resumo["followups_enviados"] = 0
         auto = str(os.getenv("EDNNA_FOLLOWUP_AUTO", "true") or "true").strip().casefold() in {"1","true","sim","yes","on"}
         if auto:
             limite = max(1, int(os.getenv("EDNNA_FOLLOWUP_MAX_PER_CYCLE", "3") or 3))
-            for item in [x for x in followups.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO"][:limite]:
+            for item in [x for x in followups.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO" and followup_automatico(x)][:limite]:
                 try:
                     executar_followup(item)
                     resumo["followups_enviados"] += 1

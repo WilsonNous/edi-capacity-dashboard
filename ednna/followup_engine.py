@@ -8,6 +8,7 @@ from ednna.acompanhamento_acoes import listar_acoes_aguardando_resposta, marcar_
 from ednna.email_sender import responder_todos_email_graph
 from ednna.email_identity import finalizar_email
 from ednna.redmine_outbox import registrar_ou_enfileirar
+from ednna.aprendizado_operacional import obter_autorizacao_motor
 
 TZ = ZoneInfo("America/Sao_Paulo")
 
@@ -58,6 +59,44 @@ def _texto_followup(acao: dict, numero: int) -> str:
     )
 
 
+def _regra_catalogo_automatica(regra_id: str) -> bool:
+    """Regras do catálogo clássico (ex.: SIM REDE) podem ser automáticas sem
+    passar pela autorização das inclusões. Mantemos as duas fontes compatíveis.
+    """
+    try:
+        import json
+        from pathlib import Path
+        arq = Path(__file__).with_name("catalogo_operacional.json")
+        payload = json.loads(arq.read_text(encoding="utf-8"))
+        for regra in payload.get("regras", []) or []:
+            if str(regra.get("id") or "") == str(regra_id or ""):
+                return bool(regra.get("executavel", False) and regra.get("auto_executar", False))
+    except Exception:
+        pass
+    return False
+
+
+def modo_followup_regra(regra_id: str) -> str:
+    """AUTOMATICO somente quando a própria regra foi entregue à EDNNA.
+    Regra assistida continua exigindo decisão humana também nos follow-ups.
+    """
+    rid = str(regra_id or "").strip()
+    if _regra_catalogo_automatica(rid):
+        return "AUTOMATICO"
+    try:
+        modo = str((obter_autorizacao_motor(rid) or {}).get("modo") or "").upper().strip()
+        if modo == "AUTOMATICA":
+            return "AUTOMATICO"
+        if modo == "ASSISTIDA":
+            return "ASSISTIDO"
+    except Exception:
+        pass
+    return "ASSISTIDO"
+
+
+def followup_automatico(item: dict) -> bool:
+    return str(item.get("modo_followup") or modo_followup_regra(str(item.get("regra_id") or ""))).upper() == "AUTOMATICO"
+
 def avaliar_followups() -> dict:
     acoes = listar_acoes_aguardando_resposta()
     agora = _agora()
@@ -77,7 +116,7 @@ def avaliar_followups() -> dict:
             estado="SEM_THREAD"
         else:
             estado="FOLLOWUP_PRONTO"
-        itens.append({**a,"estado_followup":estado,"proximo_followup":n+1,"texto_followup":_texto_followup(a,n+1)})
+        itens.append({**a,"estado_followup":estado,"proximo_followup":n+1,"texto_followup":_texto_followup(a,n+1),"modo_followup":modo_followup_regra(str(a.get("regra_id") or ""))})
     return {"total":len(itens),"prontos":sum(x["estado_followup"]=="FOLLOWUP_PRONTO" for x in itens),"itens":itens}
 
 
