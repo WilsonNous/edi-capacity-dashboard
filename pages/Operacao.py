@@ -6,7 +6,7 @@ from version import APP_VERSION
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnosticar_regras_operacionais, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
-from ednna.followup_engine import avaliar_followups, executar_followup
+from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
 
@@ -72,13 +72,27 @@ with op_shell:
         diagnostico_home={'regras': [], 'fila': fila_home}
     regras_diag = diagnostico_home.get('regras') or []
     precisa_voce = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','AGUARDANDO_VERIFICACAO_HISTORICO','PLAYER_AMBIGUO'})
-    problemas_ident = sum(1 for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'PLAYER_AMBIGUO','REGRA_NAO_HOMOLOGADA'})
+    problemas_ident_itens = [x for x in (fila_home.get('itens') or []) if x.get('estado_motor') in {'PLAYER_AMBIGUO'}]
+    problemas_ident = len(problemas_ident_itens)
     op1,op2,op3,op4,op5=st.columns(5)
     op1.metric('Prontos para executar', int((fila_home.get('resumo') or {}).get('prontas',0) or 0))
     op2.metric('Precisam de você', precisa_voce)
     op3.metric('Aguardando resposta', int(follow_home.get('total',0) or 0))
     op4.metric('Follow-up pronto', int(follow_home.get('prontos',0) or 0))
     op5.metric('Problemas de identificação', problemas_ident)
+
+    if problemas_ident_itens:
+        with st.expander(f"⚠️ Problemas de identificação · {problemas_ident}", expanded=False):
+            st.caption('Somente chamados em que a EDNNA não conseguiu identificar univocamente o player/origem aparecem aqui. Regra não homologada, falta de destinatário e falta de autorização são pendências operacionais, não problemas de identificação.')
+            for prob in problemas_ident_itens:
+                cid_prob = int(prob.get('id') or 0)
+                cliente_prob = html.escape(str(prob.get('cliente') or 'Cliente não informado'))
+                assunto_prob = html.escape(str(prob.get('assunto') or prob.get('subject') or ''))
+                players_prob = ', '.join(str(x) for x in (prob.get('players') or [])) or 'nenhum player confiável'
+                st.markdown(f"**[#{cid_prob}]({redmine_link(cid_prob)})** · {cliente_prob} · **O que falta:** identificar player/origem sem ambiguidade. · Candidatos: `{html.escape(players_prob)}`")
+                if assunto_prob:
+                    st.caption(assunto_prob)
+
 
     assistidas_diag=[x for x in regras_diag if x.get('modo')=='ASSISTIDA']
     if assistidas_diag:
@@ -169,9 +183,13 @@ with op_shell:
     else:
         st.caption('Nenhuma inclusão autorizada está pronta para execução assistida neste instante.')
 
-    fups=[x for x in follow_home.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
+    fups_prontos=[x for x in follow_home.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
+    fups_auto=[x for x in fups_prontos if followup_automatico(x)]
+    fups=[x for x in fups_prontos if not followup_automatico(x)]
+    if fups_auto:
+        st.info(f"🤖 {len(fups_auto)} follow-up(s) automático(s) estão sob responsabilidade da EDNNA e serão enviados pelo worker; não precisam de clique manual.")
     if fups:
-        with st.expander(f"📨 Continuidade · {len(fups)} follow-up(s) pronto(s)", expanded=False):
+        with st.expander(f"📨 Continuidade assistida · {len(fups)} follow-up(s) pronto(s)", expanded=False):
             for fup in fups[:5]:
                 cidf=int(fup.get('chamado_id') or 0)
                 st.write(f"**#{cidf} · follow-up {fup.get('proximo_followup')}**")
