@@ -337,17 +337,24 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         # em que Abertura de Relacionamento e Inclusão compartilham o mesmo
         # orquestrador documental. Não ampliamos abertura genericamente para
         # evitar classificar workflows bancários como inclusão.
-        abertura_greencard = ("GREENCARD" in norm or "GREEN CARD" in norm) and "ABERTURA" in norm and "RELACION" in norm
-        if "INCLUS" not in norm and "HABILITA" not in norm and not abertura_greencard:
+        abertura_beneficio_formulario = any(x in norm for x in ("GREENCARD", "GREEN CARD", "ROTACARD", "ROTA CARD")) and "ABERTURA" in norm and "RELACION" in norm
+        abertura_banco_blueprint = any(x in norm for x in ("SICREDI", "SICRED")) and "ABERTURA" in norm and "RELACION" in norm
+        if "INCLUS" not in norm and "HABILITA" not in norm and not abertura_beneficio_formulario and not abertura_banco_blueprint:
             continue
         # Evita trazer outros trackers que apenas mencionam uma inclusão no texto.
-        if "INCLUS" not in tipo.upper() and "INCLUS" not in assunto.upper() and "HABILITA" not in assunto.upper() and not abertura_greencard:
+        if "INCLUS" not in tipo.upper() and "INCLUS" not in assunto.upper() and "HABILITA" not in assunto.upper() and not abertura_beneficio_formulario and not abertura_banco_blueprint:
             continue
 
         # Reusa o catálogo de aliases do contexto histórico, mantendo uma única
         # taxonomia de players para descoberta e reconstrução.
         from ednna.contexto_relacionamentos import _players_no_texto
         players = _players_no_texto(texto)
+        # Em Abertura de Relacionamento, o player explícito no assunto é o alvo.
+        # Adquirentes citadas na descrição (ex.: Sodexo/VR/PIX vinculadas às
+        # contas SICREDI) são contexto do domicílio bancário, não players concorrentes.
+        assunto_players = _players_explicitos_assunto(assunto)
+        if (abertura_beneficio_formulario or abertura_banco_blueprint) and assunto_players:
+            players = assunto_players
         # REDECARD possui o alias histórico "REDE". Em clientes como REDE SANTA
         # LUCIA isso gera falso positivo. Na descoberta, só aceitamos REDECARD
         # por "REDE" quando o assunto o apresenta como player delimitado.

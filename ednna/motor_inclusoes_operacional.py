@@ -11,7 +11,7 @@ from typing import Any
 import os
 from ednna.email_identity import finalizar_email
 from ednna.email_policy import aplicar_cc_padrao, aplicar_cc_cliente
-from ednna.blueprint_knowledge import emails_cliente_blueprint
+from ednna.blueprint_knowledge import emails_cliente_blueprint, localizar_contato_bancario
 import pandas as pd
 
 from ednna.aprendizado_operacional import obter_regra_homologada, obter_autorizacao_motor
@@ -42,6 +42,15 @@ def _dados_snapshot(row: dict) -> dict:
         "journals": [],
     }
     extraidos = _extrair_dados(issue_fake)
+    texto_banco = "\n".join([str(row.get("Assunto", "") or ""), str(row.get("Descrição", "") or "")])
+    contas_bancarias = []
+    for m in re.finditer(r"(?i)\bconta\s*[:#-]?\s*([0-9][0-9.\- ]{2,20})", texto_banco):
+        conta = re.sub(r"\s+", "", m.group(1)).strip(".-")
+        if conta and conta not in contas_bancarias: contas_bancarias.append(conta)
+    adquirentes_contas = []
+    for linha in texto_banco.splitlines():
+        if re.search(r"(?i)adquirentes?\s*:", linha):
+            adquirentes_contas.extend([x.strip() for x in re.split(r"[,;]", linha.split(":",1)[1]) if x.strip()])
     return {
         **extraidos,
         "estabelecimento": list(extraidos.get("ecs") or []),
@@ -53,6 +62,8 @@ def _dados_snapshot(row: dict) -> dict:
         "descricao": str(row.get("Descrição", "") or ""),
         "tipo_demanda": str(row.get("Tipo", "") or ""),
         "estado_redmine": str(row.get("Estado", "") or ""),
+        "contas_bancarias": contas_bancarias,
+        "adquirentes_bancarios": list(dict.fromkeys(adquirentes_contas)),
         "fonte": "SNAPSHOT_ATIVO",
     }
 
@@ -203,6 +214,13 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         contatos_bp = emails_cliente_blueprint(cliente_bp, limite=10) if cliente_bp else []
         dados["emails_blueprint"] = contatos_bp
         dados["contato_cliente_principal"] = contatos_bp[0] if contatos_bp else ""
+        if player == "SICREDI" and cliente_bp:
+            banco_bp = localizar_contato_bancario(cliente_bp, banco="SICREDI", codigo_banco="167", contas=dados.get("contas_bancarias") or [])
+            contato_bp = banco_bp.get("contato") or {}
+            emails_banco = list(contato_bp.get("emails") or [])
+            dados["contato_gerente"] = emails_banco[0] if emails_banco else ""
+            dados["gerente_banco"] = contato_bp.get("gerente") or ""
+            dados["evidencia_bancaria_bp"] = contato_bp
         plano = preparar_operacao_inclusao(int(candidato["id"]), player, dados=dados)
         estado = str(plano.get("estado") or "")
         wf = plano.get("workflow") or obter_workflow(player)
@@ -240,6 +258,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             destinatario = "atendimentograndesredes@valecard.com.br"
         elif player == "POLICARD":
             destinatario = "grandesredesup@upbrasil.com"
+        elif player == "SICREDI" and dados.get("contato_gerente"):
+            destinatario = str(dados.get("contato_gerente") or "").strip()
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
             estado = "AGUARDANDO_DESTINATARIO"
 
@@ -372,6 +392,10 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "emails": dados.get("emails") or [],
         "emails_blueprint": dados.get("emails_blueprint") or [],
         "contato_cliente_principal": dados.get("contato_cliente_principal") or "",
+        "contas_bancarias": dados.get("contas_bancarias") or [],
+        "adquirentes_bancarios": dados.get("adquirentes_bancarios") or [],
+        "contato_gerente": dados.get("contato_gerente") or "",
+        "gerente_banco": dados.get("gerente_banco") or "",
         "blueprint_id": (item.get("plano") or {}).get("blueprint_id") or dados.get("blueprint_id"),
         "assunto": dados.get("assunto") or "",
         "descricao": dados.get("descricao") or "",
@@ -390,7 +414,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         return {"ok": False, "motivo": "Pacote operacional inválido."}
     canal = str(pacote.get("canal") or "")
     player=str(pacote.get("player") or "")
-    if player == "GREENCARD" and canal == "DOCUMENTO+EMAIL":
+    if player in {"GREENCARD", "ROTACARD"} and canal == "DOCUMENTO+EMAIL":
         from ednna.greencard_workflow import preparar_primeira_etapa
         r = preparar_primeira_etapa(pacote)
         if r.get("ok"):
@@ -440,6 +464,23 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "prazo_resposta_dias_uteis":2,"tipo_acao":"ORIENTAR_CLIENTE_PORTAL_VR",
             "status_pos_envio":"Aguardando Retorno Cliente",
         }
+
+    if player == "SICREDI":
+        contas=[str(x) for x in (pacote.get("contas_bancarias") or []) if str(x).strip()]
+        if not destinatario or not contas:
+            faltam=[]
+            if not destinatario: faltam.append("contato/e-mail do gerente no Blueprint")
+            if not contas: faltam.append("conta(s) bancária(s) no chamado")
+            return {"ok":False,"motivo":"SICREDI: faltam dados para abertura: " + ", ".join(faltam) + ".","estado":"AGUARDANDO_DADOS"}
+        assunto=f"[SICREDI - Abertura de Relacionamento - {cliente} - CN: {cid}]"
+        linhas=["Olá, tudo bem?", "", f"Solicitamos a abertura de relacionamento bancário para nosso cliente {cliente}, para viabilizar o recebimento dos arquivos EDI referentes aos domicílios bancários abaixo:", ""]
+        desc=str(pacote.get("descricao") or "")
+        blocos=[x.strip() for x in desc.splitlines() if x.strip() and ("Conta" in x or "Adquirente" in x)]
+        if blocos: linhas += blocos
+        else: linhas += [f"- Conta {x}" for x in contas]
+        linhas += ["", "Os dados acima correspondem aos domicílios bancários das adquirentes informadas no chamado.", "", "Por gentileza, pedimos a confirmação da abertura do relacionamento e das orientações necessárias para o tráfego dos arquivos."]
+        corpo=finalizar_email("\n".join(linhas))
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_cliente([destinatario], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"ABRIR_RELACIONAMENTO_BANCARIO_SICREDI","status_pos_envio":"Aguardando Retorno Banco"}
 
     if player == "TICKET":
         if not cnpjs or not ecs:
@@ -574,14 +615,24 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
             print(f"[EDNNA] Graph | SENT_ITEMS_CHECK_ERROR | chamado={cid} | {type(sent_exc).__name__}: {sent_exc}", flush=True)
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""),enviado_em_real=mail.get("sent_datetime",""))
         print(f"[EDNNA] Acompanhamento | chamado={cid} | estado=AGUARDANDO_RESPOSTA", flush=True)
-        if pacote.get("player") == "GREENCARD":
+        if pacote.get("player") in {"GREENCARD", "ROTACARD"}:
             try:
                 from ednna.greencard_workflow import registrar_estado, registrar_movimentacao_bp
                 registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
-                bp_res=registrar_movimentacao_bp(pacote, f"Chamado #{cid}: formulário Greencard pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE.")
-                print(f"[EDNNA] Greencard | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
+                bp_res=registrar_movimentacao_bp(pacote, f"Chamado #{cid}: formulário {pacote.get('player')} pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE.")
+                print(f"[EDNNA] {pacote.get('player')} | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
             except Exception as gc_exc:
-                print(f"[EDNNA] Greencard | persistência/BP pendente | chamado={cid} | {type(gc_exc).__name__}: {gc_exc}", flush=True)
+                print(f"[EDNNA] {pacote.get('player')} | persistência/BP pendente | chamado={cid} | {type(gc_exc).__name__}: {gc_exc}", flush=True)
+        if pacote.get("player") == "SICREDI" and int(pacote.get("blueprint_id") or 0):
+            try:
+                from ednna.redmine_writer import adicionar_nota_chamado
+                bp=int(pacote.get("blueprint_id") or 0)
+                contas=", ".join(str(x) for x in (pacote.get("contas_bancarias") or []))
+                nota_bp=f"*EDNNA · Movimentação bancária SICREDI*\n\nChamado #{cid}: solicitação de abertura de relacionamento enviada ao contato bancário obtido do Blueprint.\nContas: {contas or 'não informadas'}\nEstado EDNNA: AGUARDANDO_RETORNO_BANCO.\n\nMarcador: EDNNA-SICREDI:{cid}"
+                adicionar_nota_chamado(chamado_id=bp, nota=nota_bp)
+                print(f"[EDNNA] SICREDI | BP movimentado | chamado={cid} | bp={bp}", flush=True)
+            except Exception as bank_exc:
+                print(f"[EDNNA] SICREDI | BP pendente | chamado={cid} | {type(bank_exc).__name__}: {bank_exc}", flush=True)
         # Pós-envio obrigatório: o e-mail já saiu, portanto qualquer falha no Redmine
         # vira outbox pendente e nunca provoca reenvio da mensagem.
         from ednna.redmine_outbox import registrar_ou_enfileirar
@@ -629,7 +680,7 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
     # A UI continua rápida; somente o worker consulta relações/anexos quando um
     # cliente ainda não possui contatos locais e a regra pode precisar deles.
     try:
-        from ednna.blueprint_knowledge import emails_cliente_blueprint
+        from ednna.blueprint_knowledge import emails_cliente_blueprint, localizar_contato_bancario
         from ednna.contexto_relacionamentos import sincronizar_conhecimento_blueprint
         sincronizados=0
         for _item in fila.get("itens", []):
@@ -670,7 +721,7 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         # marcou explicitamente AUTOMATICA. Um envio assistido anterior não promove
         # sozinho um processo que envolve documento/assinatura.
         player_item = str(item.get("player") or "").upper()
-        if player_item == "GREENCARD":
+        if player_item in {"GREENCARD", "ROTACARD"}:
             autorizado_auto = (modo_motor == "AUTOMATICA")
         else:
             autorizado_auto = modo_motor == "AUTOMATICA" or (modo_motor == "ASSISTIDA" and confianca_historica)

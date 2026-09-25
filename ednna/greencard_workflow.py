@@ -37,6 +37,9 @@ def _init():
 
 def _somente_digitos(v: str) -> str: return re.sub(r"\D", "", str(v or ""))
 
+def _bandeira(pacote: dict) -> str:
+    return "ROTACARD" if str(pacote.get("player") or "").upper() == "ROTACARD" else "GREENCARD"
+
 def tipo_fluxo(pacote: dict) -> str:
     texto = " ".join(str(pacote.get(k) or "") for k in ("assunto", "tipo_demanda", "descricao")).upper()
     if "ABERTURA" in texto and "RELACION" in texto:
@@ -103,7 +106,7 @@ def gerar_formulario(pacote: dict) -> dict:
                 break
     bio=io.BytesIO(); doc.save(bio)
     cid=int(pacote.get("chamado_id") or 0)
-    nome=f"TERMO_GREENCARD_{cid}_{re.sub(r'[^A-Za-z0-9]+','_',str(pacote.get('cliente') or 'CLIENTE')).strip('_')}.docx"
+    nome=f"TERMO_{_bandeira(pacote)}_{cid}_{re.sub(r'[^A-Za-z0-9]+','_',str(pacote.get('cliente') or 'CLIENTE')).strip('_')}.docx"
     return {"ok":True,"filename":nome,"content_type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","conteudo":bio.getvalue(),"dados":dados}
 
 def preparar_primeira_etapa(pacote: dict) -> dict:
@@ -111,21 +114,22 @@ def preparar_primeira_etapa(pacote: dict) -> dict:
     if not form.get("ok"): return form
     emails=[str(e).strip().lower() for e in (pacote.get("emails_blueprint") or []) if str(e).strip()]
     if not emails:
-        return {"ok":False,"estado":"AGUARDANDO_DADOS","motivo":"GREENCARD: Blueprint ainda não possui participante/e-mail do cliente para receber o formulário."}
+        return {"ok":False,"estado":"AGUARDANDO_DADOS","motivo":f"{_bandeira(pacote)}: Blueprint ainda não possui participante/e-mail do cliente para receber o formulário."}
     cliente=str(pacote.get("cliente") or "Cliente")
     cid=int(pacote.get("chamado_id") or 0)
     fluxo=tipo_fluxo(pacote)
-    assunto=f"[GREENCARD - {'Abertura de Relacionamento' if fluxo=='ABERTURA_RELACIONAMENTO' else 'Inclusão de Estabelecimento'} - {cliente} - CN: {cid}]"
+    bandeira=_bandeira(pacote)
+    assunto=f"[{bandeira} - {'Abertura de Relacionamento' if fluxo=='ABERTURA_RELACIONAMENTO' else 'Inclusão de Estabelecimento'} - {cliente} - CN: {cid}]"
     corpo=("Olá, tudo bem?\n\n"
-           "Para darmos continuidade ao processo junto à Greencard, encaminhamos em anexo o formulário com os dados que a EDNNA conseguiu pré-preencher.\n\n"
+           f"Para darmos continuidade ao processo junto à {bandeira}, encaminhamos em anexo o formulário com os dados que a EDNNA conseguiu pré-preencher.\n\n"
            "Por gentileza, revise as informações, complete os campos que ainda estiverem em branco, assine o documento e nos devolva o formulário acompanhado do documento de identidade do representante legal.\n\n"
-           "Após o retorno, faremos a validação e encaminharemos a documentação à Greencard. Em seguida acompanharemos a liberação e a chegada dos arquivos.\n\n"
+           f"Após o retorno, faremos a validação e encaminharemos a documentação à {bandeira}. Em seguida acompanharemos a liberação e a chegada dos arquivos.\n\n"
            "Atenciosamente,\nEquipe EDI Netunna\n\n"
            "Mensagem operacional preparada e acompanhada pela EDNNA — Automação EDI Netunna.")
     return {"ok":True,"para":emails,"cc":[],"assunto":assunto,"corpo":corpo,
             "anexos":[{"filename":form["filename"],"content_type":form["content_type"],"conteudo":form["conteudo"]}],
-            "tipo_acao":"GREENCARD_ENVIAR_FORMULARIO_CLIENTE","status_pos_envio":"Aguardando Retorno Cliente",
-            "prazo_resposta_dias_uteis":2,"fluxo_greencard":fluxo,"formulario":form}
+            "tipo_acao":f"{bandeira}_ENVIAR_FORMULARIO_CLIENTE","status_pos_envio":"Aguardando Retorno Cliente",
+            "prazo_resposta_dias_uteis":2,"fluxo_beneficio":fluxo,"formulario":form}
 
 def registrar_estado(pacote: dict, estado: str, **detalhes):
     _init(); cid=int(pacote.get("chamado_id") or 0); cliente=str(pacote.get("cliente") or "")
@@ -141,8 +145,9 @@ def registrar_movimentacao_bp(pacote: dict, mensagem: str) -> dict:
     if not bp: return {"ok":False,"motivo":"BP principal não localizado"}
     try:
         from ednna.redmine_writer import adicionar_nota_chamado
-        marcador=f"EDNNA-GREENCARD:{int(pacote.get('chamado_id') or 0)}"
-        nota=f"*EDNNA · Movimentação Greencard*\n\n{mensagem}\n\nMarcador: {marcador}"
+        bandeira=_bandeira(pacote)
+        marcador=f"EDNNA-{bandeira}:{int(pacote.get('chamado_id') or 0)}"
+        nota=f"*EDNNA · Movimentação {bandeira.title()}*\n\n{mensagem}\n\nMarcador: {marcador}"
         return {"ok":True,"resultado":adicionar_nota_chamado(chamado_id=bp,nota=nota)}
     except Exception as exc:
         return {"ok":False,"motivo":f"{type(exc).__name__}: {exc}"}

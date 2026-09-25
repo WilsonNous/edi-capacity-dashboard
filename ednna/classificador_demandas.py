@@ -156,7 +156,7 @@ def _origem_operacional(linha: pd.Series | dict, texto: str) -> str:
     origem = _texto(linha.get("Origem"))
     if origem: return origem
     # fallback simples para siglas/nome em assunto quando Origem não veio do Redmine
-    conhecidos = ["SODEXO", "SICREDI", "REDE", "CIELO", "STONE", "VR", "VERO", "CABAL", "MGCARD", "GETNET", "ALELO", "TICKET"]
+    conhecidos = ["SODEXO", "SICREDI", "SICRED", "ROTACARD", "REDE", "CIELO", "STONE", "VR", "VERO", "CABAL", "MGCARD", "GETNET", "ALELO", "TICKET"]
     texto_up = _sem_acentos(texto).upper()
     for nome in conhecidos:
         if re.search(rf"\b{re.escape(nome)}\b", texto_up): return nome

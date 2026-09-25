@@ -255,3 +255,53 @@ def resumo_conhecimento(cliente: str) -> dict:
         parts=c.execute("SELECT COUNT(DISTINCT email) FROM blueprint_participantes WHERE cliente=? AND ativo=1",(cliente,)).fetchone()[0]
         abas=c.execute("SELECT aba, COUNT(*) FROM blueprint_linhas WHERE cliente=? GROUP BY aba ORDER BY aba",(cliente,)).fetchall()
     return {"cliente":cliente,"blueprints":int(docs[0] or 0),"ultima_importacao":docs[1],"participantes":int(parts or 0),"abas":{a:int(n) for a,n in abas}}
+
+
+def listar_domicilios_bancarios(cliente: str) -> list[dict]:
+    """Retorna linhas da aba Domicílios Bancários preservando os campos originais do BP."""
+    _init(); cliente=str(cliente or '').strip()
+    if not cliente: return []
+    with conectar() as c:
+        c.row_factory=__import__('sqlite3').Row
+        rows=c.execute("""SELECT l.*, d.nome_arquivo AS fonte_arquivo, d.attachment_id, d.importado_em
+          FROM blueprint_linhas l JOIN blueprint_documentos d ON d.id=l.documento_id
+          WHERE l.cliente=? AND UPPER(l.aba) LIKE '%DOMIC%'
+          ORDER BY d.importado_em DESC, l.linha ASC""",(cliente,)).fetchall()
+    out=[]
+    for r in rows:
+        d=dict(r)
+        try: dados=json.loads(d.get('dados_json') or '{}')
+        except Exception: dados={}
+        out.append({**d,'dados':dados})
+    return out
+
+
+def localizar_contato_bancario(cliente: str, banco: str = '', codigo_banco: str = '', contas: list[str] | None = None) -> dict:
+    """Localiza no BP um domicílio/gerente bancário de forma tolerante a layouts.
+
+    A seleção exige evidência do banco (nome/código) ou de uma das contas. E-mail
+    e gerente são extraídos apenas da própria linha do BP; histórico aprendido não
+    é promovido silenciosamente a contato bancário.
+    """
+    linhas=listar_domicilios_bancarios(cliente)
+    banco_n=_norm(banco); codigo=re.sub(r'\D','',str(codigo_banco or ''))
+    contas_n={re.sub(r'\D','',str(x or '')) for x in (contas or []) if re.sub(r'\D','',str(x or ''))}
+    candidatos=[]
+    email_re=re.compile(r'[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}',re.I)
+    for item in linhas:
+        dados=item.get('dados') or {}; texto=' | '.join(f'{k}: {v}' for k,v in dados.items())
+        texto_n=_norm(texto); dig=re.sub(r'\D','',texto)
+        pontos=0
+        if banco_n and banco_n in texto_n: pontos+=5
+        if codigo and re.search(rf'(?<!\d){re.escape(codigo)}(?!\d)',texto): pontos+=4
+        contas_hit=[c for c in contas_n if c and c in dig]
+        pontos += 3*len(contas_hit)
+        if not pontos: continue
+        emails=email_re.findall(texto)
+        gerente=''
+        for k,v in dados.items():
+            if 'GERENTE' in _norm(k) and str(v or '').strip() and '@' not in str(v): gerente=str(v).strip(); break
+        candidatos.append({'pontos':pontos,'emails':list(dict.fromkeys(e.lower() for e in emails)),'gerente':gerente,'contas_encontradas':contas_hit,'dados':dados,'fonte_arquivo':item.get('fonte_arquivo'),'attachment_id':item.get('attachment_id')})
+    candidatos.sort(key=lambda x:(x['pontos'], bool(x['emails'])), reverse=True)
+    melhor=next((x for x in candidatos if x.get('emails')), candidatos[0] if candidatos else {})
+    return {'encontrado':bool(melhor),'contato':melhor,'candidatos':candidatos[:10]}
