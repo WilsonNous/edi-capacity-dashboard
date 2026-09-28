@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.32.0"
-APP_RELEASE = "Central de Operação · descoberta rastreável · SENFF por Origem"
+APP_VERSION = "3.32.1"
+APP_RELEASE = "Autonomia operacional · histórico e continuidade automáticos"

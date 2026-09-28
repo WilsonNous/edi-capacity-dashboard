@@ -10,6 +10,10 @@ from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
 from ednna.aprendizado_operacional import garantir_greencard_pronta
+from ednna.monitor_respostas import iniciar_monitor_respostas_background
+
+# v3.32.1 — a Home também garante o worker. A função é idempotente por processo.
+iniciar_monitor_respostas_background()
 
 try:
     garantir_greencard_pronta()

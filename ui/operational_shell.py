@@ -2,7 +2,18 @@ from pathlib import Path
 import streamlit as st
 from version import APP_VERSION, APP_RELEASE
 
+def _ensure_worker():
+    # v3.32.1: o worker operacional precisa existir em qualquer tela da EDNNA.
+    # Antes ele era iniciado somente no Painel EDI; quem usava apenas Home/Operação
+    # podia ficar sem execução automática, follow-ups e reconciliação.
+    try:
+        from ednna.monitor_respostas import iniciar_monitor_respostas_background
+        iniciar_monitor_respostas_background()
+    except Exception as exc:
+        print(f'[EDNNA] Worker bootstrap | falha | {type(exc).__name__}: {exc}', flush=True)
+
 def setup(title):
+    _ensure_worker()
     root = Path(__file__).resolve().parents[1]
     favicon = root / 'assets' / 'ednna_favicon.png'
     page_icon = str(favicon) if favicon.exists() else '✨'
