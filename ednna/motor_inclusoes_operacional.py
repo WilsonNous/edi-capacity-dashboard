@@ -283,6 +283,7 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
             **candidato,
             "player": player,
             "regra_id": regra.get("regra_id"),
+            "modo_motor": modo_motor,
             "estado_motor": estado,
             "acao_sugerida": acao,
             "destinatario": destinatario,

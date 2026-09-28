@@ -331,7 +331,8 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         tipo = str(row.get("Tipo", "") or "")
         assunto = str(row.get("Assunto", "") or "")
         descricao = str(row.get("Descrição", "") or "")
-        texto = "\n".join([tipo, assunto, descricao])
+        origem = str(row.get("Origem", "") or "")
+        texto = "\n".join([tipo, assunto, descricao, origem])
         norm = texto.upper()
         # O motor nasceu para inclusões. Greencard é o primeiro workflow composto
         # em que Abertura de Relacionamento e Inclusão compartilham o mesmo
@@ -349,6 +350,12 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         # taxonomia de players para descoberta e reconstrução.
         from ednna.contexto_relacionamentos import _players_no_texto
         players = _players_no_texto(texto)
+        # v3.32.0: Origem é um campo estruturado do Redmine e tem precedência
+        # quando identifica univocamente o player. Evita que um SENFF explícito
+        # dependa apenas de assunto/descrição.
+        origem_players = _players_no_texto(origem) if origem else []
+        if len(origem_players) == 1:
+            players = origem_players
         # Em Abertura de Relacionamento, o player explícito no assunto é o alvo.
         # Adquirentes citadas na descrição (ex.: Sodexo/VR/PIX vinculadas às
         # contas SICREDI) são contexto do domicílio bancário, não players concorrentes.
@@ -390,6 +397,28 @@ def descobrir_candidatos_inclusao(snapshot) -> dict:
         for p, ids in sorted(agrupados.items(), key=lambda kv: (-len(set(kv[1])), kv[0]))
     ]
     return {"total": len(candidatos), "players": players, "candidatos": candidatos}
+
+
+def rastrear_descoberta_chamado(snapshot, chamado_id: int) -> dict:
+    """Explica por que um chamado entrou ou não no inventário de inclusões."""
+    cid=int(chamado_id)
+    if snapshot is None or getattr(snapshot, "empty", True):
+        return {"chamado_id":cid,"no_snapshot":False,"resultado":"FORA_DO_SNAPSHOT","motivo":"Snapshot operacional vazio."}
+    row=None
+    for _, r in snapshot.iterrows():
+        try:
+            if int(float(r.get("#",0))) == cid:
+                row=r; break
+        except Exception:
+            pass
+    if row is None:
+        return {"chamado_id":cid,"no_snapshot":False,"resultado":"FORA_DO_SNAPSHOT","motivo":"Chamado não existe na fotografia local status=open. Atualize a fila para sincronizar o Redmine."}
+    inv=descobrir_candidatos_inclusao(snapshot)
+    cand=next((x for x in inv.get("candidatos",[]) if int(x.get("id") or 0)==cid),None)
+    base={"chamado_id":cid,"no_snapshot":True,"estado":str(row.get("Estado","") or ""),"tipo":str(row.get("Tipo","") or ""),"origem":str(row.get("Origem","") or ""),"assunto":str(row.get("Assunto","") or "")}
+    if not cand:
+        return {**base,"resultado":"NAO_DESCOBERTO","motivo":"Está no snapshot, mas não passou pelos critérios de inclusão/habilitação."}
+    return {**base,"resultado":"DESCOBERTO","players":cand.get("players") or [],"player":cand.get("player"),"motivo":"Chamado descoberto pelo motor e disponível para avaliação da regra."}
 
 
 # v3.28.24 — plano operacional de regra homologada.

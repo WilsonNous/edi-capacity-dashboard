@@ -911,3 +911,20 @@ def registrar_falha_evidencia(chamado_id: int, regra_id: str, erro: str) -> dict
             (str(erro or "")[:2000], agora, int(chamado_id), str(regra_id)),
         )
     return obter_acompanhamento(chamado_id, regra_id)
+
+
+def listar_acoes_recentes(limite: int = 50) -> list[dict]:
+    """Últimas atuações persistidas pela EDNNA, sem consultar Graph/Redmine."""
+    inicializar_acompanhamento()
+    with _conectar() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM acoes_operacionais
+             WHERE COALESCE(envio_confirmado,0)=1
+                OR COALESCE(graph_message_id,'')<>''
+                OR COALESCE(enviado_em,'')<>''
+             ORDER BY COALESCE(followup_ultimo_em, enviado_em, atualizado_em) DESC
+             LIMIT ?
+            """, (max(1,int(limite)),)
+        ).fetchall()
+    return [dict(r) for r in rows]
