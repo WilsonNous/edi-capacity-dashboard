@@ -835,6 +835,25 @@ def executar_monitoramento_respostas() -> dict:
             from ednna.executor_automatico import executar_acoes_automaticas
             snapshot_auto = carregar_snapshot_chamados()
             if snapshot_auto:
+                # v3.32.1 — histórico é trabalho da EDNNA, não do operador.
+                # Antes a inclusão podia parar em AGUARDANDO_VERIFICACAO_HISTORICO
+                # indefinidamente se ninguém abrisse a tela antiga que sincronizava journals.
+                # Agora o próprio worker atualiza um lote antes de decidir/executar.
+                try:
+                    from ednna.sincronizador_journals import sincronizar_proximo_lote
+                    frame_journals = pd.DataFrame(snapshot_auto)
+                    limite_hist = max(1, int(os.getenv('EDNNA_HISTORY_SYNC_MAX_PER_CYCLE', '20') or 20))
+                    resumo['historico_sincronizacao'] = sincronizar_proximo_lote(frame_journals, limite=limite_hist)
+                    hs = resumo.get('historico_sincronizacao') or {}
+                    if int(hs.get('processados', 0) or 0):
+                        print(
+                            '[EDNNA] Histórico automático | '
+                            f"processados={hs.get('processados',0)} | sucesso={hs.get('sucesso',0)} | "
+                            f"ja_atuados={hs.get('ja_atuados',0)} | aguardando={hs.get('aguardando',0)} | erros={hs.get('erros',0)}",
+                            flush=True,
+                        )
+                except Exception as hist_exc:
+                    print(f'[EDNNA] Histórico automático | falha | {type(hist_exc).__name__}: {hist_exc}', flush=True)
                 frame_auto = enriquecer_dataframe_com_classificacoes(pd.DataFrame(snapshot_auto))
                 resumo_auto = executar_acoes_automaticas(frame_auto)
                 resumo["execucao_automatica"] = resumo_auto
