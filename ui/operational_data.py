@@ -11,6 +11,24 @@ def _db(name):
     prod=Path('/home/data')/name
     return prod if prod.exists() else ROOT/'data'/name
 
+def _mapa_custom_persistido(field_id: int):
+    """Resolve catálogo de custom field sem depender do Redmine online."""
+    campos = obter_metadado_json('redmine_catalogos_custom_fields', []) or []
+    if not isinstance(campos, list) or not campos:
+        bruto = obter_metadado_json('redmine_custom_fields_v3282', {}) or {}
+        if isinstance(bruto, dict):
+            campos = bruto.get('campos') or []
+    if not isinstance(campos, list):
+        return {}
+    for campo in campos:
+        try:
+            if int(campo.get('id', -1)) != int(field_id):
+                continue
+        except Exception:
+            continue
+        return {str(i.get('value') or '').strip(): str(i.get('label') or i.get('value') or '').strip() for i in (campo.get('possible_values') or []) if str(i.get('value') or '').strip()}
+    return {}
+
 def _mapa_clientes_persistido():
     """Resolve IDs de Cliente sem depender do Redmine online."""
     campos = obter_metadado_json('redmine_catalogos_custom_fields', []) or []
@@ -97,11 +115,13 @@ def chamados_ativos_df():
             if isinstance(payload, list):
                 linhas=[]
                 mapa = _mapa_clientes_persistido()
+                mapa_origem = _mapa_custom_persistido(5)
                 for issue in payload:
                     if not isinstance(issue, dict):
                         continue
                     cfs={str(x.get('id')):x.get('value') for x in (issue.get('custom_fields') or []) if isinstance(x,dict)}
                     cliente=_resolver_cliente(cfs.get('1'), mapa)
+                    origem=_resolver_cliente(cfs.get('5'), mapa_origem)
                     linhas.append({
                         'id': issue.get('id'),
                         'cliente': cliente,
@@ -111,6 +131,9 @@ def chamados_ativos_df():
                         'assunto': issue.get('subject'),
                         'responsavel': (issue.get('assigned_to') or {}).get('name'),
                         'projeto': (issue.get('project') or {}).get('name'),
+                        'origem': origem,
+                        'descricao': issue.get('description') or '',
+                        'alterado_em': issue.get('updated_on'),
                         'criado_em': issue.get('created_on'),
                         '_fonte_operacional': 'painel.db/status=open',
                         '_snapshot_atualizado_em': row['atualizado_em'],

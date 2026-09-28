@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.31.1"
-APP_RELEASE = "Home operacional em cards · Greencard pronta · EDNNA treinável"
+APP_VERSION = "3.32.0"
+APP_RELEASE = "Central de Operação · descoberta rastreável · SENFF por Origem"
