@@ -228,10 +228,12 @@ def importar_blueprint(*, cliente: str, chamado_id: int, attachment: dict, conte
             for nr, item in enumerate(_dict_rows(rows), start=1):
                 c.execute("INSERT INTO blueprint_linhas(documento_id,cliente,aba,linha,dados_json,chave_semantica,importado_em) VALUES(?,?,?,?,?,?,?)",
                           (doc,cliente,aba,nr,json.dumps(item,ensure_ascii=False),None,agora)); total+=1
-        # participantes normalizados: primeiro o layout moderno; na ausência
-        # dele, usa o fallback legado da aba ID PROJETO.
+        # Participantes normalizados: prioriza o layout moderno somente quando
+        # ele produz ao menos um e-mail válido. Se a aba PARTICIPANTES existir
+        # mas estiver vazia/incompleta, usa ID PROJETO como fallback oficial.
         part_name=next((a for a in abas if _norm(a)=="PARTICIPANTES"), None)
         participantes_importados = 0
+        layout_utilizado = "MODERNO"
         if part_name:
             for item in _dict_rows(abas[part_name]):
                 norm={_norm(k):_valor(v) for k,v in item.items()}
@@ -241,13 +243,14 @@ def importar_blueprint(*, cliente: str, chamado_id: int, attachment: dict, conte
                   (cliente,nome,area,email,telefone,andamento,status_report,documento_id,chamado_id,ativo,primeira_ocorrencia_em,ultima_ocorrencia_em)
                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (cliente,norm.get("NOME",""),norm.get("AREA",""),email,norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",norm.get("ANDAMENTO",""),norm.get("STATUS REPORT",""),doc,int(chamado_id),1,agora,agora))
                 participantes_importados += 1
-        else:
+        if participantes_importados == 0:
+            layout_utilizado = "ID_PROJETO_LEGADO"
             for item in _participantes_legado_id_projeto(abas):
                 c.execute("""INSERT OR IGNORE INTO blueprint_participantes
                   (cliente,nome,area,email,telefone,andamento,status_report,documento_id,chamado_id,ativo,primeira_ocorrencia_em,ultima_ocorrencia_em)
                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (cliente,item.get("nome",""),item.get("area",""),item.get("email",""),item.get("telefone",""),"","",doc,int(chamado_id),1,agora,agora))
                 participantes_importados += 1
-    return {"status":"IMPORTADO", "documento_id":doc, "arquivo":nome, "abas":list(abas), "linhas":total, "participantes":participantes_importados, "layout_participantes": "MODERNO" if part_name else "ID_PROJETO_LEGADO"}
+    return {"status":"IMPORTADO", "documento_id":doc, "arquivo":nome, "abas":list(abas), "linhas":total, "participantes":participantes_importados, "layout_participantes": layout_utilizado}
 
 
 def _reprocessar_participantes_documento(*, documento_id: int, cliente: str, chamado_id: int, nome: str, conteudo: bytes) -> dict:
@@ -268,9 +271,12 @@ def _reprocessar_participantes_documento(*, documento_id: int, cliente: str, cha
                 itens.append({"nome": norm.get("NOME", ""), "area": norm.get("AREA", ""),
                               "email": email, "telefone": norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",
                               "andamento": norm.get("ANDAMENTO", ""), "status_report": norm.get("STATUS REPORT", "")})
-    else:
+    if not itens:
+        # Aba PARTICIPANTES presente, porém sem contatos utilizáveis, também
+        # deve cair no ID PROJETO. Existência da aba não significa dado válido.
         for item in _participantes_legado_id_projeto(abas):
             itens.append({**item, "andamento": "", "status_report": ""})
+    layout_utilizado = "MODERNO" if part_name and any(i.get("andamento") or i.get("status_report") or i.get("email") for i in itens) and not any(i.get("origem_layout") == "ID_PROJETO_LEGADO" for i in itens) else "ID_PROJETO_LEGADO"
     inseridos = 0
     with conectar() as c:
         for item in itens:
@@ -282,7 +288,7 @@ def _reprocessar_participantes_documento(*, documento_id: int, cliente: str, cha
             inseridos += int(cur.rowcount or 0)
         c.execute("UPDATE blueprint_documentos SET atualizado_em=? WHERE id=?", (agora, int(documento_id)))
     return {"status": "REPROCESSADO_PARTICIPANTES", "documento_id": int(documento_id),
-            "participantes": inseridos, "layout_participantes": "MODERNO" if part_name else "ID_PROJETO_LEGADO"}
+            "participantes": inseridos, "layout_participantes": layout_utilizado}
 
 
 def sincronizar_blueprints_chamados(cliente: str, chamados_ids: list[int]) -> dict:
