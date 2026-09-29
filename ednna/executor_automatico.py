@@ -167,6 +167,18 @@ def executar_acoes_automaticas(
             or ""
         )
 
+        # v3.32.5 — nunca confiar somente no snapshot antes de enviar.
+        from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
+        preflight = preflight_chamado_ativo(chamado_id)
+        if preflight.get("bloquear"):
+            if preflight.get("motivo") == "ESTADO_TERMINAL":
+                encerrar_acompanhamento_terminal(chamado_id, preflight.get("estado") or "")
+            resumo["ignorados"] += 1
+            resumo["detalhes"].append({"chamado":chamado_id,"regra":regra_id,"etapa":"PREFLIGHT",
+                "resultado":preflight.get("motivo"),"estado":preflight.get("estado")})
+            print(f"[EDNNA] Executor automático BLOQUEADO | chamado={chamado_id} | regra={regra_id} | preflight={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+            continue
+
         adquirido, estado_lock = adquirir_envio(
             chamado_id,
             regra_id,

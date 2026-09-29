@@ -134,6 +134,14 @@ def executar_followup(item:dict) -> dict:
         return {"ok":False,"estado":item.get("estado_followup"),"motivo":"Follow-up ainda não está elegível."}
     remetente=str(os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br") or "").strip()
     chamado_id=int(item["chamado_id"]); regra_id=str(item["regra_id"]); numero=int(item["proximo_followup"])
+    from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
+    preflight=preflight_chamado_ativo(chamado_id)
+    if preflight.get("bloquear"):
+        if preflight.get("motivo")=="ESTADO_TERMINAL":
+            encerrar_acompanhamento_terminal(chamado_id, preflight.get("estado") or "")
+        print(f"[EDNNA] Follow-up BLOQUEADO pre-flight | chamado={chamado_id} | regra={regra_id} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+        return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo")=="ESTADO_TERMINAL" else "PREFLIGHT_INDISPONIVEL",
+                "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
     texto=str(item.get("texto_followup") or "")
     resultado=responder_todos_email_graph(
         remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto

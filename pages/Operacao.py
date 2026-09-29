@@ -7,33 +7,35 @@ from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
 from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
-from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes, obter_acompanhamento
+from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
 
-setup('🦾 Operação de hoje')
-st.caption('Seu painel de interação com a EDNNA: o que precisa de você, o que ela está cuidando, o que fez e onde travou.')
+setup('🦾 Operação')
+st.caption('Sua central de interação com a EDNNA. Aqui aparece o que precisa de você; o restante fica sob responsabilidade dela.')
 
-# Atualização explícita = sincronização real. Navegação comum continua local-first.
-if st.button('🔄 Atualizar fila agora', type='primary', width='content', key='op_refresh_3321'):
+if st.button('🔄 Sincronizar agora', type='primary', width='content', key='op_refresh_3325'):
     try:
         from redmine_api import buscar_chamados_projetos
-        with st.spinner('Sincronizando chamados abertos com o Redmine...'):
+        with st.spinner('Atualizando a carteira ativa no Redmine...'):
             buscar_chamados_projetos(status_id='open', completar_custom_fields=True, force_refresh=True)
         st.cache_data.clear()
-        st.session_state['op_calcular_3321']=True
-        st.success('Fotografia operacional sincronizada.')
+        st.success('Carteira ativa sincronizada.')
         st.rerun()
     except Exception as exc:
         st.warning(f'Redmine indisponível. Mantendo a última fotografia válida: {type(exc).__name__}: {exc}')
-        st.session_state['op_calcular_3321']=True
 
-# Sempre abre imediatamente com SQLite/cache.
 df=chamados_ativos_df()
-try: aguardando=listar_acoes_aguardando_resposta()
-except Exception: aguardando=[]
-try: rm_pend=listar_redmine_pendentes()
+active_ids={int(v) for v in df.get('id',pd.Series(dtype=int)).dropna().tolist()} if not df.empty else set()
+mapa_df={int(r['id']):r for _,r in df.iterrows() if pd.notna(r.get('id'))} if not df.empty else {}
+
+try: aguardando_bruto=listar_acoes_aguardando_resposta()
+except Exception: aguardando_bruto=[]
+# A carteira status=open é soberana para a UX operacional. Chamado rejeitado,
+# concluído, cancelado ou fechado não continua em acompanhamento visual.
+aguardando=[a for a in aguardando_bruto if int(a.get('chamado_id') or 0) in active_ids]
+try: rm_pend=[a for a in listar_redmine_pendentes() if int(a.get('chamado_id') or 0) in active_ids]
 except Exception: rm_pend=[]
-try: recentes=listar_acoes_recentes(60)
+try: recentes=listar_acoes_recentes(80)
 except Exception: recentes=[]
 
 snapshot=pd.DataFrame()
@@ -46,146 +48,159 @@ try: fups=avaliar_followups()
 except Exception: fups={'total':0,'prontos':0,'itens':[]}
 
 itens=fila.get('itens') or []
-# Somente interação humana real.
 human_states={'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','REGRA_NAO_HOMOLOGADA'}
 preciso=[x for x in itens if x.get('estado_motor') in human_states]
 preciso += [x for x in itens if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA' and str(x.get('modo_motor') or '').upper()!='AUTOMATICA']
 falhas=[x for x in itens if x.get('estado_motor') in {'PLAYER_AMBIGUO','AGUARDANDO_EXECUTOR'}]
-
-# v3.32.1 — sincronização de histórico e reconciliação Redmine são trabalho técnico
-# da EDNNA. Só viram exceção humana/visível após repetidas falhas; nunca entram
-# em 'Preciso de você'.
 historico_auto=[x for x in itens if x.get('estado_motor')=='AGUARDANDO_VERIFICACAO_HISTORICO']
 redmine_auto=[]
 for x in rm_pend:
     tent=int(x.get('redmine_tentativas') or 0)
-    item={'id':x.get('chamado_id'),'cliente':'','player':'REDMINE','estado_motor':'REDMINE_PENDENTE','acao_sugerida':'Reconciliação automática Redmine','regra_id':x.get('regra_id'),'redmine_erro':x.get('redmine_erro'),'redmine_tentativas':tent}
-    if tent >= 3:
-        falhas.append(item)
-    else:
-        redmine_auto.append(item)
+    item={'id':x.get('chamado_id'),'cliente':'','player':'REDMINE','estado_motor':'REDMINE_PENDENTE',
+          'acao_sugerida':'Reconciliação automática Redmine','regra_id':x.get('regra_id'),
+          'redmine_erro':x.get('redmine_erro'),'redmine_tentativas':tent}
+    (falhas if tent>=3 else redmine_auto).append(item)
+
+# Detecta automações vencidas para dar visibilidade sem transformá-las em tarefa humana.
+agora=pd.Timestamp.now(tz='America/Sao_Paulo')
+atrasados=[]
+for a in aguardando:
+    prazo=str(a.get('prazo_resposta_em') or '')
+    if prazo:
+        try:
+            if pd.Timestamp(prazo) <= agora:
+                atrasados.append(a)
+        except Exception: pass
 
 cuidando_total=len(aguardando)+len(historico_auto)+len(redmine_auto)
+st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, Will. "
+            f"Preciso de você em **{len(preciso)}** situação(ões). Estou cuidando de **{cuidando_total}** chamado(s).")
 
-# Cards de orientação, não dashboard genérico.
 c1,c2,c3,c4=st.columns(4)
-c1.metric('🔴 Preciso de você',len(preciso))
-c2.metric('🟢 Estou cuidando',cuidando_total)
-c3.metric('🤖 Fiz / acompanhei',len(recentes))
-c4.metric('⚠️ Não consegui continuar',len(falhas))
+c1.metric('🔴 Você',len(preciso),help='Somente decisões ou ações que a EDNNA não pode tomar sozinha.')
+c2.metric('🟢 EDNNA',cuidando_total,help='Acompanhamentos, histórico e reconciliações automáticas.')
+c3.metric('🤖 Realizado',len(recentes),help='Atuações persistidas recentemente.')
+c4.metric('⚠️ Exceções',len(falhas),help='Situações em que a automação realmente travou.')
 
-st.markdown('## 🔴 Preciso de você')
-st.caption('Somente situações que exigem análise, autorização, complemento ou execução assistida aparecem aqui.')
-if not preciso:
-    st.success('Nenhuma interação humana pendente neste momento.')
-else:
-    for x in preciso[:30]:
+if atrasados:
+    st.warning(f'⏱️ {len(atrasados)} acompanhamento(s) estão com prazo vencido. Eles continuam sendo responsabilidade da EDNNA; acompanhe em **Estou cuidando → Atrasados**.')
+
+tab_voce,tab_ednna,tab_feito,tab_exc=st.tabs([
+    f'🔴 Preciso de você · {len(preciso)}',
+    f'🟢 Estou cuidando · {cuidando_total}',
+    f'🤖 Fiz / acompanhei · {len(recentes)}',
+    f'⚠️ Exceções · {len(falhas)}'
+])
+
+with tab_voce:
+    st.caption('Só entra aqui o que realmente exige decisão, autorização, dado ou confirmação humana.')
+    busca=st.text_input('🔎 Filtrar por chamado, cliente ou player',key='busca_voce_3325',placeholder='Ex.: 49229, Sander, REDECARD')
+    lista=preciso
+    if busca.strip():
+        q=busca.casefold().strip()
+        lista=[x for x in lista if q in f"{x.get('id')} {x.get('cliente')} {x.get('player')} {x.get('acao_sugerida')}".casefold()]
+    if not lista:
+        st.success('Nenhuma interação humana pendente.')
+    for x in lista[:50]:
         cid=int(x.get('id') or 0); estado=str(x.get('estado_motor') or '')
-        cliente=html.escape(str(x.get('cliente') or 'Cliente não informado')); player=html.escape(str(x.get('player') or ''))
-        with st.container(border=True):
-            st.markdown(f'**[#{cid}]({redmine_link(cid)}) · {cliente} · {player}**')
-            st.write(f"**Por que estou chamando você:** {x.get('acao_sugerida') or estado.replace('_',' ')}")
-            if estado=='PRONTO_OPERACAO_ASSISTIDA':
-                st.caption('Regra assistida: a EDNNA preparou a atuação, mas sua confirmação ainda é necessária.')
-                if st.button('🧾 Preparar atuação', key=f'prep_{cid}_3321'):
-                    st.session_state[f'pacote_{cid}_3321']=preparar_atuacao_assistida(x)
-                pacote=st.session_state.get(f'pacote_{cid}_3321')
+        cliente=str(x.get('cliente') or 'Cliente não informado'); player=str(x.get('player') or '')
+        cols=st.columns([1.1,2.5,1.6,2.2])
+        cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**')
+        cols[1].write(cliente)
+        cols[2].write(player or '—')
+        cols[3].write(f"**{x.get('acao_sugerida') or estado.replace('_',' ')}**")
+        if estado=='PRONTO_OPERACAO_ASSISTIDA':
+            with st.expander(f'Revisar atuação assistida #{cid}'):
+                if st.button('🧾 Preparar atuação', key=f'prep_{cid}_3325'):
+                    st.session_state[f'pacote_{cid}_3325']=preparar_atuacao_assistida(x)
+                pacote=st.session_state.get(f'pacote_{cid}_3325')
                 if pacote:
                     r=gerar_rascunho_inclusao(pacote)
                     if r.get('ok'):
-                        para=st.text_input('Para',', '.join(r.get('para') or []),key=f'para_{cid}_3321')
-                        cc=st.text_input('Cc',', '.join(r.get('cc') or []),key=f'cc_{cid}_3321')
-                        assunto=st.text_input('Assunto',r.get('assunto') or '',key=f'ass_{cid}_3321')
-                        corpo=st.text_area('Mensagem',r.get('corpo') or '',height=260,key=f'body_{cid}_3321')
-                        pacote['email_override']={'para':[z.strip() for z in para.replace(';',',').split(',') if z.strip()],'cc':[z.strip() for z in cc.replace(';',',').split(',') if z.strip()],'assunto':assunto,'corpo':corpo}
-                        ok=st.checkbox('Revisei e autorizo esta atuação.',key=f'ok_{cid}_3321')
-                        if st.button('📨 Executar agora',disabled=not ok,key=f'exec_{cid}_3321'):
+                        para=st.text_input('Para',', '.join(r.get('para') or []),key=f'para_{cid}_3325')
+                        cc=st.text_input('Cc',', '.join(r.get('cc') or []),key=f'cc_{cid}_3325')
+                        assunto=st.text_input('Assunto',r.get('assunto') or '',key=f'ass_{cid}_3325')
+                        corpo=st.text_area('Mensagem',r.get('corpo') or '',height=220,key=f'body_{cid}_3325')
+                        pacote['email_override']={'para':[z.strip() for z in para.replace(';',',').split(',') if z.strip()],
+                            'cc':[z.strip() for z in cc.replace(';',',').split(',') if z.strip()],'assunto':assunto,'corpo':corpo}
+                        ok=st.checkbox('Revisei e autorizo esta atuação.',key=f'ok_{cid}_3325')
+                        if st.button('📨 Executar agora',disabled=not ok,key=f'exec_{cid}_3325'):
                             res=executar_atuacao_assistida_email(pacote)
                             if res.get('ok'): st.success('Atuação executada. A EDNNA assumirá o acompanhamento.'); st.rerun()
                             else: st.warning(res.get('motivo') or 'Ação não executada.')
+        st.divider()
 
-st.markdown('## 🟢 Estou cuidando')
-st.caption('Você não precisa agir agora. Aqui ficam acompanhamentos, sincronizações e reconciliações que são responsabilidade da EDNNA.')
-if historico_auto:
-    with st.expander(f'🧠 Verificando histórico automaticamente · {len(historico_auto)}', expanded=False):
-        st.caption('A EDNNA consulta journals/histórico no Redmine em background e, se a regra estiver automática e o chamado estiver livre, continua a execução sem pedir clique.')
-        for x in historico_auto[:30]:
-            cid=int(x.get('id') or 0)
-            st.markdown(f"**[#{cid}]({redmine_link(cid)}) · {html.escape(str(x.get('cliente') or ''))} · {html.escape(str(x.get('player') or ''))}** — sincronização automática pendente")
-if redmine_auto:
-    with st.expander(f'🔄 Reconciliando Redmine automaticamente · {len(redmine_auto)}', expanded=False):
-        st.caption('O e-mail já foi preservado. A EDNNA tenta registrar o histórico/status novamente sem reenviar a mensagem.')
-        for x in redmine_auto[:30]:
-            cid=int(x.get('id') or 0); tent=int(x.get('redmine_tentativas') or 0)
-            st.markdown(f"**[#{cid}]({redmine_link(cid)})** — tentativa {tent}/3 · próximo ciclo automático")
-if not aguardando and not historico_auto and not redmine_auto:
-    st.info('Nenhum acompanhamento ou trabalho técnico automático neste momento.')
-if aguardando:
-    mapa_df={int(r['id']):r for _,r in df.iterrows() if pd.notna(r.get('id'))} if not df.empty else {}
-    for a in aguardando[:50]:
+with tab_ednna:
+    st.caption('Você não precisa agir aqui. Use esta visão para fiscalizar o trabalho que a EDNNA assumiu.')
+    filtro=st.segmented_control('Mostrar', ['Todos','No prazo','Atrasados','Redmine','Histórico'], default='Todos', key='filtro_cuidando_3325')
+    busca=st.text_input('🔎 Buscar acompanhamento',key='busca_cuidando_3325',placeholder='Chamado, cliente ou player')
+    if redmine_auto and filtro in ('Todos','Redmine'):
+        st.info(f'🔄 **{len(redmine_auto)}** atualização(ões) de Redmine em reconciliação automática.')
+    if historico_auto and filtro in ('Todos','Histórico'):
+        st.info(f'🧠 **{len(historico_auto)}** chamado(s) com histórico sendo sincronizado automaticamente.')
+    linhas=[]
+    for a in aguardando:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{})
-        cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         prazo=str(a.get('prazo_resposta_em') or '')
-        estado=str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' ')
-        with st.container(border=True):
-            st.markdown(f'**[#{cid}]({redmine_link(cid)}) · {html.escape(cliente)} · {html.escape(player)}**')
-            cols=st.columns(3)
-            cols[0].write(f'**Status:** {estado}')
-            cols[1].write(f"**Última atuação:** {a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'}")
-            if prazo:
-                try:
-                    vencido = pd.Timestamp(prazo) <= pd.Timestamp.now(tz='America/Sao_Paulo')
-                except Exception:
-                    vencido = False
-                prox = 'follow-up automático pendente do worker' if vencido else f'follow-up automático em {prazo}'
-            else:
-                prox = 'monitorar retorno'
-            cols[2].write(f"**Próxima ação:** {prox}")
-            if prazo: st.caption(f"Prazo de resposta: {prazo} · {'prazo vencido — EDNNA executa no próximo ciclo' if vencido else 'dentro do prazo'} · Responsável: EDNNA")
+        vencido=False
+        if prazo:
+            try: vencido=pd.Timestamp(prazo)<=agora
+            except Exception: pass
+        if filtro=='No prazo' and vencido: continue
+        if filtro=='Atrasados' and not vencido: continue
+        if filtro in ('Redmine','Histórico'): continue
+        cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
+        if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
+        ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'
+        proxima='Follow-up pendente' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')
+        linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
+    if not linhas and filtro not in ('Redmine','Histórico'):
+        st.info('Nenhum acompanhamento neste filtro.')
+    for cid,cliente,player,estado,ultima,proxima,vencido,a in linhas[:80]:
+        cols=st.columns([1.0,2.3,1.5,1.7,2.1])
+        cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**')
+        cols[1].write(cliente)
+        cols[2].write(player or '—')
+        cols[3].write('🔴 Atrasado' if vencido else '🟢 No prazo')
+        cols[4].write(proxima)
+        with st.expander(f'Detalhes #{cid}',expanded=False):
+            st.write(f'**Estado:** {estado}')
+            st.write(f'**Última atuação:** {ultima}')
+            st.write(f"**Regra:** {a.get('regra_id') or '—'}")
+            st.write('**Responsável:** EDNNA')
+        st.divider()
 
-st.markdown('## 🤖 Fiz / acompanhei')
-st.caption('Últimas atuações persistidas pela EDNNA. Serve como trilha operacional rápida.')
-if not recentes:
-    st.info('Ainda não há atuações persistidas para mostrar.')
-else:
-    mapa_df={int(r['id']):r for _,r in df.iterrows() if pd.notna(r.get('id'))} if not df.empty else {}
-    for a in recentes[:20]:
+with tab_feito:
+    st.caption('Trilha operacional recente. Chamados que deixaram a carteira ativa permanecem apenas como auditoria histórica.')
+    busca=st.text_input('🔎 Buscar no realizado',key='busca_feito_3325')
+    mostrados=0
+    for a in recentes[:80]:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{})
+        cliente=str(row.get('cliente') or '')
+        regra=str(a.get('regra_id') or '')
+        if busca.strip() and busca.casefold() not in f'{cid} {cliente} {regra}'.casefold(): continue
         quando=a.get('followup_ultimo_em') or a.get('enviado_em') or a.get('atualizado_em') or ''
         acao='Follow-up enviado' if int(a.get('followup_count') or 0)>0 else 'Primeira atuação enviada'
-        st.markdown(f"**{quando}** · [#{cid}]({redmine_link(cid)}) · {html.escape(str(row.get('cliente') or ''))} · **{acao}** · `{html.escape(str(a.get('regra_id') or ''))}`")
+        situacao='' if cid in active_ids else ' · histórico/fora da carteira ativa'
+        st.markdown(f"**{quando}** · [#{cid}]({redmine_link(cid)}) · {html.escape(cliente or 'cliente histórico')} · **{acao}** · `{html.escape(regra)}`{situacao}")
+        mostrados+=1
+    if not mostrados: st.info('Nenhuma atuação encontrada.')
 
-st.markdown('## ⚠️ Não consegui continuar')
-st.caption('Exceções reais: identificação ambígua, executor ausente ou reconciliação técnica. A EDNNA explica o motivo.')
-if not falhas:
-    st.success('Nenhuma exceção operacional pendente.')
-else:
-    for x in falhas[:30]:
-        cid=int(x.get('id') or 0); motivo=x.get('redmine_erro') or x.get('acao_sugerida') or x.get('estado_motor')
-        with st.container(border=True):
-            st.markdown(f'**[#{cid}]({redmine_link(cid)}) · {html.escape(str(x.get("cliente") or ""))} · {html.escape(str(x.get("player") or ""))}**')
-            st.write(f'**Motivo:** {motivo}')
-            if x.get('estado_motor')=='REDMINE_PENDENTE':
-                st.caption(f"A EDNNA já tentou reconciliar {int(x.get('redmine_tentativas') or 0)} vezes. O e-mail não será reenviado; o worker continuará tentando.")
+with tab_exc:
+    st.caption('Somente falhas reais de automação aparecem aqui. Trabalho técnico recuperável continua com a EDNNA.')
+    if not falhas: st.success('Nenhuma exceção operacional neste momento.')
+    for x in falhas[:50]:
+        cid=int(x.get('id') or 0)
+        st.error(f"#{cid} · {x.get('cliente') or ''} · {x.get('player') or ''} — {x.get('acao_sugerida') or x.get('estado_motor')}")
+        if x.get('redmine_erro'): st.caption(str(x.get('redmine_erro')))
 
-# Follow-ups automáticos ficam deliberadamente fora da fila humana.
-fup_ready=[x for x in (fups.get('itens') or []) if x.get('estado_followup')=='FOLLOWUP_PRONTO']
-auto=[x for x in fup_ready if followup_automatico(x)]
-assist=[x for x in fup_ready if not followup_automatico(x)]
-if auto: st.info(f'🤖 {len(auto)} follow-up(s) automático(s) prontos: a EDNNA executará pelo worker; nenhum clique é necessário.')
-if assist:
-    with st.expander(f'📨 Follow-ups assistidos que precisam de você · {len(assist)}',expanded=True):
-        for f in assist:
-            cid=int(f.get('chamado_id') or 0)
-            texto=st.text_area(f'#{cid} · follow-up {f.get("proximo_followup")}',f.get('texto_followup') or '',height=160,key=f'fup_{cid}_{f.get("regra_id")}_3321')
-            if st.button('Enviar follow-up',key=f'fupgo_{cid}_{f.get("regra_id")}_3321'):
-                fx=dict(f); fx['texto_followup']=texto; executar_followup(fx); st.success('Follow-up enviado.'); st.rerun()
+with st.expander('🔎 Rastrear um chamado'):
+    cid_txt=st.text_input('Número do chamado',key='trace_id_3325',placeholder='Ex.: 49286')
+    if st.button('Rastrear',key='trace_go_3325') and cid_txt.strip():
+        try:
+            diag=rastrear_descoberta_chamado(snapshot,int(cid_txt))
+            st.json(diag)
+        except Exception as exc: st.warning(f'Não foi possível rastrear: {type(exc).__name__}: {exc}')
 
-with st.expander('🔎 Rastrear um chamado',expanded=False):
-    st.caption('Diagnóstico local: mostra se o chamado entrou na fotografia e se o motor o descobriu.')
-    cid_trace=st.number_input('Número do chamado',min_value=1,step=1,value=49286,key='trace_3321')
-    if st.button('Rastrear',key='trace_go_3321'):
-        tr=rastrear_descoberta_chamado(snapshot,int(cid_trace))
-        st.json(tr)
-
-footer()
+st.caption('Segurança operacional: chamados Rejeitados, Concluídos, Cancelados ou Fechados são bloqueados por pre-flight no Redmine antes de e-mail ou follow-up.')
+footer(f'EDNNA {APP_VERSION} · Central de Operação v2 · pre-flight de estado terminal')

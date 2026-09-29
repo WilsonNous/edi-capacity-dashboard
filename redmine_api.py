@@ -528,6 +528,7 @@ def buscar_detalhes_chamado(
     incluir_anexos: bool = False,
     *,
     consulta_pontual: bool = False,
+    force_refresh: bool = False,
     timeout: int | tuple | None = None,
     tentativas: int | None = None,
 ) -> dict:
@@ -553,7 +554,7 @@ def buscar_detalhes_chamado(
     # mas ainda aproveitam cache curto quando não há indicação de force refresh.
     with _RED_DETAIL_CACHE_LOCK:
         item_cache = _RED_DETAIL_CACHE.get(chave_cache)
-        if item_cache and (agora - item_cache[0]) < _RED_DETAIL_CACHE_TTL:
+        if (not force_refresh) and item_cache and (agora - item_cache[0]) < _RED_DETAIL_CACHE_TTL:
             _GATEWAY_DIAGNOSTICO["cache_hits_detalhe"] += 1
             print(
                 f"[REDMINE-GW] detalhe cache HIT | chamado={chamado_id} | include={assinatura or '-'}",

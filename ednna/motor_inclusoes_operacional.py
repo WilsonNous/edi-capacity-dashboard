@@ -611,6 +611,18 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
             if campo in override and override.get(campo) not in (None, ""):
                 r[campo] = override.get(campo)
     cid=int(pacote.get("chamado_id") or 0); rid=str(pacote.get("regra_id") or "")
+    # v3.32.5 — barreira global: imediatamente antes de qualquer envio,
+    # confirme no Redmine que o chamado continua ativo. Snapshot/cache nunca
+    # autoriza envio para Rejeitada/Concluído/Cancelado/Fechado.
+    from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
+    preflight = preflight_chamado_ativo(cid)
+    if preflight.get("bloquear"):
+        if preflight.get("motivo") == "ESTADO_TERMINAL":
+            encerrar_acompanhamento_terminal(cid, preflight.get("estado") or "")
+        print(f"[EDNNA] Execução BLOQUEADA pre-flight | chamado={cid} | regra={rid} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+        return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo")=="ESTADO_TERMINAL" else "PREFLIGHT_INDISPONIVEL",
+                "motivo":f"Envio bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}.",
+                "preflight":preflight}
     print(f"[EDNNA] Execução solicitada | chamado={cid} | player={pacote.get('player')} | regra={rid}", flush=True)
     adquirido, estado=adquirir_envio(cid,rid)
     if not adquirido:

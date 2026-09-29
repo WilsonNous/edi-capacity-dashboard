@@ -718,6 +718,22 @@ def executar_monitoramento_respostas() -> dict:
     for acao in acoes:
         chamado_id = int(acao["chamado_id"])
         regra_id = str(acao["regra_id"])
+        # v3.32.5 — chamado terminal não é mais acompanhado pela EDNNA.
+        # O pre-flight é fresco para impedir que um Rejeitado continue recebendo
+        # monitoramento/follow-up por causa de estado local antigo.
+        try:
+            from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
+            _pf = preflight_chamado_ativo(chamado_id)
+            if _pf.get("bloquear"):
+                if _pf.get("motivo") == "ESTADO_TERMINAL":
+                    encerrar_acompanhamento_terminal(chamado_id, _pf.get("estado") or "")
+                    print(f"[EDNNA] Monitor ignorado | chamado={chamado_id} | estado_terminal={_pf.get('estado')}", flush=True)
+                else:
+                    print(f"[EDNNA] Monitor adiado | chamado={chamado_id} | preflight={_pf.get('motivo')}", flush=True)
+                continue
+        except Exception as _pf_exc:
+            print(f"[EDNNA] Monitor adiado | chamado={chamado_id} | preflight_erro={type(_pf_exc).__name__}: {_pf_exc}", flush=True)
+            continue
         try:
             conversation_id, enviado = _resolver_conversation_id(acao, caixa)
             resposta_fallback = None
