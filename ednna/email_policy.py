@@ -49,3 +49,51 @@ def aplicar_cc_cliente(para: list[str] | None, cc: list[str] | None, cliente: st
         if _EMAIL_RE.match(e) and e not in para_norm and e not in vistos:
             base.append(e); vistos.add(e)
     return base
+
+
+# Políticas específicas por player/finalidade. A política deve ser aplicada
+# antes da montagem final do pacote de e-mail; não substitui o pre-flight Redmine.
+_POLITICAS_DESTINATARIOS = {
+    ("POLICARD", "CONCILIACAO"): {
+        "para_exclusivo": ["conciliacao@upbrasil.com"],
+        "dominio_player": "upbrasil.com",
+        "emails_player_proibidos": ["grandesredesup@upbrasil.com"],
+        "fonte": "Orientação Atendimento Grande Rede UP Brasil em 14/09/2026",
+    },
+}
+
+def aplicar_politica_destinatarios(
+    player: str,
+    finalidade: str,
+    para: list[str] | None,
+    cc: list[str] | None = None,
+) -> tuple[list[str], list[str], dict]:
+    """Aplica política vigente de destinatários sem remover contatos externos do cliente.
+
+    Para políticas com ``para_exclusivo``, qualquer endereço do domínio do player
+    é removido de CC e o destinatário oficial substitui os destinatários do player.
+    Contatos do cliente e CCs institucionais Netunna permanecem permitidos.
+    """
+    chave=(str(player or '').strip().upper(), str(finalidade or '').strip().upper())
+    politica=_POLITICAS_DESTINATARIOS.get(chave)
+    para_norm=[str(x).strip().lower() for x in (para or []) if _EMAIL_RE.match(str(x).strip())]
+    cc_norm=[str(x).strip().lower() for x in (cc or []) if _EMAIL_RE.match(str(x).strip())]
+    if not politica:
+        return para_norm, cc_norm, {"aplicada": False}
+
+    dominio=str(politica.get("dominio_player") or '').lower()
+    exclusivos=[str(x).lower() for x in politica.get("para_exclusivo", [])]
+    proibidos={str(x).lower() for x in politica.get("emails_player_proibidos", [])}
+
+    # Endereços do próprio player obedecem à rota oficial. Outros domínios
+    # (cliente/Netunna) não são interpretados como proibidos por esta política.
+    para_saida=[e for e in para_norm if not (dominio and e.endswith('@'+dominio)) and e not in proibidos]
+    para_saida=exclusivos + [e for e in para_saida if e not in exclusivos]
+    cc_saida=[e for e in cc_norm if e not in proibidos and not (dominio and e.endswith('@'+dominio)) and e not in para_saida]
+    return para_saida, cc_saida, {
+        "aplicada": True,
+        "player": chave[0],
+        "finalidade": chave[1],
+        "fonte": politica.get("fonte"),
+        "removidos": sorted(set(para_norm + cc_norm) - set(para_saida + cc_saida)),
+    }

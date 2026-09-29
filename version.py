@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.34.1"
-APP_RELEASE = "Observabilidade · linguagem humana · evidências por workflow"
+APP_VERSION = "3.34.2"
+APP_RELEASE = "Políticas de comunicação · Policard/UP Brasil · governança de destinatários"

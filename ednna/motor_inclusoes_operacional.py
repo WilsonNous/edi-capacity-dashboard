@@ -264,7 +264,7 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         elif player == "VALECARD":
             destinatario = "atendimentograndesredes@valecard.com.br"
         elif player == "POLICARD":
-            destinatario = "grandesredesup@upbrasil.com"
+            destinatario = "conciliacao@upbrasil.com"
         elif player == "SICREDI" and dados.get("contato_gerente"):
             destinatario = str(dados.get("contato_gerente") or "").strip()
         if estado == "PRONTO_OPERACAO_ASSISTIDA" and "EMAIL" in str(wf.get("canal") or "") and not destinatario:
@@ -438,7 +438,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     if player == "VALECARD" and not destinatario:
         destinatario = "atendimentograndesredes@valecard.com.br"
     if player == "POLICARD" and not destinatario:
-        destinatario = "grandesredesup@upbrasil.com"
+        destinatario = "conciliacao@upbrasil.com"
     if player == "GREENCARD" and not destinatario:
         destinatario = "suporte.credenciado@grupogreencard.com.br"
     if not destinatario:
@@ -573,7 +573,11 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "Estamos à disposição para quaisquer esclarecimentos.",
         ]
         corpo=finalizar_email("\n".join(linhas))
-        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":["grandesredesup@upbrasil.com"],"cc":aplicar_cc_cliente(["grandesredesup@upbrasil.com"], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_POLICARD","status_pos_envio":"Aguardando Retorno Adquirente"}
+        from ednna.email_policy import aplicar_politica_destinatarios
+        _base_para=["conciliacao@upbrasil.com"]
+        _base_cc=aplicar_cc_cliente(_base_para, [], cliente)
+        _policard_para, _policard_cc, _policard_policy = aplicar_politica_destinatarios("POLICARD", "CONCILIACAO", _base_para, _base_cc)
+        return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":_policard_para,"cc":_policard_cc,"politica_destinatarios":_policard_policy,"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"SOLICITAR_INCLUSAO_POLICARD","status_pos_envio":"Aguardando Retorno Adquirente"}
 
     if player == "VEROCHEQUE":
         # Procedimento operacional confirmado pela Verocheque: modelo fixo de
