@@ -26,12 +26,26 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     Falha de consulta é bloqueio seguro: não enviar com estado desconhecido.
     """
     from redmine_api import buscar_detalhes_chamado
+    from painel_cache import circuit_breaker_ativo
+    from ednna.observabilidade import log_event
+
+    # v3.34.3 — o pre-flight continua fail-safe, mas não fura o circuit breaker.
+    # Se a origem está em cooldown, bloquear é mais seguro do que criar uma tempestade
+    # de probes concorrentes que prolonga a indisponibilidade do Redmine.
+    if circuit_breaker_ativo():
+        registrar_auditoria_preflight(chamado_id, "BLOQUEADO", "", "REDMINE_CIRCUIT_BREAKER_ATIVO")
+        log_event("SEGURANCA", "Pre-flight bloqueado: Redmine em cooldown", nivel="BLOCKED",
+                  chamado_id=chamado_id, detalhe="circuit_breaker=ABERTO", dedup_seconds=120)
+        return {"ok":False,"bloquear":True,"motivo":"REDMINE_CIRCUIT_BREAKER_ATIVO",
+                "erro":"Circuit breaker global do Redmine ativo.","estado":""}
     try:
         issue=buscar_detalhes_chamado(
-            int(chamado_id), consulta_pontual=True, force_refresh=True, timeout=(8,20), tentativas=2
+            int(chamado_id), consulta_pontual=False, force_refresh=True, timeout=(8,20), tentativas=2
         )
     except Exception as exc:
         registrar_auditoria_preflight(chamado_id, "BLOQUEADO", "", "REDMINE_PREFLIGHT_INDISPONIVEL")
+        log_event("SEGURANCA", "Pre-flight bloqueado: Redmine indisponível", nivel="BLOCKED",
+                  chamado_id=chamado_id, detalhe=f"{type(exc).__name__}: {exc}", dedup_seconds=120)
         return {"ok":False,"bloquear":True,"motivo":"REDMINE_PREFLIGHT_INDISPONIVEL",
                 "erro":f"{type(exc).__name__}: {exc}","estado":""}
     if not issue:
@@ -41,6 +55,8 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     if estado_terminal_nome(estado):
         resultado={"ok":True,"bloquear":True,"motivo":"ESTADO_TERMINAL","estado":estado,"issue":issue}
         registrar_auditoria_preflight(chamado_id, "BLOQUEADO", estado, "ESTADO_TERMINAL")
+        log_event("SEGURANCA", "Pre-flight bloqueado: estado terminal", nivel="BLOCKED",
+                  chamado_id=chamado_id, detalhe=f"estado={estado}", dedup_seconds=300)
         return resultado
     registrar_auditoria_preflight(chamado_id, "LIBERADO", estado, "ATIVO")
     return {"ok":True,"bloquear":False,"motivo":"ATIVO","estado":estado,"issue":issue}

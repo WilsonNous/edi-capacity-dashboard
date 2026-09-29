@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +10,7 @@ DB = ROOT / "data" / "ednna_observabilidade.db"
 
 
 def log_event(categoria: str, evento: str, *, nivel: str = "INFO", chamado_id: int | None = None,
-              regra_id: str = "", player: str = "", detalhe: str = "") -> None:
+              regra_id: str = "", player: str = "", detalhe: str = "", dedup_seconds: int = 0) -> None:
     try:
         DB.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(DB, timeout=5) as con:
@@ -27,8 +27,18 @@ def log_event(categoria: str, evento: str, *, nivel: str = "INFO", chamado_id: i
             )""")
             con.execute("CREATE INDEX IF NOT EXISTS idx_obs_created ON eventos(created_at DESC)")
             con.execute("CREATE INDEX IF NOT EXISTS idx_obs_chamado ON eventos(chamado_id)")
+            agora = datetime.now(timezone.utc)
+            if int(dedup_seconds or 0) > 0:
+                desde = (agora - timedelta(seconds=int(dedup_seconds))).isoformat()
+                existe = con.execute(
+                    """SELECT 1 FROM eventos WHERE created_at>=? AND categoria=? AND evento=?
+                       AND COALESCE(chamado_id,0)=? AND COALESCE(regra_id,'')=? AND COALESCE(player,'')=? LIMIT 1""",
+                    (desde, str(categoria), str(evento), int(chamado_id or 0), str(regra_id or ''), str(player or ''))
+                ).fetchone()
+                if existe:
+                    return
             con.execute("INSERT INTO eventos(created_at,nivel,categoria,evento,chamado_id,regra_id,player,detalhe) VALUES(?,?,?,?,?,?,?,?)",
-                        (datetime.now(timezone.utc).isoformat(), str(nivel).upper(), str(categoria), str(evento),
+                        (agora.isoformat(), str(nivel).upper(), str(categoria), str(evento),
                          int(chamado_id) if chamado_id else None, str(regra_id or ''), str(player or ''), str(detalhe or '')[:4000]))
     except Exception:
         pass

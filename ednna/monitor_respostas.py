@@ -761,6 +761,12 @@ def executar_monitoramento_respostas() -> dict:
                     print(f"[EDNNA] Monitor ignorado | chamado={chamado_id} | estado_terminal={_pf.get('estado')}", flush=True)
                 else:
                     print(f"[EDNNA] Monitor adiado | chamado={chamado_id} | preflight={_pf.get('motivo')}", flush=True)
+                    try:
+                        from ednna.observabilidade import log_event
+                        log_event("REDMINE", "Monitor adiado pelo pre-flight", nivel="WARNING", chamado_id=chamado_id,
+                                  regra_id=regra_id, detalhe=f"preflight={_pf.get('motivo')}", dedup_seconds=120)
+                    except Exception:
+                        pass
                 continue
         except Exception as _pf_exc:
             print(f"[EDNNA] Monitor adiado | chamado={chamado_id} | preflight_erro={type(_pf_exc).__name__}: {_pf_exc}", flush=True)

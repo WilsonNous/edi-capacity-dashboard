@@ -177,6 +177,13 @@ def executar_acoes_automaticas(
             resumo["detalhes"].append({"chamado":chamado_id,"regra":regra_id,"etapa":"PREFLIGHT",
                 "resultado":preflight.get("motivo"),"estado":preflight.get("estado")})
             print(f"[EDNNA] Executor automático BLOQUEADO | chamado={chamado_id} | regra={regra_id} | preflight={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+            try:
+                from ednna.observabilidade import log_event
+                log_event("EXECUCAO", "Executor automático bloqueado", nivel="BLOCKED", chamado_id=chamado_id,
+                          regra_id=regra_id, detalhe=f"preflight={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}",
+                          dedup_seconds=120)
+            except Exception:
+                pass
             continue
 
         adquirido, estado_lock = adquirir_envio(

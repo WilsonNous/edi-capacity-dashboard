@@ -35,7 +35,7 @@ eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
                          chamado_id=chamado, busca=busca.strip())
 
 if not eventos:
-    st.info('Ainda não há eventos estruturados para este filtro. A coleta da 3.34.1 começa a partir da implantação desta versão.')
+    st.info('Ainda não há eventos estruturados para este filtro. Os eventos são persistidos a partir das atuações executadas pela EDNNA.')
 else:
     df = pd.DataFrame(eventos)
     dt = pd.to_datetime(df['created_at'], utc=True, errors='coerce').dt.tz_convert('America/Sao_Paulo')
