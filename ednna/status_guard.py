@@ -85,17 +85,43 @@ def validar_efeito_externo(chamado_id: int, acao: str) -> dict:
     return resultado
 
 def encerrar_acompanhamento_terminal(chamado_id: int, estado_redmine: str="") -> None:
-    """Retira chamado terminal das filas de acompanhamento/follow-up sem apagar auditoria."""
+    """Quarentena operacional de chamado terminal, preservando somente histórico/auditoria.
+
+    O registro pode permanecer no SQLite como memória histórica, mas deixa de ser
+    elegível para monitor, follow-up, outbox/reconciliação e qualquer nova execução.
+    """
     try:
         from ednna.acompanhamento_acoes import _conectar, _iso, _agora, inicializar_acompanhamento
         inicializar_acompanhamento()
+        agora = _iso(_agora())
+        estado = str(estado_redmine or "não ativo")
         with _conectar() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS chamados_terminais_auditoria (
+                chamado_id INTEGER PRIMARY KEY, estado_redmine TEXT NOT NULL,
+                detectado_em TEXT NOT NULL, motivo TEXT NOT NULL
+            )""")
+            conn.execute("""INSERT INTO chamados_terminais_auditoria(chamado_id,estado_redmine,detectado_em,motivo)
+                VALUES(?,?,?,?)
+                ON CONFLICT(chamado_id) DO UPDATE SET estado_redmine=excluded.estado_redmine,
+                    detectado_em=excluded.detectado_em, motivo=excluded.motivo""",
+                (int(chamado_id), estado, agora, "ESTADO_TERMINAL_REDMINE"))
             conn.execute("""UPDATE acoes_operacionais
                 SET estado='IGNORADO_ESTADO_TERMINAL',
                     prazo_resposta_em=NULL,
+                    redmine_pendente_nota=NULL,
+                    redmine_pendente_status=NULL,
+                    redmine_pendente_assigned_to_id=NULL,
+                    redmine_erro=NULL,
                     observacao=?,
                     atualizado_em=?
-                WHERE chamado_id=? AND estado NOT IN ('RESPOSTA_RECEBIDA','CONCLUIDO')""",
-                (f"Redmine em estado terminal: {estado_redmine or 'não ativo'}", _iso(_agora()), int(chamado_id)))
+                WHERE chamado_id=?""",
+                (f"Somente histórico — Redmine em estado terminal: {estado}", agora, int(chamado_id)))
+        try:
+            from ednna.observabilidade import log_event
+            log_event("SEGURANCA", "Chamado terminal retirado das filas operacionais", nivel="BLOCKED",
+                      chamado_id=int(chamado_id), detalhe=f"estado={estado}", dedup_seconds=300)
+        except Exception:
+            pass
+        print(f"[EDNNA] Estado terminal | quarentena operacional | chamado={chamado_id} | estado={estado}", flush=True)
     except Exception as exc:
         print(f"[EDNNA] Estado terminal | limpeza acompanhamento falhou | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)

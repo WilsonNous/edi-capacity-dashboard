@@ -631,6 +631,7 @@ def listar_redmine_pendentes() -> list[dict]:
             """SELECT * FROM acoes_operacionais
                 WHERE enviado_em IS NOT NULL AND redmine_atualizado_em IS NULL
                   AND COALESCE(redmine_pendente_nota,'') <> ''
+                  AND estado <> 'IGNORADO_ESTADO_TERMINAL'
                 ORDER BY enviado_em ASC"""
         ).fetchall()
     return [dict(x) for x in rows]
@@ -666,6 +667,7 @@ def listar_acoes_aguardando_resposta() -> list[dict]:
               FROM acoes_operacionais
              WHERE estado IN ('AGUARDANDO_RESPOSTA', 'PRAZO_VENCIDO')
                AND enviado_em IS NOT NULL
+               AND estado <> 'IGNORADO_ESTADO_TERMINAL'
              ORDER BY enviado_em ASC
             """
         ).fetchall()

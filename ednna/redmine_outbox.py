@@ -112,6 +112,16 @@ def reconstruir_historico_sent_items(*, chamado_id:int, regra_id:str, status_nom
 
 def _reconciliar_item(item: dict) -> dict:
     cid=int(item.get('chamado_id') or 0); rid=str(item.get('regra_id') or '')
+    # v3.34.4 — reconciliação também é efeito externo. Antes de consultar Sent Items
+    # ou tentar qualquer PUT/journal, confirmar que o chamado ainda é operacional.
+    from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
+    preflight = preflight_chamado_ativo(cid)
+    if preflight.get('bloquear'):
+        if preflight.get('motivo') == 'ESTADO_TERMINAL':
+            encerrar_acompanhamento_terminal(cid, preflight.get('estado') or '')
+            return {"ok":True,"ignorado":True,"terminal":True,"chamado_id":cid,
+                    "estado":preflight.get('estado') or '',"motivo":"ESTADO_TERMINAL"}
+        raise RuntimeError(f"Reconciliação bloqueada pelo pre-flight: {preflight.get('motivo')}")
     status=str(item.get('redmine_pendente_status') or item.get('redmine_status_nome') or 'Aguardando Retorno Cliente')
     assigned=item.get('redmine_pendente_assigned_to_id')
     # Para pendências de e-mails já enviados, prioriza a fonte da verdade: Sent Items.
@@ -141,7 +151,10 @@ def reconciliar_redmine_pendentes(limite:int=10) -> dict:
     for item in itens:
         cid=int(item.get('chamado_id') or 0); rid=str(item.get('regra_id') or '')
         try:
-            _reconciliar_item(item); ok.append(cid)
+            resultado=_reconciliar_item(item)
+            if resultado.get('terminal'):
+                continue
+            ok.append(cid)
         except Exception as exc:
             agendar_redmine_pendente(cid,rid,nota=str(item.get('redmine_pendente_nota') or ''),status_nome=str(item.get('redmine_pendente_status') or ''),assigned_to_id=item.get('redmine_pendente_assigned_to_id'),erro=f"{type(exc).__name__}: {exc}")
             pend.append(cid)

@@ -927,3 +927,11 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Remove `grandesredesup@upbrasil.com` e outros endereços `@upbrasil.com` do CC das demandas de conciliação, preservando contatos do cliente e CCs institucionais Netunna.
 - Centraliza a política por player/finalidade em `email_policy.py`, preparando reutilização por inclusão, falta de arquivo e falta de registros.
 - Workflow declarativo POLICARD passa a expor a política vigente na Central de Regras.
+
+## 3.34.4 — Quarentena global de chamados terminais
+- Chamados Redmine em estados comprovadamente terminais (Rejeitada/Rejeitado, Concluído/Concluída, Cancelado/Cancelada e Fechado/Fechada) permanecem somente como histórico/auditoria no SQLite.
+- Ao detectar estado terminal, a EDNNA remove prazo, follow-up e pendências de outbox/reconciliação e marca a ação como `IGNORADO_ESTADO_TERMINAL`.
+- Reconciliação Redmine agora executa pre-flight fresco antes de Sent Items/journal/PUT; chamado terminal não é reconciliado nem reativado.
+- Consultas de follow-up e outbox excluem registros em quarentena operacional.
+- Auditoria dedicada `chamados_terminais_auditoria` registra a retirada operacional sem apagar evidências históricas.
+- Caso de regressão de referência: #47173 (Rejeitado) não pode voltar a monitoramento, follow-up, reconciliação ou execução.
