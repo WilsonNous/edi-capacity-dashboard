@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.34.2"
-APP_RELEASE = "Políticas de comunicação · Policard/UP Brasil · governança de destinatários"
+APP_VERSION = "3.34.3"
+APP_RELEASE = "Redmine protegido · circuit breaker efetivo · observabilidade operacional"

@@ -125,6 +125,11 @@ def _get(
     """
     if painel_circuit_breaker_ativo() and not ignorar_circuit_breaker_global:
         print(f"[REDMINE] Circuit breaker global ativo | {path} não consultado", flush=True)
+        try:
+            from ednna.observabilidade import log_event
+            log_event("REDMINE", "Circuit breaker ativo", nivel="WARNING", detalhe=f"path={path}", dedup_seconds=120)
+        except Exception:
+            pass
         raise ConnectionError("Circuit breaker global do Redmine ativo.")
     if painel_circuit_breaker_ativo() and ignorar_circuit_breaker_global:
         print(f"[REDMINE] Consulta pontual autorizada apesar do circuit breaker | {path}", flush=True)
@@ -202,6 +207,12 @@ def _get(
                         cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
                         detalhes=f"{type(exc).__name__}: {exc}",
                     )
+                    try:
+                        from ednna.observabilidade import log_event
+                        log_event("REDMINE", "Redmine indisponível; circuit breaker aberto", nivel="ERROR",
+                                  detalhe=f"path={path} | {type(exc).__name__}: {exc}", dedup_seconds=120)
+                    except Exception:
+                        pass
                 raise
 
         except requests.exceptions.HTTPError as exc:
