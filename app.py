@@ -11,6 +11,7 @@ from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanha
 from ednna.redmine_outbox import reconciliar_redmine_chamado
 from ednna.aprendizado_operacional import garantir_greencard_pronta
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
+from ednna.security import current_user, role_label, audit
 
 # v3.32.1 — a Home também garante o worker. A função é idempotente por processo.
 iniciar_monitor_respostas_background()
@@ -29,6 +30,16 @@ st.set_page_config(
     page_icon=str(FAVICON if FAVICON.exists() else AVATAR) if AVATAR.exists() else '✨',
     layout='wide', initial_sidebar_state='collapsed'
 )
+
+user = current_user()
+if not user.authenticated:
+    audit('ACCESS_BLOCKED', 'Home sem identidade Easy Auth', user)
+    st.error('Acesso não autenticado. Entre novamente com sua conta corporativa Netunna.')
+    st.stop()
+if user.role == 'BLOCKED':
+    audit('ACCESS_DENIED', 'Domínio não autorizado', user)
+    st.error('Esta conta não está autorizada a acessar a EDNNA.')
+    st.stop()
 
 st.markdown('''<style>
 [data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}
@@ -66,7 +77,7 @@ if r['revisao'] > 0: state_label='Atenção · decisão pendente'
 elif r['aprendendo'] > 0: state_label='Analisando a operação'
 else: state_label='Operação acompanhada'
 
-st.markdown('<div class="topbar"><div><div class="brand-main">EDNNA · NETUNNA</div><div class="brand-sub">Inteligência Operacional EDI</div></div><div class="status"><span class="status-dot"></span> Operando</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="topbar"><div><div class="brand-main">EDNNA · NETUNNA</div><div class="brand-sub">Inteligência Operacional EDI</div></div><div style="text-align:right"><div class="status"><span class="status-dot"></span> Operando</div><div style="font-size:.68rem;color:#6f84a2;margin-top:4px">{html.escape(user.email)} · {html.escape(role_label(user.role))}</div></div></div>', unsafe_allow_html=True)
 
 hero = st.container(key='hero_shell')
 with hero:
@@ -149,43 +160,64 @@ st.markdown('</div>', unsafe_allow_html=True)
 # v3.29.1 — Home intencionalmente leve.
 # Operação, regras e conhecimento possuem telas próprias; a Home não executa
 # motores nem consulta serviços externos ao ser aberta ou ao retornar de outra página.
-st.markdown(
-    '<div class="section-shell"><div class="module-title">Acesso rápido</div>'
-    '<div class="module-sub">A Home abre com o último snapshot local. Escolha o assunto; dados externos são atualizados somente dentro do módulo correspondente.</div>',
-    unsafe_allow_html=True,
-)
-nav_rows = [
-    [
-        ('🦾  Operação de hoje','pages/Operacao.py'),
-        ('🧠  Central de Regras','pages/Regras.py'),
-        ('🧩  Ensinar regra','pages/Construtor_Regras.py'),
-        ('📚  Conhecimento do cliente','pages/Conhecimento.py'),
-        ('📥  Atendimentos','pages/Atendimentos.py'),
-    ],
-    [
-        ('🔬  Aprendizado','pages/Aprendizado.py'),
-        ('⚡  Automações','pages/Automacoes.py'),
-        ('👥  Equipe e capacidade','pages/Equipe.py'),
-        ('📊  Painel EDI','pages/Painel_EDI.py'),
-    ],
-]
-for linha in nav_rows:
-    cols = st.columns(len(linha))
-    for col,(label,page) in zip(cols,linha):
-        with col:
-            if st.button(label,width='stretch',key=f'nav_{page}'):
-                if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
-                st.switch_page(page)
-st.markdown('</div>', unsafe_allow_html=True)
+# Acesso e visão operacional respeitam o perfil resolvido pelo Easy Auth.
+if user.is_viewer:
+    try:
+        _aguardando = listar_acoes_aguardando_resposta()
+    except Exception:
+        _aguardando = []
+    try:
+        _fups = avaliar_followups()
+    except Exception:
+        _fups = {'total': 0, 'prontos': 0, 'itens': []}
+    _ativos = set(int(v) for v in df.get('id', pd.Series(dtype=int)).dropna().tolist()) if not df.empty else set()
+    _aguardando = [a for a in _aguardando if int(a.get('chamado_id') or 0) in _ativos]
+    _fup_itens = [x for x in (_fups.get('itens') or []) if int(x.get('chamado_id') or 0) in _ativos]
+    _vencidos = sum(1 for x in _fup_itens if bool(x.get('vencido')) or str(x.get('situacao') or '').lower().startswith('atras'))
+    _ops = [
+        ('Preciso de você', int(r.get('revisao', 0) or 0), 'decisões humanas identificadas'),
+        ('Estou cuidando', int(trabalho.get('acompanhando', 0) or 0), 'chamados acompanhados pela EDNNA'),
+        ('Fiz / acompanhei', int(trabalho.get('atuacoes', 0) or 0), 'atuações registradas'),
+        ('Acompanhamentos', len(_aguardando), f'{_vencidos} com atenção de prazo'),
+    ]
+    _cards=''.join(f'<div class="person"><div class="pname">{html.escape(lbl)}</div><div class="pnum">{num}</div><div class="pnote">{html.escape(note)}</div></div>' for lbl,num,note in _ops)
+    st.markdown('<div class="section-shell"><div class="section-title">🦾 Resumo da Central de Operações</div><div class="section-sub">Visão executiva somente leitura. Ações operacionais e configurações permanecem restritas à equipe autorizada.</div><div class="people-grid">'+_cards+'</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-shell"><div class="module-title">Acesso de visualização</div><div class="module-sub">Seu perfil pode acompanhar os indicadores gerais da EDNNA. Não há comandos de execução, alteração de regras ou acesso aos módulos operacionais.</div></div>', unsafe_allow_html=True)
+else:
+    st.markdown(
+        '<div class="section-shell"><div class="module-title">Acesso rápido</div>'
+        '<div class="module-sub">A Home abre com o último snapshot local. Escolha o assunto; dados externos são atualizados somente dentro do módulo correspondente.</div>',
+        unsafe_allow_html=True,
+    )
+    if user.is_admin:
+        nav_rows = [
+            [('🦾  Operação de hoje','pages/Operacao.py'),('🧠  Central de Regras','pages/Regras.py'),('🧩  Ensinar regra','pages/Construtor_Regras.py'),('📚  Conhecimento do cliente','pages/Conhecimento.py'),('📥  Atendimentos','pages/Atendimentos.py')],
+            [('🔬  Aprendizado','pages/Aprendizado.py'),('⚡  Automações','pages/Automacoes.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
+        ]
+    else:
+        nav_rows = [
+            [('🦾  Operação de hoje','pages/Operacao.py'),('📚  Conhecimento do cliente','pages/Conhecimento.py'),('📥  Atendimentos','pages/Atendimentos.py')],
+            [('⚡  Automações','pages/Automacoes.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
+        ]
+    for linha in nav_rows:
+        cols = st.columns(len(linha))
+        for col,(label,page) in zip(cols,linha):
+            with col:
+                if st.button(label,width='stretch',key=f'nav_{page}'):
+                    if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
+                    st.switch_page(page)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown(
-    '<div class="section-shell"><div class="module-title">Como a EDNNA carrega</div>'
-    '<div class="module-sub">Interface primeiro, dados depois — sem bloquear a navegação.</div>'
-    '<div class="insight-grid">'
-    '<div class="insight"><b>1 · Imediato</b>Home e navegação usam SQLite/cache local.</div>'
-    '<div class="insight"><b>2 · Sob demanda</b>Cada módulo calcula apenas o que precisa.</div>'
-    '<div class="insight"><b>3 · Segundo plano</b>Redmine e demais fontes atualizam snapshots sem travar a Home.</div>'
-    '</div></div>',
-    unsafe_allow_html=True,
-)
+if user.is_edi:
+    st.markdown(
+        '<div class="section-shell"><div class="module-title">Como a EDNNA carrega</div>'
+        '<div class="module-sub">Interface primeiro, dados depois — sem bloquear a navegação.</div>'
+        '<div class="insight-grid">'
+        '<div class="insight"><b>1 · Imediato</b>Home e navegação usam SQLite/cache local.</div>'
+        '<div class="insight"><b>2 · Sob demanda</b>Cada módulo calcula apenas o que precisa.</div>'
+        '<div class="insight"><b>3 · Segundo plano</b>Redmine e demais fontes atualizam snapshots sem travar a Home.</div>'
+        '</div></div>',
+        unsafe_allow_html=True,
+    )
+
 st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · Netunna &nbsp;&nbsp;|&nbsp;&nbsp; Inteligência que trabalha com você.</div>', unsafe_allow_html=True)
