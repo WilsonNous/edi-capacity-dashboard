@@ -432,6 +432,8 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         destinatario = "atendimentograndesredes@valecard.com.br"
     if player == "POLICARD" and not destinatario:
         destinatario = "grandesredesup@upbrasil.com"
+    if player == "GREENCARD" and not destinatario:
+        destinatario = "suporte.credenciado@grupogreencard.com.br"
     if not destinatario:
         return {"ok": False, "motivo": "Destinatário não confirmado."}
     cliente=str(pacote.get("cliente") or "Cliente")
@@ -439,6 +441,32 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
     ecs=[str(x) for x in (pacote.get("estabelecimentos") or []) if str(x).strip()]
     cnpjs=[str(x) for x in (pacote.get("cnpjs") or []) if str(x).strip()]
     matriz=str(pacote.get("cnpj_matriz") or "").strip()
+
+    if player == "GREENCARD":
+        destinatario = "suporte.credenciado@grupogreencard.com.br"
+        assunto=f"[GREENCARD - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
+        linhas=[
+            "Olá, Time Greencard!", "",
+            "Por gentileza, solicitamos a inclusão de estabelecimento no tráfego de dados EDI para nosso cliente abaixo detalhado.", "",
+            f"Cliente: {cliente}",
+        ]
+        if cnpjs:
+            linhas.append("CNPJ(s): " + "; ".join(cnpjs))
+        if ecs:
+            linhas.append("Estabelecimento(s) / EC(s) solicitado(s): " + "; ".join(ecs))
+        linhas += [
+            "",
+            "Os arquivos deverão ser disponibilizados na CAIXA POSTAL NETUNNA junto à Greencard.", "",
+            "Agradecemos e ficamos à disposição para quaisquer esclarecimentos.", "",
+            "Atenciosamente,", "Equipe EDI Netunna", "",
+            "Mensagem operacional preparada e acompanhada pela EDNNA — Automação EDI Netunna."
+        ]
+        return {
+            "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
+            "para":[destinatario],"cc":aplicar_cc_cliente([destinatario], [], cliente),
+            "assunto":assunto,"corpo":"\n".join(linhas),"prazo_resposta_dias_uteis":2,
+            "tipo_acao":"SOLICITAR_INCLUSAO_GREENCARD","status_pos_envio":"Aguardando Retorno Adquirente"
+        }
 
     if player == "VR BENEFICIOS":
         # O cliente é quem realiza a habilitação no Portal VR. A EDNNA somente
@@ -620,8 +648,14 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
         if pacote.get("player") in {"GREENCARD", "ROTACARD"}:
             try:
                 from ednna.greencard_workflow import registrar_estado, registrar_movimentacao_bp
-                registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
-                bp_res=registrar_movimentacao_bp(pacote, f"Chamado #{cid}: formulário {pacote.get('player')} pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE.")
+                if pacote.get("player") == "GREENCARD":
+                    registrar_estado(pacote, "AGUARDANDO_GREENCARD", assunto=r.get("assunto"), ec_solicitado=list(pacote.get("estabelecimentos") or []))
+                    bp_msg=(f"Chamado #{cid}: solicitação de inclusão de estabelecimento enviada diretamente ao Suporte Credenciado Greencard. "
+                            "Arquivos solicitados para a CAIXA POSTAL NETUNNA. Estado EDNNA: AGUARDANDO_GREENCARD.")
+                else:
+                    registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
+                    bp_msg=f"Chamado #{cid}: formulário ROTACARD pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE."
+                bp_res=registrar_movimentacao_bp(pacote, bp_msg)
                 print(f"[EDNNA] {pacote.get('player')} | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
             except Exception as gc_exc:
                 print(f"[EDNNA] {pacote.get('player')} | persistência/BP pendente | chamado={cid} | {type(gc_exc).__name__}: {gc_exc}", flush=True)

@@ -584,13 +584,11 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
 
 
 def garantir_greencard_pronta() -> dict:
-    """v3.31.1 — deixa GREENCARD pronta em modo ASSISTIDA.
+    """v3.32.4 — mantém a inclusão GREENCARD homologada no procedimento direto.
 
-    Migração idempotente e específica, solicitada pela operação. Não dispara
-    e-mail nem executa o workflow. Apenas garante o patrimônio da regra, sua
-    homologação e a autorização assistida. A promoção para AUTOMATICA continua
-    sendo uma decisão explícita posterior, pois o fluxo envolve documento
-    assinado e validação humana.
+    O caso histórico #46968 confirmou que inclusão simples de EC não exige termo:
+    a EDNNA envia diretamente ao Suporte Credenciado Greencard. A autorização
+    automática é aplicada pela migração desta versão conforme aprovação operacional.
     """
     regra_id = "INCLUSAO-GREENCARD-001"
     agora = agora_brasil_iso()
@@ -618,9 +616,19 @@ def garantir_greencard_pronta() -> dict:
                 (regra_id,"GREENCARD","INCLUSAO","REGRA_PRONTA",100,json.dumps(payload,ensure_ascii=False),agora))
     rev = obter_revisao(regra_id)
     if rev.get("estado") != "HOMOLOGADA":
-        salvar_revisao_assistida(regra_id, observacoes="Procedimento Greencard homologado: preencher formulário com Base de Conhecimento, enviar ao cliente para complemento/assinatura, validar retorno, encaminhar à Greencard, acompanhar arquivos e registrar movimentação no BP principal.", revisado_por="MIGRACAO_EDNNA_3_31_1")
-        homologar_regra_assistida(regra_id, revisado_por="MIGRACAO_EDNNA_3_31_1")
-    aut = obter_autorizacao_motor(regra_id)
-    if str(aut.get("modo") or "BLOQUEADA").upper() == "BLOQUEADA":
-        autorizar_regra_motor(regra_id, modo="ASSISTIDA", autorizado_por="MIGRACAO_EDNNA_3_31_1", observacoes="Greencard pronta para operação assistida; promoção automática permanece decisão explícita.")
+        salvar_revisao_assistida(regra_id, destinatario_confirmado="suporte.credenciado@grupogreencard.com.br", observacoes="Inclusão Greencard homologada pelo caso #46968: enviar diretamente a suporte.credenciado@grupogreencard.com.br com cliente, CNPJ e EC; solicitar arquivos na CAIXA POSTAL NETUNNA; contatos do cliente via Blueprint entram em CC; acompanhar retorno e arquivos.", revisado_por="MIGRACAO_EDNNA_3_32_4")
+        homologar_regra_assistida(regra_id, revisado_por="MIGRACAO_EDNNA_3_32_4")
+    # Promoção automática é migração de uma única execução. Depois disso, uma
+    # decisão posterior do operador (ASSISTIDA/BLOQUEADA) não pode ser desfeita
+    # silenciosamente a cada restart da aplicação.
+    migracao_id = "3.32.4-GREENCARD-INCLUSAO-DIRETA-AUTOMATICA"
+    with conectar() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS migracoes_ednna (migracao_id TEXT PRIMARY KEY, aplicada_em TEXT NOT NULL)")
+        aplicada = conn.execute("SELECT 1 FROM migracoes_ednna WHERE migracao_id=?", (migracao_id,)).fetchone()
+    if not aplicada:
+        aut = obter_autorizacao_motor(regra_id)
+        if str(aut.get("modo") or "BLOQUEADA").upper() != "AUTOMATICA":
+            autorizar_regra_motor(regra_id, modo="AUTOMATICA", autorizado_por="MIGRACAO_EDNNA_3_32_4", observacoes="Inclusão Greencard autorizada para execução automática após homologação do procedimento real #46968. Abertura de relacionamento permanece fluxo separado.")
+        with conectar() as conn:
+            conn.execute("INSERT OR IGNORE INTO migracoes_ednna(migracao_id,aplicada_em) VALUES(?,?)", (migracao_id, agora_brasil_iso()))
     return {"regra_id": regra_id, "revisao": obter_revisao(regra_id), "autorizacao": obter_autorizacao_motor(regra_id)}
