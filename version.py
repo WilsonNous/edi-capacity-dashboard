@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.34.0"
-APP_RELEASE = "Segurança corporativa · Entra ID e RBAC"
+APP_VERSION = "3.34.1"
+APP_RELEASE = "Observabilidade · linguagem humana · evidências por workflow"

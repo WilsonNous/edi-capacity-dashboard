@@ -4,6 +4,8 @@ import html
 import pandas as pd
 import streamlit as st
 from version import APP_VERSION
+from ednna.security import current_user, display_name
+from ednna.linguagem import quantidade, verbo
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
@@ -75,8 +77,10 @@ for a in aguardando:
         except Exception: pass
 
 cuidando_total=len(aguardando)+len(historico_auto)+len(redmine_auto)
-st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, Will. "
-            f"Preciso de você em **{len(preciso)}** situação(ões). Estou cuidando de **{cuidando_total}** chamado(s).")
+usuario = current_user()
+nome_usuario = display_name(usuario) or 'você'
+st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, {nome_usuario}. "
+            f"Preciso de você em **{quantidade(len(preciso), 'situação', 'situações')}**. Estou cuidando de **{quantidade(cuidando_total, 'chamado')}**.")
 
 c1,c2,c3,c4=st.columns(4)
 c1.metric('🔴 Você',len(preciso),help='Somente decisões ou ações que a EDNNA não pode tomar sozinha.')
@@ -85,7 +89,7 @@ c3.metric('🤖 Realizado',len(recentes),help='Atuações persistidas recentemen
 c4.metric('⚠️ Exceções',len(falhas),help='Situações em que a automação realmente travou.')
 
 if atrasados:
-    st.warning(f'⏱️ {len(atrasados)} acompanhamento(s) estão com prazo vencido. Eles continuam sendo responsabilidade da EDNNA; acompanhe em **Estou cuidando → Atrasados**.')
+    st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com prazo vencido. Eles continuam sendo responsabilidade da EDNNA; acompanhe em **Estou cuidando → Atrasados**.")
 
 tab_voce,tab_ednna,tab_feito,tab_exc=st.tabs([
     f'🔴 Preciso de você · {len(preciso)}',
@@ -137,9 +141,9 @@ with tab_ednna:
     filtro=st.segmented_control('Mostrar', ['Todos','No prazo','Atrasados','Redmine','Histórico'], default='Todos', key='filtro_cuidando_3325')
     busca=st.text_input('🔎 Buscar acompanhamento',key='busca_cuidando_3325',placeholder='Chamado, cliente ou player')
     if redmine_auto and filtro in ('Todos','Redmine'):
-        st.info(f'🔄 **{len(redmine_auto)}** atualização(ões) de Redmine em reconciliação automática.')
+        st.info(f"🔄 **{quantidade(len(redmine_auto), 'atualização', 'atualizações')}** {verbo(len(redmine_auto), 'está', 'estão')} em reconciliação automática.")
     if historico_auto and filtro in ('Todos','Histórico'):
-        st.info(f'🧠 **{len(historico_auto)}** chamado(s) com histórico sendo sincronizado automaticamente.')
+        st.info(f"🧠 **{quantidade(len(historico_auto), 'chamado')}** {verbo(len(historico_auto), 'está', 'estão')} com histórico sendo sincronizado automaticamente.")
     linhas=[]
     for a in aguardando:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{})

@@ -11,7 +11,7 @@ from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanha
 from ednna.redmine_outbox import reconciliar_redmine_chamado
 from ednna.aprendizado_operacional import garantir_greencard_pronta
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
-from ednna.security import current_user, role_label, audit
+from ednna.security import current_user, role_label, audit, display_name
 
 # v3.32.1 — a Home também garante o worker. A função é idempotente por processo.
 iniciar_monitor_respostas_background()
@@ -88,7 +88,7 @@ with avcol:
         st.image(str(AVATAR), width='stretch')
         st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
 with copycol:
-    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas. <b>{trabalho['regras_automaticas']}</b> já estão autorizadas para atuação automática.</div></div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá, {html.escape(display_name(user) or "você")}! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas. <b>{trabalho['regras_automaticas']}</b> já estão autorizadas para atuação automática.</div></div>''', unsafe_allow_html=True)
     # v3.30.0 — Leitura operacional: só mostra situação, trabalho da EDNNA e decisão humana.
     # Não mistura mais concentração por responsável/capacidade com a leitura principal.
     pct_terceiros = round(r['terceiros']/r['total']*100) if r['total'] else 0
@@ -192,7 +192,7 @@ else:
     if user.is_admin:
         nav_rows = [
             [('🦾  Operação de hoje','pages/Operacao.py'),('🧠  Central de Regras','pages/Regras.py'),('🧩  Ensinar regra','pages/Construtor_Regras.py'),('📚  Conhecimento do cliente','pages/Conhecimento.py'),('📥  Atendimentos','pages/Atendimentos.py')],
-            [('🔬  Aprendizado','pages/Aprendizado.py'),('⚡  Automações','pages/Automacoes.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
+            [('🔬  Aprendizado','pages/Aprendizado.py'),('⚡  Automações','pages/Automacoes.py'),('📡  Observabilidade','pages/Observabilidade.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
         ]
     else:
         nav_rows = [

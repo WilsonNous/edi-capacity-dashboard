@@ -141,23 +141,36 @@ def _nota_retorno(*, remetente: str, assunto: str, corpo: str, recebida_em: str)
 
 
 
-def _nome_evidencia(chamado_id: int, recebida_em: str) -> str:
+def _nome_evidencia(chamado_id: int, recebida_em: str, regra_id: str = "") -> str:
     try:
         dt = datetime.fromisoformat(str(recebida_em).replace("Z", "+00:00"))
         data = dt.strftime("%Y%m%d_%H%M%S")
     except Exception:
         data = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"GETNET_RETORNO_CANCELAMENTO_{int(chamado_id)}_{data}.eml"
+    regra = re.sub(r"[^A-Z0-9]+", "_", str(regra_id or "RETORNO").upper()).strip("_")
+    partes = [p for p in regra.split("_") if p and p not in {"001", "002", "003"}]
+    if partes and partes[0] in {"INCLUSAO", "ABERTURA", "CANCELAMENTO", "HABILITACAO"}:
+        acao = partes[0]
+        player = "_".join(partes[1:]) or "EMAIL"
+    else:
+        acao = "RETORNO"
+        player = "_".join(partes) or "EMAIL"
+    return f"{player}_RETORNO_{acao}_{int(chamado_id)}_{data}.eml"
 
 def _anexar_evidencia_retorno(*, caixa: str, chamado_id: int, regra_id: str, message_id: str,
                                nota: str, status: str, assigned_to: int, recebida_em: str) -> str:
-    filename = _nome_evidencia(chamado_id, recebida_em)
+    filename = _nome_evidencia(chamado_id, recebida_em, regra_id)
     eml = baixar_mensagem_eml(caixa_postal=caixa, message_id=message_id)
     registrar_email_evidencia_e_status_chamado(
         chamado_id=chamado_id, nota=nota, status_nome=status, assigned_to_id=assigned_to,
         evidencia=eml, evidencia_filename=filename,
     )
     marcar_evidencia_anexada(chamado_id, regra_id, filename)
+    try:
+        from ednna.observabilidade import log_event
+        log_event("EMAIL", "Evidência de retorno anexada", chamado_id=chamado_id, regra_id=regra_id, detalhe=filename)
+    except Exception:
+        pass
     return filename
 
 def _complemento_getnet(chamado_id: int, corpo: str) -> str:
@@ -602,7 +615,7 @@ def _reconciliar_evidencias_processadas(caixa: str) -> dict:
             continue
         try:
             # Não duplica a nota histórica: neste reparo anexa somente a evidência, com nota curta de auditoria.
-            filename = _nome_evidencia(chamado_id, str(acao.get("resposta_recebida_em") or ""))
+            filename = _nome_evidencia(chamado_id, str(acao.get("resposta_recebida_em") or ""), regra_id)
             eml = baixar_mensagem_eml(caixa_postal=caixa, message_id=message_id)
             from ednna.redmine_writer import upload_arquivo_redmine
             upload = upload_arquivo_redmine(conteudo=eml, filename=filename)
@@ -848,6 +861,12 @@ def executar_monitoramento_respostas() -> dict:
                 f"chamado={chamado_id} | regra={regra_id} | de={remetente}",
                 flush=True,
             )
+            try:
+                from ednna.observabilidade import log_event
+                player = str(regra_id or "").replace("-001", "").split("-", 1)[-1]
+                log_event("EMAIL", "Resposta recebida", chamado_id=chamado_id, regra_id=regra_id, player=player, detalhe=f"de={remetente}")
+            except Exception:
+                pass
 
         except Exception as exc:
             resumo["erros"] += 1

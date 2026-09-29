@@ -140,6 +140,8 @@ def executar_followup(item:dict) -> dict:
         if preflight.get("motivo")=="ESTADO_TERMINAL":
             encerrar_acompanhamento_terminal(chamado_id, preflight.get("estado") or "")
         print(f"[EDNNA] Follow-up BLOQUEADO pre-flight | chamado={chamado_id} | regra={regra_id} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+        from ednna.observabilidade import log_event
+        log_event("FOLLOWUP", "Follow-up bloqueado pelo pre-flight", nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}")
         return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo")=="ESTADO_TERMINAL" else "PREFLIGHT_INDISPONIVEL",
                 "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
     texto=str(item.get("texto_followup") or "")
@@ -169,4 +171,6 @@ def executar_followup(item:dict) -> dict:
         f"[EDNNA] Follow-up enviado | chamado={chamado_id} | regra={regra_id} | numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}",
         flush=True,
     )
+    from ednna.observabilidade import log_event
+    log_event("FOLLOWUP", "Follow-up enviado", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}")
     return {**resultado,"chamado_id":chamado_id,"regra_id":regra_id,"numero":numero,"redmine":redmine}

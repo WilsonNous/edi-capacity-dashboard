@@ -182,5 +182,10 @@ def require_edi() -> UserContext:
     return require_roles(ROLE_ADMIN, ROLE_EDI)
 
 
+def display_name(user: UserContext) -> str:
+    from ednna.linguagem import primeiro_nome_por_email
+    return primeiro_nome_por_email(user.email, user.name)
+
+
 def role_label(role: str) -> str:
     return {ROLE_ADMIN: "Administrador EDNNA", ROLE_EDI: "Equipe EDI", ROLE_VIEWER: "Visualizador"}.get(role, role)
