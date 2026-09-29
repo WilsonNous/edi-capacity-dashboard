@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ednna.security import require_admin
 
 import html
 import streamlit as st
@@ -21,6 +22,7 @@ from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 
 st.set_page_config(page_title="EDNNA · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
+require_admin()
 
 st.markdown("""<style>
 [data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}

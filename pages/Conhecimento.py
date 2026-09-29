@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ednna.security import require_edi
 
 import streamlit as st
 
@@ -7,6 +8,7 @@ from ednna.contexto_relacionamentos import sincronizar_conhecimento_blueprint
 from version import APP_VERSION
 
 st.set_page_config(page_title="EDNNA · Conhecimento", page_icon="🧠", layout="wide")
+require_edi()
 st.title("🧠 Base de Conhecimento do Cliente")
 st.caption(f"EDNNA {APP_VERSION} · Blueprints viram conhecimento persistente, incremental e rastreável.")
 

@@ -1,7 +1,9 @@
+from ednna.security import require_edi
 import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import chamados_ativos_df, com_links_redmine
 setup('👥 Equipe e capacidade')
+require_edi()
 df=chamados_ativos_df()
 if df.empty: st.info('Nenhum chamado disponível para calcular a distribuição da equipe.')
 else:

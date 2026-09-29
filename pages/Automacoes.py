@@ -1,7 +1,9 @@
+from ednna.security import require_edi
 import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import regras_df
 setup('⚡ Automações')
+require_edi()
 r=regras_df()
 if r.empty: st.info('Nenhuma regra operacional disponível.')
 else:

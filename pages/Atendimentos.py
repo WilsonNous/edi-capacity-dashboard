@@ -1,7 +1,9 @@
+from ednna.security import require_edi
 import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import chamados_df, com_links_redmine
 setup('📥 Atendimentos da EDNNA')
+require_edi()
 df=chamados_df()
 if df.empty: st.info('Nenhum chamado disponível no snapshot local da EDNNA.')
 else:

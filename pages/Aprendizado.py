@@ -1,7 +1,9 @@
+from ednna.security import require_admin
 import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import regras_df
 setup('🧠 Aprendizado e homologação')
+require_admin()
 tech,_=st.columns([1.2,5])
 with tech:
     if st.button('⚙️ Modo técnico',width="stretch"):

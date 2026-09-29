@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ednna.security import require_edi
 
 from version import APP_VERSION, APP_RELEASE
 
@@ -122,6 +123,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+require_edi()
 
 # Monitor independente das interações do usuário no Streamlit.
 # A função é idempotente por processo e mantém apenas uma thread daemon.

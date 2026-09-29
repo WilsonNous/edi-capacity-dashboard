@@ -1,10 +1,12 @@
 from __future__ import annotations
+from ednna.security import require_admin
 import streamlit as st
 from version import APP_VERSION
 from ednna.construtor_regras import *
 from ednna.workflows_inclusao import WORKFLOWS, obter_workflow
 
 st.set_page_config(page_title="EDNNA · Ensinar regra", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
+require_admin()
 st.markdown("""<style>[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}.stApp{background:#f5f8fc}.block-container{max-width:1450px;padding:1.1rem 1.6rem 2rem}div.stButton>button{border-radius:10px!important;font-weight:750!important}</style>""", unsafe_allow_html=True)
 
 c1,c2,_=st.columns([1,1,6])

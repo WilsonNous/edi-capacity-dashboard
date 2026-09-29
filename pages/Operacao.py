@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ednna.security import require_edi
 import html
 import pandas as pd
 import streamlit as st
@@ -11,6 +12,7 @@ from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_ag
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
 
 setup('🦾 Operação')
+require_edi()
 st.caption('Sua central de interação com a EDNNA. Aqui aparece o que precisa de você; o restante fica sob responsabilidade dela.')
 
 if st.button('🔄 Sincronizar agora', type='primary', width='content', key='op_refresh_3325'):
