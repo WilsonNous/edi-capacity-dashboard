@@ -260,6 +260,21 @@ def _processar_retorno_vr(chamado_id: int, corpo: str) -> tuple[str, int | None,
     ), ednna_id, "Em andamento"
 
 
+
+def _processar_retorno_sicredi(chamado_id: int, corpo: str) -> tuple[str, int | None, str]:
+    from ednna.sicredi_workflow import interpretar_retorno_sicredi
+    ednna_id=int(os.getenv("REDMINE_EDNNA_USER_ID", "166") or 166)
+    r=interpretar_retorno_sicredi(corpo)
+    evento=r.get("evento") or "RETORNO_NAO_CLASSIFICADO"
+    estado=r.get("estado") or "AGUARDANDO_BANCO"
+    acao=r.get("acao") or "REVISAR_RETORNO"
+    extra=(f"\n\n*EDNNA — Interpretação SICREDI Banco*\n\n*Evento:* {evento}\n*Estado operacional:* {estado}\n*Próxima ação:* {acao}.")
+    if r.get("requer_humano"):
+        extra += "\n*Segurança:* decisão mantida para revisão humana; a EDNNA não assumirá mudança de VAN/custo automaticamente."
+    if r.get("emails_substitutos"):
+        extra += "\n*Contatos substitutos encontrados:* " + ", ".join(r['emails_substitutos'])
+    return extra, ednna_id, "Em andamento"
+
 def _resolver_conversation_id(acao: dict, caixa: str) -> tuple[str, dict]:
     conversation_id = str(acao.get("graph_conversation_id", "") or "").strip()
     if conversation_id:
@@ -633,6 +648,9 @@ def _sincronizar_respostas_pendentes_redmine() -> int:
         elif "VR-BENEFICIOS" in regra_id.upper():
             extra, assigned_to, status = _processar_retorno_vr(chamado_id, corpo)
             nota += extra
+        elif "SICREDI" in regra_id.upper():
+            extra, assigned_to, status = _processar_retorno_sicredi(chamado_id, corpo)
+            nota += extra
         try:
             message_id = str(acao.get("resposta_graph_message_id") or "")
             if message_id and not str(acao.get("evidencia_anexada_em") or ""):
@@ -791,6 +809,9 @@ def executar_monitoramento_respostas() -> dict:
                 nota += extra
             elif "VR-BENEFICIOS" in regra_id.upper():
                 extra, assigned_to_retorno, status_efetivo = _processar_retorno_vr(chamado_id, corpo)
+                nota += extra
+            elif "SICREDI" in regra_id.upper():
+                extra, assigned_to_retorno, status_efetivo = _processar_retorno_sicredi(chamado_id, corpo)
                 nota += extra
 
             # v3.28.7.2: o e-mail é persistido ANTES do Redmine. Se o Redmine

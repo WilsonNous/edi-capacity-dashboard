@@ -9,6 +9,9 @@ Nenhuma função deste módulo executa chamadas externas.
 
 from pathlib import Path
 from typing import Any
+import json
+
+from ednna.armazenamento import conectar, agora_brasil_iso
 
 WORKFLOW_EMAIL_ESTABELECIMENTO = "INCLUSAO_EMAIL_ESTABELECIMENTO"
 WORKFLOW_VR_PORTAL_CLIENTE = "INCLUSAO_VR_PORTAL_CLIENTE"
@@ -37,9 +40,50 @@ WORKFLOWS = {
     "ROTACARD": {"tipo_player":"BENEFICIO","workflow":"ABERTURA_OU_INCLUSAO_FORMULARIO_ROTACARD","canal":"DOCUMENTO+EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"FORMULARIO_ROTACARD+EMAIL_GRAPH","artefato_template":GREEN_TEMPLATE,"campos_formulario":["razao_social","nome_fantasia","cnpj_matriz","endereco","bairro","cidade","estado","cep","representante_legal","rg","fone","email","relacao_cnpjs"],"documentos_retorno_obrigatorios":["termo_assinado","documento_identidade_representante"],"estados":["PREPARAR_TERMO","AGUARDANDO_CLIENTE","VALIDAR_DOCUMENTACAO","AGUARDANDO_ROTACARD","AGUARDANDO_ARQUIVOS","VALIDAR_ARQUIVOS","ABRIR_IMPLANTACAO","CONCLUIDO"],"etapas":["COLETAR_DADOS_BLUEPRINT","PREENCHER_TERMO_ROTACARD","ENVIAR_TERMO_CLIENTE","AGUARDAR_ASSINATURA_CLIENTE","VALIDAR_TERMO_ASSINADO","VALIDAR_DOCUMENTO_IDENTIDADE","ENVIAR_ROTACARD","MONITORAR_RETORNO","AGUARDAR_ARQUIVOS_FTP","VALIDAR_ECS_RECEBIDOS","ABRIR_IMPLANTACAO_SE_ABERTURA","REGISTRAR_MOVIMENTACAO_BP","CONCLUIR"]},
     "VERO": {"tipo_player":"ADQUIRENTE","workflow":"INCLUSAO_EMAIL_ESTABELECIMENTO","canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"regra_dados":"Procedimento homologado por e-mail. Usar o destinatário confirmado na homologação, informar cliente e estabelecimento/EC do chamado, registrar o e-mail integral no Redmine e acompanhar o retorno.","etapas":["EXTRAIR_ESTABELECIMENTO","VALIDAR_DADOS","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","AGUARDAR_RETORNO_ADQUIRENTE","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
     "WIZEO": {"tipo_player":"ADQUIRENTE","workflow":"INCLUSAO_EMAIL_ESTABELECIMENTO","canal":"EMAIL","fonte_dados":"CHAMADO_ATUAL","executor":"EMAIL_GRAPH","campos_obrigatorios":["estabelecimento"],"regra_dados":"Procedimento homologado por e-mail. Usar o destinatário confirmado na homologação, informar cliente e estabelecimento/EC do chamado, registrar o e-mail integral no Redmine e acompanhar o retorno.","etapas":["EXTRAIR_ESTABELECIMENTO","VALIDAR_DADOS","PREPARAR_EMAIL_INCLUSAO","ENVIAR_EMAIL","AGUARDAR_RETORNO_ADQUIRENTE","MONITORAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
-    "SICREDI": {"tipo_player":"BANCO","workflow":"ABERTURA_BANCO_VIA_BLUEPRINT","canal":"EMAIL","fonte_dados":"BLUEPRINT_DOMICILIOS_BANCARIOS","executor":"EMAIL_GRAPH","campos_obrigatorios":["contas_bancarias","contato_gerente"],"regra_dados":"Na abertura de relacionamento, localizar no Blueprint os domicílios bancários e o contato/e-mail do gerente da conta. Solicitar a abertura informando as contas e adquirentes vinculadas descritas no chamado. Registrar movimentação no BP principal e acompanhar o retorno.","etapas":["LOCALIZAR_BLUEPRINT","EXTRAIR_DOMICILIOS_BANCARIOS","EXTRAIR_GERENTE_CONTA","VALIDAR_CONTAS_SOLICITADAS","PREPARAR_EMAIL_ABERTURA","ENVIAR_EMAIL","AGUARDAR_RETORNO_BANCO","REGISTRAR_MOVIMENTACAO_BP","REGISTRAR_EVIDENCIA_REDMINE"]},
+    "SICREDI": {"tipo_player":"BANCO","workflow":"ABERTURA_SICREDI_BANCO","canal":"EMAIL","fonte_dados":"BLUEPRINT_DOMICILIOS_BANCARIOS","executor":"EMAIL_GRAPH","campos_obrigatorios":["contas_bancarias","contato_gerente"],"van_solicitada":"SUPPLY MIDIA","layout_extrato":"CNAB 240 padrão Febraban 5.0 Aberto","periodicidade":"Diário","status_pos_envio":"Aguardando Retorno Banco","sla_primeiro_followup_horas":48,"regra_dados":"Abertura de relacionamento SICREDI para Extrato de Conciliação Bancária. Resolver gerente pelo Blueprint, enviar CNPJ e todos os domicílios agência/conta, solicitar VAN Supply Mídia e CNAB 240 Febraban 5.0 Aberto diário. Interpretar dúvidas, prazos, assinatura/documentação e divergência de VAN. Após banco, acompanhar VAN, caixa postal, virada de chave/transmissão e validar arquivo por domicílio. Só concluir quando todos os domicílios esperados tiverem evidência de arquivo recebido.","estados":["AGUARDANDO_BANCO","AGUARDANDO_CLIENTE","DIVERGENCIA_VAN","AGUARDANDO_VAN","AGUARDANDO_TRANSMISSAO","AGUARDANDO_ARQUIVOS","VALIDACAO_PARCIAL","CONCLUIDO"],"etapas":["LOCALIZAR_BLUEPRINT","EXTRAIR_DOMICILIOS_BANCARIOS","EXTRAIR_GERENTE_CONTA","VALIDAR_CONTAS_SOLICITADAS","PREPARAR_EMAIL_ABERTURA","ENVIAR_EMAIL","AGUARDAR_RETORNO_BANCO","INTERPRETAR_RETORNO_BANCO","TRATAR_ASSINATURA_SE_SOLICITADA","VALIDAR_VAN_RETORNADA","AGUARDAR_RETORNO_VAN","VALIDAR_CAIXA_POSTAL","VALIDAR_VIRADA_CHAVE_TRANSMISSAO","AGUARDAR_ARQUIVOS","VALIDAR_ARQUIVOS_POR_DOMICILIO","COBRAR_DOMICILIOS_PENDENTES","REGISTRAR_MOVIMENTACAO_BP","REGISTRAR_EVIDENCIA_REDMINE","CONCLUIR_SOMENTE_COM_TODOS_DOMICILIOS"]},
     "BANRISUL": {"tipo_player":"BANCO","workflow":"INCLUSAO_BANCO_VIA_AR","canal":"RELACIONAMENTO_BANCARIO","fonte_dados":"ABERTURA_RELACIONAMENTO","executor":"ASSISTIDO_BANCO","etapas":["LOCALIZAR_ABERTURA_RELACIONAMENTO","EXTRAIR_DADOS_BANCARIOS","EXTRAIR_GERENTE_CONTA","PREPARAR_SOLICITACAO","EXECUTAR_CANAL_HOMOLOGADO","ACOMPANHAR_RETORNO","REGISTRAR_EVIDENCIA_REDMINE"]},
 }
+
+
+
+def _garantir_tabela_configuracoes() -> None:
+    with conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS configuracoes_regras (
+            player TEXT PRIMARY KEY, ativa INTEGER NOT NULL DEFAULT 1, override_json TEXT NOT NULL DEFAULT '{}',
+            atualizado_por TEXT, atualizado_em TEXT NOT NULL
+        )""")
+        conn.commit()
+
+def obter_configuracao_regra(player: str) -> dict:
+    _garantir_tabela_configuracoes()
+    p=str(player or '').strip().upper()
+    with conectar() as conn:
+        row=conn.execute("SELECT * FROM configuracoes_regras WHERE player=?",(p,)).fetchone()
+    if not row: return {"player":p,"ativa":True,"override":{}}
+    d=dict(row)
+    try: ov=json.loads(d.get('override_json') or '{}')
+    except Exception: ov={}
+    return {"player":p,"ativa":bool(d.get('ativa',1)),"override":ov,"atualizado_por":d.get('atualizado_por'),"atualizado_em":d.get('atualizado_em')}
+
+def salvar_configuracao_regra(player: str, *, ativa: bool=True, override: dict|None=None, atualizado_por: str='OPERADOR_EDNNA') -> dict:
+    _garantir_tabela_configuracoes()
+    p=str(player or '').strip().upper()
+    if p not in WORKFLOWS:
+        raise ValueError('A configuração persistente só pode alterar uma regra declarativa conhecida.')
+    now=agora_brasil_iso()
+    with conectar() as conn:
+        conn.execute("""INSERT INTO configuracoes_regras(player,ativa,override_json,atualizado_por,atualizado_em) VALUES(?,?,?,?,?)
+        ON CONFLICT(player) DO UPDATE SET ativa=excluded.ativa,override_json=excluded.override_json,atualizado_por=excluded.atualizado_por,atualizado_em=excluded.atualizado_em""",
+        (p,1 if ativa else 0,json.dumps(override or {},ensure_ascii=False),atualizado_por,now))
+        conn.commit()
+    return obter_configuracao_regra(p)
+
+def listar_catalogo_workflows() -> list[dict]:
+    itens=[]
+    for player in sorted(WORKFLOWS):
+        cfg=obter_workflow(player)
+        itens.append(cfg)
+    return itens
 
 # Infraestrutura realmente disponível hoje. Executores compostos só ficam
 # prontos quando TODOS os seus componentes estiverem implementados.
@@ -93,6 +137,13 @@ def obter_workflow(player: str) -> dict:
     if not cfg:
         return {"player": p, "workflow":"NAO_CLASSIFICADO", "canal":"NAO_IDENTIFICADO", "executor":"NAO_IMPLEMENTADO", "etapas":[], "prontidao":"SEM_WORKFLOW"}
     cfg["player"] = p
+    if p in WORKFLOWS:
+        persistida=obter_configuracao_regra(p)
+        cfg.update(dict(persistida.get("override") or {}))
+        cfg["ativa"] = bool(persistida.get("ativa", True))
+        cfg["configuracao_atualizada_em"] = persistida.get("atualizado_em") or ""
+    else:
+        cfg.setdefault("ativa", True)
     # v3.28.35 — workflows definidos pela operação têm autoridade humana confirmada.
     # O histórico enriquece a regra, mas não bloqueia sua revisão/homologação.
     cfg.setdefault("fonte_autoridade", "ORIENTACAO_OPERACIONAL")
@@ -100,7 +151,7 @@ def obter_workflow(player: str) -> dict:
     executores = [x for x in str(cfg.get("executor") or "").split("+") if x]
     faltantes = [x for x in executores if x not in EXECUTORES_IMPLEMENTADOS]
     cfg["executores_faltantes"] = faltantes
-    cfg["prontidao"] = "ASSISTIDA_DISPONIVEL" if not faltantes else "AGUARDANDO_EXECUTOR"
+    cfg["prontidao"] = ("INATIVA" if not cfg.get("ativa", True) else ("ASSISTIDA_DISPONIVEL" if not faltantes else "AGUARDANDO_EXECUTOR"))
     return cfg
 
 

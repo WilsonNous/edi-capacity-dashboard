@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.32.6"
-APP_RELEASE = "Operação v2 · pre-flight global e observabilidade de follow-up"
+APP_VERSION = "3.33.0"
+APP_RELEASE = "Sicredi Banco · catálogo e edição da Central de Regras"

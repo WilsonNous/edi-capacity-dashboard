@@ -48,6 +48,11 @@ def _dados_snapshot(row: dict) -> dict:
     for m in re.finditer(r"(?i)\bconta\s*[:#-]?\s*([0-9][0-9.\- ]{2,20})", texto_banco):
         conta = re.sub(r"\s+", "", m.group(1)).strip(".-")
         if conta and conta not in contas_bancarias: contas_bancarias.append(conta)
+    domicilios_bancarios = []
+    for m in re.finditer(r"(?i)ag[eê]ncia\s*[:#-]?\s*([0-9]{1,6})\s*(?:[/|;-]|\s)+\s*conta\s*[:#-]?\s*([0-9][0-9.\- ]{2,20})", texto_banco):
+        ag=re.sub(r"\s+","",m.group(1)); ct=re.sub(r"\s+","",m.group(2)).strip(".-")
+        item={"agencia":ag,"conta":ct}
+        if item not in domicilios_bancarios: domicilios_bancarios.append(item)
     adquirentes_contas = []
     for linha in texto_banco.splitlines():
         if re.search(r"(?i)adquirentes?\s*:", linha):
@@ -64,6 +69,7 @@ def _dados_snapshot(row: dict) -> dict:
         "tipo_demanda": str(row.get("Tipo", "") or ""),
         "estado_redmine": str(row.get("Estado", "") or ""),
         "contas_bancarias": contas_bancarias,
+        "domicilios_bancarios": domicilios_bancarios,
         "adquirentes_bancarios": list(dict.fromkeys(adquirentes_contas)),
         "fonte": "SNAPSHOT_ATIVO",
     }
@@ -395,6 +401,7 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "emails_blueprint": dados.get("emails_blueprint") or [],
         "contato_cliente_principal": dados.get("contato_cliente_principal") or "",
         "contas_bancarias": dados.get("contas_bancarias") or [],
+        "domicilios_bancarios": dados.get("domicilios_bancarios") or [],
         "adquirentes_bancarios": dados.get("adquirentes_bancarios") or [],
         "contato_gerente": dados.get("contato_gerente") or "",
         "gerente_banco": dados.get("gerente_banco") or "",
@@ -497,18 +504,22 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
 
     if player == "SICREDI":
         contas=[str(x) for x in (pacote.get("contas_bancarias") or []) if str(x).strip()]
+        domicilios=list(pacote.get("domicilios_bancarios") or [])
         if not destinatario or not contas:
             faltam=[]
             if not destinatario: faltam.append("contato/e-mail do gerente no Blueprint")
             if not contas: faltam.append("conta(s) bancária(s) no chamado")
             return {"ok":False,"motivo":"SICREDI: faltam dados para abertura: " + ", ".join(faltam) + ".","estado":"AGUARDANDO_DADOS"}
-        assunto=f"[SICREDI - Abertura de Relacionamento - {cliente} - CN: {cid}]"
-        linhas=["Olá, tudo bem?", "", f"Solicitamos a abertura de relacionamento bancário para nosso cliente {cliente}, para viabilizar o recebimento dos arquivos EDI referentes aos domicílios bancários abaixo:", ""]
-        desc=str(pacote.get("descricao") or "")
-        blocos=[x.strip() for x in desc.splitlines() if x.strip() and ("Conta" in x or "Adquirente" in x)]
-        if blocos: linhas += blocos
-        else: linhas += [f"- Conta {x}" for x in contas]
-        linhas += ["", "Os dados acima correspondem aos domicílios bancários das adquirentes informadas no chamado.", "", "Por gentileza, pedimos a confirmação da abertura do relacionamento e das orientações necessárias para o tráfego dos arquivos."]
+        assunto=f"[SICREDI (BANCO) - Abertura de Relacionamento - {cliente} - CN: {cid}]"
+        linhas=["Olá, tudo bem?", "", "Por gentileza, solicitamos a Abertura de Relacionamento para a Habilitação de Tráfego de Arquivos de Extrato de Conciliação Bancária para os seguintes domicílios bancários - via VAN SUPPLY MIDIA:", ""]
+        cnpjs=[str(x) for x in (pacote.get("cnpjs") or []) if str(x).strip()]
+        if cliente: linhas += [f"Cliente: {cliente}"]
+        if cnpjs: linhas += [f"CNPJ: {', '.join(cnpjs)}"]
+        if domicilios:
+            linhas += [f"Agência: {d.get('agencia','—')} / Conta: {d.get('conta','—')}" for d in domicilios]
+        else:
+            linhas += [f"Conta: {x}" for x in contas]
+        linhas += ["", 'O arquivo de extrato de conciliação bancária deve estar no Layout 240 padrão Febraban 5.0 "Aberto" e Diário.', "", "Ficamos à disposição para quaisquer esclarecimentos."]
         corpo=finalizar_email("\n".join(linhas))
         return {"ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),"para":[destinatario],"cc":aplicar_cc_cliente([destinatario], [], cliente),"assunto":assunto,"corpo":corpo,"prazo_resposta_dias_uteis":2,"tipo_acao":"ABRIR_RELACIONAMENTO_BANCARIO_SICREDI","status_pos_envio":"Aguardando Retorno Banco"}
 

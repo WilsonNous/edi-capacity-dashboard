@@ -15,9 +15,10 @@ from ednna.aprendizado_operacional import (
     autorizar_regra_motor,
     garantir_greencard_pronta,
 )
-from ednna.workflows_inclusao import obter_workflow
+from ednna.workflows_inclusao import obter_workflow, WORKFLOWS, salvar_configuracao_regra, listar_catalogo_workflows
 from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
 from ui.operational_data import chamados_ativos_df, redmine_link
+from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 
 st.set_page_config(page_title="EDNNA · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 
@@ -46,9 +47,8 @@ except Exception as exc:
     st.warning(f"Greencard ainda não pôde ser preparada automaticamente: {exc}")
 
 regras = listar_regras_operacionais()
-if not regras:
-    st.info("Nenhuma regra operacional foi aprendida ainda.")
-    st.stop()
+regras_treinaveis = listar_regras_treinaveis()
+catalogo_declarativo = listar_catalogo_workflows()
 
 # Diagnóstico operacional usa o mesmo snapshot da Home; nenhuma ação externa é executada aqui.
 df_ativos = chamados_ativos_df()
@@ -67,7 +67,7 @@ autorizadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("mod
 bloqueadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") == "BLOQUEADA"]
 
 m1,m2,m3,m4 = st.columns(4)
-m1.metric("Regras conhecidas", len(regras))
+m1.metric("Regras configuradas", len(catalogo_declarativo) + len(regras_treinaveis))
 m2.metric("A revisar / homologar", len(revisar))
 m3.metric("Homologadas", len(hom))
 m4.metric("Autorizadas no motor", len(autorizadas))
@@ -96,7 +96,49 @@ if pendentes_auto:
             st.error("Não foi possível ativar: " + " | ".join(erros))
         st.rerun()
 
-aba1, aba2, aba3 = st.tabs([f"1 · Revisar e homologar ({len(revisar)})", f"2 · Autorizar motor ({len(bloqueadas)})", f"Regras ativas ({len(autorizadas)})"])
+aba0, aba1, aba2, aba3 = st.tabs([f"📚 Todas as regras ({len(catalogo_declarativo) + len(regras_treinaveis)})", f"1 · Revisar e homologar ({len(revisar)})", f"2 · Autorizar motor ({len(bloqueadas)})", f"Regras ativas ({len(autorizadas)})"])
+
+with aba0:
+    st.caption("Este é o catálogo operacional da EDNNA. Abra uma regra para ver o modelo que está configurado, alterar parâmetros seguros ou inativá-la sem apagar seu histórico.")
+    filtro=st.text_input("Buscar regra", placeholder="Ex.: SICREDI, GREENCARD, banco, inclusão...", key="catalogo_busca")
+    alvo=str(filtro or '').casefold().strip()
+    for wf in catalogo_declarativo:
+        player=str(wf.get("player") or "")
+        texto=" ".join([player,str(wf.get("workflow") or ""),str(wf.get("tipo_player") or ""),str(wf.get("regra_dados") or "")]).casefold()
+        if alvo and alvo not in texto: continue
+        ativa=bool(wf.get("ativa",True))
+        status="ATIVA" if ativa else "INATIVA"
+        with st.expander(f"{player} · {wf.get('workflow') or 'SEM WORKFLOW'} · {status}", expanded=(player=="SICREDI" and not alvo)):
+            a,b,c,d=st.columns(4)
+            a.metric("Tipo",wf.get("tipo_player") or "—"); b.metric("Canal",wf.get("canal") or "—"); c.metric("Executor",wf.get("prontidao") or "—"); d.metric("Estado",status)
+            st.write("**Como está configurada**")
+            st.write(wf.get("regra_dados") or "Regra declarativa sem descrição operacional detalhada.")
+            st.write("**Dados obrigatórios:**", ", ".join(wf.get("campos_obrigatorios") or []) or "—")
+            st.write("**Etapas:**", " → ".join(wf.get("etapas") or []) or "—")
+            extras=[]
+            for k in ("destinatario_padrao","fonte_dados","status_pos_envio","sla_primeiro_followup_horas","van_solicitada","layout_extrato","periodicidade"):
+                if wf.get(k) not in (None,""): extras.append(f"**{k}:** {wf.get(k)}")
+            if extras: st.markdown("  \n".join(extras))
+            with st.form(f"edit_cfg_{player}"):
+                st.markdown("**Editar configuração operacional segura**")
+                nova_ativa=st.checkbox("Regra ativa",value=ativa)
+                novo_dest=st.text_input("Destinatário padrão",value=str(wf.get("destinatario_padrao") or ""),help="Deixe vazio quando o destinatário for resolvido pelo Blueprint/regra.")
+                nova_desc=st.text_area("Descrição / regra operacional",value=str(wf.get("regra_dados") or ""),height=110)
+                novo_sla=st.number_input("Primeiro follow-up (horas; 0 = não sobrescrever)",min_value=0,max_value=720,value=int(wf.get("sla_primeiro_followup_horas") or 0),step=1)
+                if st.form_submit_button("💾 Salvar alterações",type="primary"):
+                    override={"regra_dados":nova_desc}
+                    if novo_dest.strip(): override["destinatario_padrao"]=novo_dest.strip()
+                    elif "destinatario_padrao" in wf: override["destinatario_padrao"]=""
+                    if novo_sla: override["sla_primeiro_followup_horas"]=int(novo_sla)
+                    salvar_configuracao_regra(player,ativa=nova_ativa,override=override)
+                    st.success(f"{player}: configuração salva. Histórico preservado."); st.rerun()
+    if regras_treinaveis:
+        st.markdown("### Regras ensinadas pelo Construtor")
+        for rt in regras_treinaveis:
+            with st.expander(f"{rt['player']} · {rt['nome']} · {rt['estado']}"):
+                st.write(explicar_regra(rt)); st.caption(f"ID {rt['id']} · Canal {rt['canal']} · Fonte {rt['fonte_dados']}")
+                if st.button("✏️ Abrir para editar/testar",key=f"open_train_{rt['id']}"):
+                    st.session_state["ednna_editar_regra_id"]=rt['id']; st.switch_page("pages/Construtor_Regras.py")
 
 with aba1:
     if not revisar:
