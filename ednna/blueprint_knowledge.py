@@ -101,11 +101,88 @@ def ler_excel(data: bytes, nome: str) -> dict[str, list[list[str]]]:
 
 
 def _eh_blueprint(nome: str, abas: list[str]) -> bool:
-    if "BLUEPRINT" in _norm(nome):
+    # Blueprints antigos aparecem também como "BLUE PRINT". Normalizamos os
+    # separadores para não depender da convenção do nome do arquivo.
+    nome_compacto = re.sub(r"[^A-Z0-9]", "", _norm(nome))
+    if "BLUEPRINT" in nome_compacto:
         return True
     norm_abas = {_norm(x) for x in abas}
     pontos = len(norm_abas & ASSINATURA_ABAS)
-    return "PARTICIPANTES" in norm_abas and pontos >= 3
+    # Layout moderno possui PARTICIPANTES; o legado é reconhecido pela aba
+    # ID PROJETO combinada com outras abas típicas do Blueprint.
+    return ("PARTICIPANTES" in norm_abas and pontos >= 3) or ("ID PROJETO" in norm_abas and pontos >= 3)
+
+
+def _email_valido(v: Any) -> str:
+    s = str(v or "").strip().lower()
+    m = re.search(r"[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}", s, flags=re.I)
+    return m.group(0).lower() if m else ""
+
+
+def _participantes_legado_id_projeto(abas: dict[str, list[list[str]]]) -> list[dict]:
+    """Extrai contatos de Blueprints legados cuja primeira aba/ID PROJETO
+    contém blocos CLIENTE em vez da aba PARTICIPANTES.
+
+    Apenas Gerente/Coord. Projeto e o bloco "Contatos no Cliente" entram como
+    participantes. O bloco "Contatos Netunna" é deliberadamente ignorado para
+    não transformar contatos internos em destinatários do cliente.
+    """
+    aba = next((a for a in abas if _norm(a) == "ID PROJETO"), None)
+    if not aba:
+        return []
+    rows = abas.get(aba) or []
+    out: list[dict] = []
+    empresa = cnpj = ""
+    secao = ""
+    for row in rows:
+        vals = [_valor(x) for x in row]
+        norm = [_norm(x) for x in vals]
+        primeiro = norm[0] if norm else ""
+
+        if primeiro == "CLIENTE":
+            empresa = cnpj = ""
+            secao = "CLIENTE"
+            continue
+        if primeiro == "NOME DA EMPRESA:":
+            empresa = vals[1].strip() if len(vals) > 1 else ""
+            continue
+        if primeiro == "CNPJ:":
+            cnpj = vals[1].strip() if len(vals) > 1 else ""
+            continue
+        if primeiro == "CONTATOS NO CLIENTE":
+            secao = "CONTATOS_CLIENTE"
+            continue
+        if primeiro == "CONTATOS NETUNNA":
+            secao = "CONTATOS_NETUNNA"
+            continue
+
+        # Gerente/Coordenador fica no cabeçalho do bloco CLIENTE.
+        if primeiro in {"GERENTE/COORD. PROJETO:", "GERENTE/COORD PROJETO:", "GERENTE/COORD. PROJETO"}:
+            nome = vals[1].strip() if len(vals) > 1 else ""
+            telefone = vals[3].strip() if len(vals) > 3 else ""
+            email = _email_valido(vals[5] if len(vals) > 5 else "")
+            if email:
+                out.append({"nome": nome, "area": "GERENTE/COORD. PROJETO", "email": email,
+                            "telefone": telefone, "empresa": empresa, "cnpj": cnpj,
+                            "origem_layout": "ID_PROJETO_LEGADO"})
+            continue
+
+        if secao == "CONTATOS_CLIENTE" and primeiro and primeiro not in {"CONTATO:"}:
+            # Layout observado: papel | nome | telefone fixo | celular | e-mail.
+            email = _email_valido(vals[4] if len(vals) > 4 else "")
+            if email:
+                telefone = (vals[3] if len(vals) > 3 and vals[3] else (vals[2] if len(vals) > 2 else ""))
+                out.append({"nome": vals[1].strip() if len(vals) > 1 else "",
+                            "area": vals[0].rstrip(":").strip(), "email": email,
+                            "telefone": telefone, "empresa": empresa, "cnpj": cnpj,
+                            "origem_layout": "ID_PROJETO_LEGADO"})
+    # O mesmo contato pode aparecer em vários blocos/CNPJs do grupo. Para a
+    # tabela de participantes basta uma ocorrência por e-mail; preservamos a
+    # primeira para manter a ordem operacional do documento.
+    unicos = {}
+    for item in out:
+        unicos.setdefault(item["email"], item)
+    return list(unicos.values())
 
 
 def _header_e_dados(rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
@@ -151,17 +228,61 @@ def importar_blueprint(*, cliente: str, chamado_id: int, attachment: dict, conte
             for nr, item in enumerate(_dict_rows(rows), start=1):
                 c.execute("INSERT INTO blueprint_linhas(documento_id,cliente,aba,linha,dados_json,chave_semantica,importado_em) VALUES(?,?,?,?,?,?,?)",
                           (doc,cliente,aba,nr,json.dumps(item,ensure_ascii=False),None,agora)); total+=1
-        # participantes normalizados
+        # participantes normalizados: primeiro o layout moderno; na ausência
+        # dele, usa o fallback legado da aba ID PROJETO.
         part_name=next((a for a in abas if _norm(a)=="PARTICIPANTES"), None)
+        participantes_importados = 0
         if part_name:
             for item in _dict_rows(abas[part_name]):
                 norm={_norm(k):_valor(v) for k,v in item.items()}
-                email=norm.get("E-MAIL") or norm.get("EMAIL") or ""
-                if not email or "@" not in email: continue
+                email=_email_valido(norm.get("E-MAIL") or norm.get("EMAIL") or "")
+                if not email: continue
                 c.execute("""INSERT OR IGNORE INTO blueprint_participantes
                   (cliente,nome,area,email,telefone,andamento,status_report,documento_id,chamado_id,ativo,primeira_ocorrencia_em,ultima_ocorrencia_em)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (cliente,norm.get("NOME",""),norm.get("AREA",""),email.lower(),norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",norm.get("ANDAMENTO",""),norm.get("STATUS REPORT",""),doc,int(chamado_id),1,agora,agora))
-    return {"status":"IMPORTADO", "documento_id":doc, "arquivo":nome, "abas":list(abas), "linhas":total}
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (cliente,norm.get("NOME",""),norm.get("AREA",""),email,norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",norm.get("ANDAMENTO",""),norm.get("STATUS REPORT",""),doc,int(chamado_id),1,agora,agora))
+                participantes_importados += 1
+        else:
+            for item in _participantes_legado_id_projeto(abas):
+                c.execute("""INSERT OR IGNORE INTO blueprint_participantes
+                  (cliente,nome,area,email,telefone,andamento,status_report,documento_id,chamado_id,ativo,primeira_ocorrencia_em,ultima_ocorrencia_em)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""", (cliente,item.get("nome",""),item.get("area",""),item.get("email",""),item.get("telefone",""),"","",doc,int(chamado_id),1,agora,agora))
+                participantes_importados += 1
+    return {"status":"IMPORTADO", "documento_id":doc, "arquivo":nome, "abas":list(abas), "linhas":total, "participantes":participantes_importados, "layout_participantes": "MODERNO" if part_name else "ID_PROJETO_LEGADO"}
+
+
+def _reprocessar_participantes_documento(*, documento_id: int, cliente: str, chamado_id: int, nome: str, conteudo: bytes) -> dict:
+    """Backfill para documentos importados antes do suporte a Blueprint legado.
+
+    Não duplica o documento nem suas linhas; apenas popula participantes quando
+    o documento existente ainda não possui contatos normalizados.
+    """
+    abas = ler_excel(conteudo, nome)
+    part_name = next((a for a in abas if _norm(a) == "PARTICIPANTES"), None)
+    agora = _agora()
+    itens = []
+    if part_name:
+        for item in _dict_rows(abas[part_name]):
+            norm = {_norm(k): _valor(v) for k, v in item.items()}
+            email = _email_valido(norm.get("E-MAIL") or norm.get("EMAIL") or "")
+            if email:
+                itens.append({"nome": norm.get("NOME", ""), "area": norm.get("AREA", ""),
+                              "email": email, "telefone": norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",
+                              "andamento": norm.get("ANDAMENTO", ""), "status_report": norm.get("STATUS REPORT", "")})
+    else:
+        for item in _participantes_legado_id_projeto(abas):
+            itens.append({**item, "andamento": "", "status_report": ""})
+    inseridos = 0
+    with conectar() as c:
+        for item in itens:
+            cur = c.execute("""INSERT OR IGNORE INTO blueprint_participantes
+              (cliente,nome,area,email,telefone,andamento,status_report,documento_id,chamado_id,ativo,primeira_ocorrencia_em,ultima_ocorrencia_em)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (cliente,item.get("nome", ""),item.get("area", ""),item.get("email", ""),item.get("telefone", ""),
+               item.get("andamento", ""),item.get("status_report", ""),int(documento_id),int(chamado_id),1,agora,agora))
+            inseridos += int(cur.rowcount or 0)
+        c.execute("UPDATE blueprint_documentos SET atualizado_em=? WHERE id=?", (agora, int(documento_id)))
+    return {"status": "REPROCESSADO_PARTICIPANTES", "documento_id": int(documento_id),
+            "participantes": inseridos, "layout_participantes": "MODERNO" if part_name else "ID_PROJETO_LEGADO"}
 
 
 def sincronizar_blueprints_chamados(cliente: str, chamados_ids: list[int]) -> dict:
@@ -180,9 +301,22 @@ def sincronizar_blueprints_chamados(cliente: str, chamados_ids: list[int]) -> di
                 attachment_id = int(a.get("id") or 0)
                 if attachment_id:
                     with conectar() as c:
-                        ja = c.execute("SELECT id FROM blueprint_documentos WHERE attachment_id=?", (attachment_id,)).fetchone()
+                        ja = c.execute("""SELECT d.id,
+                          (SELECT COUNT(*) FROM blueprint_participantes p WHERE p.documento_id=d.id AND p.ativo=1) AS participantes
+                          FROM blueprint_documentos d WHERE d.attachment_id=?""", (attachment_id,)).fetchone()
                     if ja:
-                        resultados.append({"chamado_id":iid,"arquivo":nome,"status":"JA_IMPORTADO","documento_id":int(ja[0])})
+                        doc_id, qtd_part = int(ja[0]), int(ja[1] or 0)
+                        if qtd_part == 0:
+                            # Documento pode ter sido importado por uma versão anterior,
+                            # quando Blueprints legados ainda não geravam participantes.
+                            try:
+                                data = baixar_anexo_redmine(str(a.get("content_url") or ""))
+                                rr = _reprocessar_participantes_documento(documento_id=doc_id, cliente=cliente, chamado_id=iid, nome=nome, conteudo=data)
+                                resultados.append({"chamado_id":iid,"arquivo":nome,**rr})
+                            except Exception as exc:
+                                resultados.append({"chamado_id":iid,"arquivo":nome,"status":"ERRO_REPROCESSAMENTO","documento_id":doc_id,"erro":str(exc)[:500]})
+                        else:
+                            resultados.append({"chamado_id":iid,"arquivo":nome,"status":"JA_IMPORTADO","documento_id":doc_id,"participantes":qtd_part})
                         continue
                 try:
                     data=baixar_anexo_redmine(str(a.get("content_url") or ""))
@@ -240,7 +374,7 @@ def selecionar_contatos_cliente(cliente: str, limite: int = 1, area_preferida: s
         area=_norm(x.get('area'))
         andamento=_norm(x.get('andamento')) in {'SIM','S','YES','TRUE','1'}
         status=_norm(x.get('status_report')) in {'SIM','S','YES','TRUE','1'}
-        return (0 if area==pref else 1, 0 if andamento else 1, 0 if status else 1)
+        return (0 if area==pref else (1 if 'GERENTE/COORD' in area else 2), 0 if andamento else 1, 0 if status else 1)
     unicos.sort(key=score)
     return unicos[:max(1,int(limite or 1))]
 
