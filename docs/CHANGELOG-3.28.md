@@ -920,3 +920,10 @@ CANCELAMENTO-GETNET-001 continua sujeito a aprovação humana. Não há disparo 
 - Consultas individuais passam a usar timeout/tentativas mais conservadores por padrão: `(12,45)` e 2 tentativas.
 - Diagnóstico do Redmine passa a expor métricas do gateway: requests, cache hits, espera e duração da última chamada.
 - Mantido stale-while-revalidate do painel, circuit breaker, SQLite local-first e outbox já existentes.
+
+
+## 3.34.2 — Política de comunicação Policard / UP Brasil
+- Atualiza o destinatário de conciliação POLICARD/UP Brasil para `conciliacao@upbrasil.com`, conforme orientação explícita do Atendimento Grande Rede em 14/09/2026.
+- Remove `grandesredesup@upbrasil.com` e outros endereços `@upbrasil.com` do CC das demandas de conciliação, preservando contatos do cliente e CCs institucionais Netunna.
+- Centraliza a política por player/finalidade em `email_policy.py`, preparando reutilização por inclusão, falta de arquivo e falta de registros.
+- Workflow declarativo POLICARD passa a expor a política vigente na Central de Regras.
