@@ -203,4 +203,4 @@ with st.expander('🔎 Rastrear um chamado'):
         except Exception as exc: st.warning(f'Não foi possível rastrear: {type(exc).__name__}: {exc}')
 
 st.caption('Segurança operacional: chamados Rejeitados, Concluídos, Cancelados ou Fechados são bloqueados por pre-flight no Redmine antes de e-mail ou follow-up.')
-footer(f'EDNNA {APP_VERSION} · Central de Operação v2 · pre-flight de estado terminal')
+footer()

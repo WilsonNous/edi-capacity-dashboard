@@ -1,9 +1,13 @@
 from __future__ import annotations
 import unicodedata
 
+# Somente estados cuja semântica terminal foi comprovada na operação Netunna.
+# Não ampliar esta lista por similaridade sem validar o catálogo real do Redmine.
 ESTADOS_TERMINAIS = {
-    "REJEITADA","REJEITADO","CONCLUIDO","CONCLUIDA","FECHADO","FECHADA",
-    "CANCELADO","CANCELADA","RESOLVIDO","RESOLVIDA"
+    "REJEITADA", "REJEITADO",
+    "CONCLUIDO", "CONCLUIDA",
+    "CANCELADO", "CANCELADA",
+    "FECHADO", "FECHADA",
 }
 
 def _norm(valor) -> str:
@@ -27,14 +31,42 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
             int(chamado_id), consulta_pontual=True, force_refresh=True, timeout=(8,20), tentativas=2
         )
     except Exception as exc:
+        registrar_auditoria_preflight(chamado_id, "BLOQUEADO", "", "REDMINE_PREFLIGHT_INDISPONIVEL")
         return {"ok":False,"bloquear":True,"motivo":"REDMINE_PREFLIGHT_INDISPONIVEL",
                 "erro":f"{type(exc).__name__}: {exc}","estado":""}
     if not issue:
+        registrar_auditoria_preflight(chamado_id, "BLOQUEADO", "", "CHAMADO_NAO_LOCALIZADO")
         return {"ok":False,"bloquear":True,"motivo":"CHAMADO_NAO_LOCALIZADO","estado":""}
     estado=estado_issue(issue)
-    if estado_terminal_nome(estado) or bool(issue.get("closed_on")):
-        return {"ok":True,"bloquear":True,"motivo":"ESTADO_TERMINAL","estado":estado,"issue":issue}
+    if estado_terminal_nome(estado):
+        resultado={"ok":True,"bloquear":True,"motivo":"ESTADO_TERMINAL","estado":estado,"issue":issue}
+        registrar_auditoria_preflight(chamado_id, "BLOQUEADO", estado, "ESTADO_TERMINAL")
+        return resultado
+    registrar_auditoria_preflight(chamado_id, "LIBERADO", estado, "ATIVO")
     return {"ok":True,"bloquear":False,"motivo":"ATIVO","estado":estado,"issue":issue}
+
+def registrar_auditoria_preflight(chamado_id: int, resultado: str, estado: str = "", motivo: str = "") -> None:
+    """Persiste a decisão de segurança sem depender do journal do chamado."""
+    try:
+        from ednna.acompanhamento_acoes import _conectar, _iso, _agora
+        with _conectar() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS auditoria_preflight (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, chamado_id INTEGER NOT NULL,
+                resultado TEXT NOT NULL, estado_redmine TEXT, motivo TEXT, criado_em TEXT NOT NULL
+            )""")
+            conn.execute("INSERT INTO auditoria_preflight(chamado_id,resultado,estado_redmine,motivo,criado_em) VALUES(?,?,?,?,?)",
+                         (int(chamado_id), str(resultado), str(estado or ""), str(motivo or ""), _iso(_agora())))
+    except Exception as exc:
+        print(f"[EDNNA] Auditoria pre-flight falhou | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+
+def validar_efeito_externo(chamado_id: int, acao: str) -> dict:
+    """Barreira global imediatamente antes de qualquer efeito externo conhecido."""
+    resultado = preflight_chamado_ativo(int(chamado_id))
+    if resultado.get("bloquear"):
+        if resultado.get("motivo") == "ESTADO_TERMINAL":
+            encerrar_acompanhamento_terminal(int(chamado_id), resultado.get("estado") or "")
+        registrar_auditoria_preflight(chamado_id, "BLOQUEADO", resultado.get("estado") or "", f"{acao}:{resultado.get('motivo')}")
+    return resultado
 
 def encerrar_acompanhamento_terminal(chamado_id: int, estado_redmine: str="") -> None:
     """Retira chamado terminal das filas de acompanhamento/follow-up sem apagar auditoria."""

@@ -634,7 +634,7 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     print(f"[EDNNA] Executor adquirido | chamado={cid} | regra={rid} | estado=EXECUTANDO", flush=True)
     try:
         print(f"[EDNNA] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
-        mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"],anexos=r.get("anexos") or [])
+        mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"],anexos=r.get("anexos") or [],chamado_id=cid)
         print(f"[EDNNA] Graph | HTTP 202 aceito | chamado={cid}", flush=True)
         # v3.28.53: além do HTTP 202, procurar a cópia real em Sent Items.
         # Falha desta leitura NÃO reenvia o e-mail: o HTTP 202 continua sendo prova de aceitação.

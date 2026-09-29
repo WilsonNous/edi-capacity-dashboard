@@ -891,15 +891,26 @@ def executar_monitoramento_respostas() -> dict:
         followups = avaliar_followups()
         resumo["followups_prontos"] = int(followups.get("prontos", 0) or 0)
         resumo["followups_enviados"] = 0
+        resumo["followups_bloqueados"] = 0
+        resumo["followups_falhos"] = 0
         auto = str(os.getenv("EDNNA_FOLLOWUP_AUTO", "true") or "true").strip().casefold() in {"1","true","sim","yes","on"}
         if auto:
             limite = max(1, int(os.getenv("EDNNA_FOLLOWUP_MAX_PER_CYCLE", "3") or 3))
             for item in [x for x in followups.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO" and followup_automatico(x)][:limite]:
                 try:
-                    executar_followup(item)
-                    resumo["followups_enviados"] += 1
+                    resultado_followup = executar_followup(item)
+                    if resultado_followup.get("ok"):
+                        resumo["followups_enviados"] += 1
+                    else:
+                        resumo["followups_bloqueados"] += 1
+                        print(
+                            f"[EDNNA] Follow-up não enviado | chamado={item.get('chamado_id')} | "
+                            f"estado={resultado_followup.get('estado')} | motivo={resultado_followup.get('motivo')}",
+                            flush=True,
+                        )
                 except Exception as exc:
                     resumo["erros"] += 1
+                    resumo["followups_falhos"] += 1
                     print(f"[EDNNA] Follow-up pendente | chamado={item.get('chamado_id')} | {type(exc).__name__}: {exc}", flush=True)
         if resumo.get("followups_prontos") or resumo.get("followups_enviados"):
             print(f"[EDNNA] Continuidade | followups_prontos={resumo.get('followups_prontos',0)} | followups_enviados={resumo.get('followups_enviados',0)}", flush=True)

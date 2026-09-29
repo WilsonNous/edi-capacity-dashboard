@@ -1509,6 +1509,7 @@ def render_ednna_workspace(
                                                                 "corpo",
                                                                 "",
                                                             ),
+                                                            chamado_id=chamado_int,
                                                         )
 
                                                         acompanhamento_envio = (
@@ -2586,6 +2587,7 @@ def render_ednna_workspace(
                                                     cc=rascunho_plano.get("cc", []),
                                                     assunto=rascunho_plano.get("assunto", ""),
                                                     corpo=rascunho_plano.get("corpo", ""),
+                                                    chamado_id=chamado_plano,
                                                 )
                                                 acompanhamento_envio = confirmar_envio_real(
                                                     chamado_plano,

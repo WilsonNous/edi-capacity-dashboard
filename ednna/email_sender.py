@@ -97,6 +97,7 @@ def enviar_email_graph(
     assunto: str,
     corpo: str,
     anexos: list[dict] | None = None,
+    chamado_id: int | None = None,
 ) -> dict:
     remetente = str(
         remetente
@@ -115,6 +116,16 @@ def enviar_email_graph(
     if not para:
         raise EmailConfigError(
             "Nenhum destinatário informado."
+        )
+
+    # Última barreira antes do Graph: nenhum chamador pode contornar o pre-flight.
+    if chamado_id is None or int(chamado_id or 0) <= 0:
+        raise EmailSendError("Envio bloqueado: chamado_id é obrigatório para o pre-flight Redmine.")
+    from ednna.status_guard import validar_efeito_externo
+    preflight = validar_efeito_externo(int(chamado_id), "EMAIL_GRAPH_SEND")
+    if preflight.get("bloquear"):
+        raise EmailSendError(
+            f"Envio bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}."
         )
 
     token = obter_token_graph()
@@ -387,7 +398,7 @@ def _texto_para_html(texto: str) -> str:
     return "".join(f"<p>{html.escape(p).replace(chr(10), '<br>')}</p>" for p in paragrafos)
 
 
-def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: str) -> dict:
+def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: str, chamado_id: int) -> dict:
     """Responde a todos diretamente pelo Graph, sem criar rascunho.
 
     Usa /replyAll, que é compatível com Mail.Send e evita a exigência de
@@ -403,6 +414,13 @@ def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: 
         raise EmailConfigError("Mensagem original não localizada para follow-up.")
     if not comentario:
         raise EmailConfigError("Comentário do follow-up está vazio.")
+
+    from ednna.status_guard import validar_efeito_externo
+    preflight = validar_efeito_externo(int(chamado_id), "EMAIL_GRAPH_REPLY_ALL")
+    if preflight.get("bloquear"):
+        raise EmailSendError(
+            f"Follow-up bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}."
+        )
 
     token = obter_token_graph()
     resposta = requests.post(

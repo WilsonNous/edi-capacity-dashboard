@@ -144,7 +144,7 @@ def executar_followup(item:dict) -> dict:
                 "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
     texto=str(item.get("texto_followup") or "")
     resultado=responder_todos_email_graph(
-        remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto
+        remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto, chamado_id=chamado_id
     )
     registrar_followup(chamado_id,regra_id)
 

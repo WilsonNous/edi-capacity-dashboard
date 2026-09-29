@@ -216,6 +216,7 @@ def executar_acoes_automaticas(
                     "corpo",
                     "",
                 ),
+                chamado_id=chamado_id,
             )
 
             acompanhamento = confirmar_envio_real(
