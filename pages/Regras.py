@@ -15,6 +15,7 @@ from ednna.aprendizado_operacional import (
     obter_autorizacao_motor,
     autorizar_regra_motor,
     garantir_greencard_pronta,
+    garantir_safrapay_pronta,
 )
 from ednna.workflows_inclusao import obter_workflow, WORKFLOWS, salvar_configuracao_regra, listar_catalogo_workflows
 from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
@@ -47,6 +48,10 @@ try:
     garantir_greencard_pronta()
 except Exception as exc:
     st.warning(f"Greencard ainda não pôde ser preparada automaticamente: {exc}")
+try:
+    garantir_safrapay_pronta()
+except Exception as exc:
+    st.warning(f"Safrapay ainda não pôde ser preparada automaticamente: {exc}")
 
 regras = listar_regras_operacionais()
 regras_treinaveis = listar_regras_treinaveis()

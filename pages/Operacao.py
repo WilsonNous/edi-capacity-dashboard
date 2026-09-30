@@ -58,7 +58,7 @@ fup_auto_prontos=[x for x in fups.get('itens',[]) if x.get('estado_followup')=='
 fup_assistidos_ids={int(x.get('chamado_id') or 0) for x in fup_assistidos_prontos}
 
 itens=fila.get('itens') or []
-human_states={'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','REGRA_NAO_HOMOLOGADA'}
+human_states={'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','REGRA_NAO_HOMOLOGADA','CHECKPOINT_HUMANO'}
 preciso=[x for x in itens if x.get('estado_motor') in human_states]
 preciso += [x for x in itens if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA' and str(x.get('modo_motor') or '').upper()!='AUTOMATICA']
 preciso += [{'id':x.get('chamado_id'),'cliente':x.get('cliente') or '', 'player':x.get('player') or '',

@@ -282,6 +282,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         elif estado == "AGUARDANDO_EXECUTOR":
             contadores["aguardando_executor"] += 1
             acao = "Implementar executor"
+        elif estado == "CHECKPOINT_HUMANO":
+            acao = "Preparar/validar Termo SAFRAPAY com o cliente"
         else:
             acao = "Revisar"
 
@@ -325,6 +327,7 @@ def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
         "AGUARDANDO_DADOS": ("PRECISA_DE_VOCE", "Faltam dados obrigatórios no chamado"),
         "AGUARDANDO_DESTINATARIO": ("PRECISA_DE_VOCE", "Falta destinatário confiável"),
         "AGUARDANDO_EXECUTOR": ("ERRO_TECNICO", "Executor técnico ainda não disponível"),
+        "CHECKPOINT_HUMANO": ("PRECISA_DE_VOCE", "Workflow automático aguardando checkpoint humano"),
         "REGRA_HOMOLOGADA_NAO_AUTORIZADA": ("PRECISA_DE_VOCE", "Regra homologada, mas ainda não autorizada no motor"),
         "REGRA_NAO_HOMOLOGADA": ("IDENTIFICACAO", "Demanda identificada, regra ainda não homologada"),
         "PLAYER_AMBIGUO": ("IDENTIFICACAO", "Player/adquirente ambíguo"),
