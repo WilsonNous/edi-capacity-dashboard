@@ -140,14 +140,23 @@ with tab_voce:
                 st.caption('A EDNNA continua dona do processo. Informe o resultado desta etapa; o mesmo relato será registrado no Redmine antes de o workflow continuar.')
                 resultado=st.radio('Resultado', ['Concluído','Não consegui','Pedir reavaliação'], horizontal=True, key=f'cp_result_{cid}_{codigo}_3347')
                 relato=st.text_area('O que você fez e como fez?', value=str(cp.get('relato_humano') or ''), height=130,
-                                    placeholder='Ex.: Preenchi o Termo SAFRAPAY, encaminhei ao contato do cliente e recebi o documento assinado...',
-                                    key=f'cp_relato_{cid}_{codigo}_3347')
+                                    placeholder='Ex.: Preenchi o Termo SAFRAPAY e encaminhei ao contato do cliente para assinatura...',
+                                    key=f'cp_relato_{cid}_{codigo}_3348')
+                anexos_ui=st.file_uploader('📎 Anexar evidência / documento', accept_multiple_files=True,
+                                    help='O arquivo será anexado ao mesmo journal do checkpoint no Redmine.',
+                                    key=f'cp_anexos_{cid}_{codigo}_3348')
+                if codigo=='TERMO_SAFRAPAY':
+                    st.caption('Para concluir esta etapa, anexe o Termo SAFRAPAY encaminhado ao cliente. A EDNNA também mudará o chamado para Aguardando Retorno Cliente e configurará o prazo.')
+                anexos=[{'filename':a.name,'content_type':a.type or 'application/octet-stream','conteudo':a.getvalue()} for a in (anexos_ui or [])]
                 mapa={'Concluído':'CONCLUIDO','Não consegui':'NAO_CONSEGUI','Pedir reavaliação':'REAVALIAR'}
-                if st.button('✅ Registrar no Redmine e continuar', type='primary', disabled=not relato.strip(), key=f'cp_save_{cid}_{codigo}_3347'):
+                exige_anexo=(codigo=='TERMO_SAFRAPAY' and resultado=='Concluído')
+                pode_salvar=bool(relato.strip()) and (not exige_anexo or bool(anexos))
+                if st.button('✅ Registrar no Redmine e continuar', type='primary', disabled=not pode_salvar, key=f'cp_save_{cid}_{codigo}_3348'):
                     usr=current_user(); nome=display_name(usr) or usr.name or usr.email
+                    status_cp='Aguardando Retorno Cliente' if codigo=='TERMO_SAFRAPAY' and resultado=='Concluído' else ''
                     res=registrar_resultado_checkpoint(chamado_id=cid, regra_id=rid, codigo=codigo, titulo=titulo,
                         resultado=mapa[resultado], relato=relato, usuario_email=usr.email, usuario_nome=nome,
-                        dados={'player':x.get('player') or '', 'cliente':x.get('cliente') or ''})
+                        dados={'player':x.get('player') or '', 'cliente':x.get('cliente') or ''}, anexos=anexos, status_redmine=status_cp)
                     if res.get('ok') and res.get('retomar'):
                         st.success('Checkpoint registrado no Redmine. A EDNNA retomará o workflow a partir da próxima etapa.'); st.cache_data.clear(); st.rerun()
                     elif res.get('ok'):

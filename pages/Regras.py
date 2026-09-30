@@ -154,12 +154,12 @@ with aba0:
                 nova_ativa=st.checkbox("Regra ativa",value=ativa)
                 novo_dest=st.text_input("Destinatário padrão",value=str(wf.get("destinatario_padrao") or ""),help="Deixe vazio quando o destinatário for resolvido pelo Blueprint/regra.")
                 nova_desc=st.text_area("Descrição / regra operacional",value=str(wf.get("regra_dados") or ""),height=110)
-                novo_sla=st.number_input("Primeiro follow-up (horas; 0 = não sobrescrever)",min_value=0,max_value=720,value=int(wf.get("sla_primeiro_followup_horas") or 0),step=1)
+                novo_sla=st.number_input("Primeiro follow-up (horas)",min_value=1,max_value=720,value=int(wf.get("sla_primeiro_followup_horas") or 48),step=1)
                 if st.form_submit_button("💾 Salvar alterações",type="primary"):
                     override={"regra_dados":nova_desc}
                     if novo_dest.strip(): override["destinatario_padrao"]=novo_dest.strip()
                     elif "destinatario_padrao" in wf: override["destinatario_padrao"]=""
-                    if novo_sla: override["sla_primeiro_followup_horas"]=int(novo_sla)
+                    override["sla_primeiro_followup_horas"]=int(novo_sla)
                     salvar_configuracao_regra(player,ativa=nova_ativa,override=override)
                     st.success(f"{player}: configuração salva. Histórico preservado."); st.rerun()
     if regras_treinaveis:
