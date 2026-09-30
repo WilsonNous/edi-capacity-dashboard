@@ -9,7 +9,7 @@ from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnostic
 from ednna.followup_engine import avaliar_followups, executar_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
 from ednna.redmine_outbox import reconciliar_redmine_chamado
-from ednna.aprendizado_operacional import garantir_greencard_pronta
+from ednna.aprendizado_operacional import garantir_greencard_pronta, garantir_safrapay_pronta
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
 from ednna.security import current_user, role_label, audit, display_name
 
@@ -20,6 +20,10 @@ try:
     garantir_greencard_pronta()
 except Exception as _greencard_bootstrap_exc:
     print(f"[EDNNA] Bootstrap Greencard pendente: {_greencard_bootstrap_exc}", flush=True)
+try:
+    garantir_safrapay_pronta()
+except Exception as _safrapay_bootstrap_exc:
+    print(f"[EDNNA] Bootstrap Safrapay pendente: {_safrapay_bootstrap_exc}", flush=True)
 
 ROOT = Path(__file__).resolve().parent
 AVATAR = ROOT / 'assets' / 'ednna_avatar.png'
