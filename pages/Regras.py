@@ -35,8 +35,8 @@ div.stButton>button{border-radius:10px!important;font-weight:750!important;min-h
 
 cback, _ = st.columns([1, 7])
 with cback:
-    if st.button("← Painel EDI", width="stretch"):
-        st.switch_page("pages/Painel_EDI.py")
+    if st.button("← EDNNA", width="stretch"):
+        st.switch_page("app.py")
 
 st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDNNA</div><div class="rule-sub">Veja a regra, os chamados que ela encontrou e o motivo de cada estado. Depois decida, conscientemente, o que permanece assistido e o que a EDNNA pode executar sozinha.</div></div>', unsafe_allow_html=True)
 
@@ -62,6 +62,29 @@ if not df_ativos.empty:
     }).copy()
 diag_regras = diagnosticar_regras_operacionais(snapshot_regras) if not snapshot_regras.empty else {'regras': []}
 diag_por_id = {str(x.get('regra_id') or ''): x for x in (diag_regras.get('regras') or [])}
+
+# v3.34.5 — auditoria de cobertura técnica. Diferencia regra conhecida de
+# executor realmente disponível, evitando interpretar catálogo como automação pronta.
+with st.expander("🔎 Saúde técnica das regras", expanded=False):
+    linhas_saude=[]
+    for wf in catalogo_declarativo:
+        faltantes=list(wf.get("executores_faltantes") or [])
+        linhas_saude.append({
+            "Player": wf.get("player"),
+            "Workflow": str(wf.get("workflow") or "").replace("_", " ").title(),
+            "Canal": str(wf.get("canal") or "").replace("_", " "),
+            "Situação": "Executor disponível" if not faltantes and wf.get("ativa", True) else ("Inativa" if not wf.get("ativa", True) else "Aguardando executor"),
+            "Executor pendente": ", ".join(faltantes),
+        })
+    _df_saude=pd.DataFrame(linhas_saude)
+    _disp=int((_df_saude["Situação"]=="Executor disponível").sum()) if not _df_saude.empty else 0
+    _pend=int((_df_saude["Situação"]=="Aguardando executor").sum()) if not _df_saude.empty else 0
+    sc1,sc2,sc3=st.columns(3)
+    sc1.metric("Workflows conhecidos", len(_df_saude))
+    sc2.metric("Com executor disponível", _disp)
+    sc3.metric("Aguardando executor", _pend)
+    st.dataframe(_df_saude, hide_index=True, width="stretch")
+    st.caption("Esta visão valida a infraestrutura do workflow. Homologação e autorização continuam sendo decisões separadas e aparecem na configuração de cada regra.")
 
 hom = [r for r in regras if r.get("estado_revisao") == "HOMOLOGADA"]
 revisar = [r for r in regras if r.get("estado_revisao") != "HOMOLOGADA"]

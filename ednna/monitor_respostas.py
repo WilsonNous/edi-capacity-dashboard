@@ -936,6 +936,8 @@ def executar_monitoramento_respostas() -> dict:
         from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
         followups = avaliar_followups()
         resumo["followups_prontos"] = int(followups.get("prontos", 0) or 0)
+        resumo["followups_automaticos_prontos"] = int(followups.get("automaticos_prontos", 0) or 0)
+        resumo["followups_assistidos_prontos"] = int(followups.get("assistidos_prontos", 0) or 0)
         resumo["followups_enviados"] = 0
         resumo["followups_bloqueados"] = 0
         resumo["followups_falhos"] = 0
@@ -959,7 +961,13 @@ def executar_monitoramento_respostas() -> dict:
                     resumo["followups_falhos"] += 1
                     print(f"[EDNNA] Follow-up pendente | chamado={item.get('chamado_id')} | {type(exc).__name__}: {exc}", flush=True)
         if resumo.get("followups_prontos") or resumo.get("followups_enviados"):
-            print(f"[EDNNA] Continuidade | followups_prontos={resumo.get('followups_prontos',0)} | followups_enviados={resumo.get('followups_enviados',0)}", flush=True)
+            print(f"[EDNNA] Continuidade | followups_prontos={resumo.get('followups_prontos',0)} | automaticos_prontos={resumo.get('followups_automaticos_prontos',0)} | assistidos_prontos={resumo.get('followups_assistidos_prontos',0)} | followups_enviados={resumo.get('followups_enviados',0)}", flush=True)
+            try:
+                from ednna.observabilidade import log_event
+                log_event("FOLLOWUP", "Ciclo de follow-ups avaliado",
+                          detalhe=f"prontos={resumo.get('followups_prontos',0)} | automaticos={resumo.get('followups_automaticos_prontos',0)} | assistidos={resumo.get('followups_assistidos_prontos',0)} | enviados={resumo.get('followups_enviados',0)} | bloqueados={resumo.get('followups_bloqueados',0)} | falhos={resumo.get('followups_falhos',0)}", dedup_seconds=300)
+            except Exception:
+                pass
     except Exception as exc:
         print(f"[EDNNA] Continuidade | falha geral | {type(exc).__name__}: {exc}", flush=True)
 

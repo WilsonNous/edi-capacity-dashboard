@@ -12,6 +12,9 @@ setup('📡 Observabilidade')
 require_admin()
 st.caption('Eventos operacionais persistidos pela EDNNA. Visão administrativa sem necessidade de abrir o Log Stream do Azure para a rotina normal.')
 
+# Console operacional pode permanecer aberto em uma aba independente.
+st.markdown('<a href="/Observabilidade" target="_blank" rel="noopener noreferrer">↗ Abrir Observabilidade em nova aba</a>', unsafe_allow_html=True)
+
 c1,c2,c3,c4 = st.columns([1.2,1.3,1.1,2.4])
 with c1:
     nivel = st.selectbox('Nível', ['Todos','INFO','WARNING','ERROR','BLOCKED'])

@@ -29,6 +29,23 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     from painel_cache import circuit_breaker_ativo
     from ednna.observabilidade import log_event
 
+    # v3.34.5 — chamados já confirmados como terminais ficam fora dos ciclos
+    # operacionais. Não repetimos GET/pre-flight a cada worker; uma carga fresca
+    # do snapshot é responsável por reabilitar o chamado caso o estado mude.
+    try:
+        from ednna.acompanhamento_acoes import _conectar, inicializar_acompanhamento
+        inicializar_acompanhamento()
+        with _conectar() as _conn:
+            _conn.execute("""CREATE TABLE IF NOT EXISTS chamados_terminais_auditoria (
+                chamado_id INTEGER PRIMARY KEY, estado_redmine TEXT NOT NULL,
+                detectado_em TEXT NOT NULL, motivo TEXT NOT NULL
+            )""")
+            _row = _conn.execute("SELECT estado_redmine FROM chamados_terminais_auditoria WHERE chamado_id=?", (int(chamado_id),)).fetchone()
+        if _row and estado_terminal_nome(_row[0]):
+            return {"ok":True,"bloquear":True,"motivo":"ESTADO_TERMINAL_QUARENTENA","estado":str(_row[0]),"quarentena":True}
+    except Exception:
+        pass
+
     # v3.34.3 — o pre-flight continua fail-safe, mas não fura o circuit breaker.
     # Se a origem está em cooldown, bloquear é mais seguro do que criar uma tempestade
     # de probes concorrentes que prolonga a indisponibilidade do Redmine.
@@ -79,7 +96,7 @@ def validar_efeito_externo(chamado_id: int, acao: str) -> dict:
     """Barreira global imediatamente antes de qualquer efeito externo conhecido."""
     resultado = preflight_chamado_ativo(int(chamado_id))
     if resultado.get("bloquear"):
-        if resultado.get("motivo") == "ESTADO_TERMINAL":
+        if resultado.get("motivo") in {"ESTADO_TERMINAL", "ESTADO_TERMINAL_QUARENTENA"}:
             encerrar_acompanhamento_terminal(int(chamado_id), resultado.get("estado") or "")
         registrar_auditoria_preflight(chamado_id, "BLOQUEADO", resultado.get("estado") or "", f"{acao}:{resultado.get('motivo')}")
     return resultado

@@ -49,12 +49,21 @@ try: fila=avaliar_fila_inclusoes(snapshot) if not snapshot.empty else {'resumo':
 except Exception as exc:
     st.error(f'Fila operacional indisponível: {type(exc).__name__}: {exc}'); fila={'resumo':{},'itens':[]}
 try: fups=avaliar_followups()
-except Exception: fups={'total':0,'prontos':0,'itens':[]}
+except Exception: fups={'total':0,'prontos':0,'automaticos_prontos':0,'assistidos_prontos':0,'itens':[]}
+
+# Follow-up vencido automático continua pertencendo à EDNNA. Se a regra é
+# assistida, quando o prazo vence a decisão passa para 'Preciso de você'.
+fup_assistidos_prontos=[x for x in fups.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO' and not followup_automatico(x)]
+fup_auto_prontos=[x for x in fups.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO' and followup_automatico(x)]
+fup_assistidos_ids={int(x.get('chamado_id') or 0) for x in fup_assistidos_prontos}
 
 itens=fila.get('itens') or []
 human_states={'AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','REGRA_HOMOLOGADA_NAO_AUTORIZADA','REGRA_NAO_HOMOLOGADA'}
 preciso=[x for x in itens if x.get('estado_motor') in human_states]
 preciso += [x for x in itens if x.get('estado_motor')=='PRONTO_OPERACAO_ASSISTIDA' and str(x.get('modo_motor') or '').upper()!='AUTOMATICA']
+preciso += [{'id':x.get('chamado_id'),'cliente':x.get('cliente') or '', 'player':x.get('player') or '',
+            'estado_motor':'FOLLOWUP_ASSISTIDO_PRONTO','acao_sugerida':'Autorizar/enviar follow-up assistido',
+            'regra_id':x.get('regra_id'),'followup_item':x} for x in fup_assistidos_prontos]
 falhas=[x for x in itens if x.get('estado_motor') in {'PLAYER_AMBIGUO','AGUARDANDO_EXECUTOR'}]
 historico_auto=[x for x in itens if x.get('estado_motor')=='AGUARDANDO_VERIFICACAO_HISTORICO']
 redmine_auto=[]
@@ -72,11 +81,14 @@ for a in aguardando:
     prazo=str(a.get('prazo_resposta_em') or '')
     if prazo:
         try:
-            if pd.Timestamp(prazo) <= agora:
+            if pd.Timestamp(prazo) <= agora and int(a.get('chamado_id') or 0) not in fup_assistidos_ids:
                 atrasados.append(a)
         except Exception: pass
 
-cuidando_total=len(aguardando)+len(historico_auto)+len(redmine_auto)
+# Um follow-up assistido já vencido deixou de ser responsabilidade automática;
+# aparece em 'Preciso de você', não duplica em 'Estou cuidando'.
+aguardando_ednna=[a for a in aguardando if int(a.get('chamado_id') or 0) not in fup_assistidos_ids]
+cuidando_total=len(aguardando_ednna)+len(historico_auto)+len(redmine_auto)
 usuario = current_user()
 nome_usuario = display_name(usuario) or 'você'
 st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, {nome_usuario}. "
@@ -89,7 +101,9 @@ c3.metric('🤖 Realizado',len(recentes),help='Atuações persistidas recentemen
 c4.metric('⚠️ Exceções',len(falhas),help='Situações em que a automação realmente travou.')
 
 if atrasados:
-    st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com prazo vencido. Eles continuam sendo responsabilidade da EDNNA; acompanhe em **Estou cuidando → Atrasados**.")
+    st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com execução automática atrasada. A EDNNA tentará executá-los no próximo ciclo; acompanhe em **Estou cuidando → Atrasados**.")
+if fup_assistidos_prontos:
+    st.info(f"👤 **{quantidade(len(fup_assistidos_prontos), 'follow-up')}** {verbo(len(fup_assistidos_prontos), 'depende', 'dependem')} de ação humana porque a regra está em modo assistido. Eles aparecem em **Preciso de você**.")
 
 tab_voce,tab_ednna,tab_feito,tab_exc=st.tabs([
     f'🔴 Preciso de você · {len(preciso)}',
@@ -115,6 +129,17 @@ with tab_voce:
         cols[1].write(cliente)
         cols[2].write(player or '—')
         cols[3].write(f"**{x.get('acao_sugerida') or estado.replace('_',' ')}**")
+        if estado=='FOLLOWUP_ASSISTIDO_PRONTO':
+            fitem=x.get('followup_item') or {}
+            with st.expander(f'Revisar follow-up assistido #{cid}'):
+                st.text_area('Mensagem de acompanhamento', fitem.get('texto_followup') or '', height=180, disabled=True, key=f'fup_body_{cid}_3345')
+                ok_fup=st.checkbox('Revisei e autorizo este follow-up.', key=f'fup_ok_{cid}_3345')
+                if st.button('📨 Enviar follow-up agora', disabled=not ok_fup, key=f'fup_send_{cid}_3345'):
+                    res=executar_followup(fitem)
+                    if res.get('ok'):
+                        st.success('Follow-up enviado. A EDNNA continua acompanhando o retorno.'); st.rerun()
+                    else:
+                        st.warning(res.get('motivo') or 'Follow-up não executado.')
         if estado=='PRONTO_OPERACAO_ASSISTIDA':
             with st.expander(f'Revisar atuação assistida #{cid}'):
                 if st.button('🧾 Preparar atuação', key=f'prep_{cid}_3325'):
@@ -145,7 +170,7 @@ with tab_ednna:
     if historico_auto and filtro in ('Todos','Histórico'):
         st.info(f"🧠 **{quantidade(len(historico_auto), 'chamado')}** {verbo(len(historico_auto), 'está', 'estão')} com histórico sendo sincronizado automaticamente.")
     linhas=[]
-    for a in aguardando:
+    for a in aguardando_ednna:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{})
         prazo=str(a.get('prazo_resposta_em') or '')
         vencido=False
@@ -158,7 +183,8 @@ with tab_ednna:
         cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
         ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'
-        proxima='Follow-up pendente' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')
+        modo_auto = followup_automatico(a)
+        proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno'))
         linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
     if not linhas and filtro not in ('Redmine','Histórico'):
         st.info('Nenhum acompanhamento neste filtro.')
@@ -208,5 +234,6 @@ with st.expander('🔎 Rastrear um chamado'):
             st.json(diag)
         except Exception as exc: st.warning(f'Não foi possível rastrear: {type(exc).__name__}: {exc}')
 
+st.markdown('<a href="/Operacao" target="_blank" rel="noopener noreferrer">↗ Abrir Central de Operações em nova aba</a>', unsafe_allow_html=True)
 st.caption('Segurança operacional: chamados Rejeitados, Concluídos, Cancelados ou Fechados são bloqueados por pre-flight no Redmine antes de e-mail ou follow-up.')
 footer()

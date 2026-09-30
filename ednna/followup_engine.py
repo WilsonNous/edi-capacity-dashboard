@@ -117,7 +117,10 @@ def avaliar_followups() -> dict:
         else:
             estado="FOLLOWUP_PRONTO"
         itens.append({**a,"estado_followup":estado,"proximo_followup":n+1,"texto_followup":_texto_followup(a,n+1),"modo_followup":modo_followup_regra(str(a.get("regra_id") or ""))})
-    return {"total":len(itens),"prontos":sum(x["estado_followup"]=="FOLLOWUP_PRONTO" for x in itens),"itens":itens}
+    prontos=sum(x["estado_followup"]=="FOLLOWUP_PRONTO" for x in itens)
+    automaticos=sum(x["estado_followup"]=="FOLLOWUP_PRONTO" and followup_automatico(x) for x in itens)
+    assistidos=prontos-automaticos
+    return {"total":len(itens),"prontos":prontos,"automaticos_prontos":automaticos,"assistidos_prontos":assistidos,"itens":itens}
 
 
 def registrar_followup(chamado_id:int, regra_id:str) -> None:
@@ -137,12 +140,12 @@ def executar_followup(item:dict) -> dict:
     from ednna.status_guard import preflight_chamado_ativo, encerrar_acompanhamento_terminal
     preflight=preflight_chamado_ativo(chamado_id)
     if preflight.get("bloquear"):
-        if preflight.get("motivo")=="ESTADO_TERMINAL":
+        if preflight.get("motivo") in {"ESTADO_TERMINAL", "ESTADO_TERMINAL_QUARENTENA"}:
             encerrar_acompanhamento_terminal(chamado_id, preflight.get("estado") or "")
         print(f"[EDNNA] Follow-up BLOQUEADO pre-flight | chamado={chamado_id} | regra={regra_id} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
         from ednna.observabilidade import log_event
         log_event("FOLLOWUP", "Follow-up bloqueado pelo pre-flight", nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}")
-        return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo")=="ESTADO_TERMINAL" else "PREFLIGHT_INDISPONIVEL",
+        return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo") in {"ESTADO_TERMINAL", "ESTADO_TERMINAL_QUARENTENA"} else "PREFLIGHT_INDISPONIVEL",
                 "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
     texto=str(item.get("texto_followup") or "")
     resultado=responder_todos_email_graph(
