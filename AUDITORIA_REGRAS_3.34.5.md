@@ -27,3 +27,11 @@ Há regras de Falta de Arquivo/Cancelamento no `catalogo_operacional.json`. A ca
 ## Segurança
 
 Chamados já registrados na quarentena terminal deixam de provocar novo GET/pre-flight em cada ciclo operacional. O histórico/auditoria é preservado.
+
+## v3.34.7 — Checkpoints humanos estruturados
+- `Preciso de você` passa a registrar resultado + relato operacional do humano.
+- O relato é persistido localmente e gravado no journal do Redmine após pre-flight fresco.
+- O workflow só avança quando o checkpoint está concluído e o Redmine foi atualizado.
+- SAFRAPAY: `TERMO_SAFRAPAY` concluído libera a próxima etapa do workflow.
+- Falha/pre-flight indisponível mantém o checkpoint pendente (fail-safe).
+- Estrutura genérica preparada para API/portal/planilha/validação de arquivos em CIELO, REDE e demais workflows.

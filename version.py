@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.34.6"
-APP_RELEASE = "SAFRAPAY · workflow automático com checkpoints humanos"
+APP_VERSION = "3.34.7"
+APP_RELEASE = "Checkpoints humanos estruturados · Redmine + retomada EDNNA"
