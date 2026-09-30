@@ -67,7 +67,7 @@ def checkpoint_concluido(chamado_id: int, regra_id: str, codigo: str) -> bool:
 
 def registrar_resultado_checkpoint(*, chamado_id: int, regra_id: str, codigo: str, titulo: str,
                                    resultado: str, relato: str, usuario_email: str, usuario_nome: str,
-                                   dados: dict | None = None) -> dict:
+                                   dados: dict | None = None, anexos: list[dict] | None = None, status_redmine: str = "") -> dict:
     """Registra a resposta humana e só conclui o checkpoint após journal no Redmine.
 
     Fail-safe: se o pre-flight ou o journal falhar, o checkpoint NÃO avança o workflow.
@@ -110,8 +110,12 @@ def registrar_resultado_checkpoint(*, chamado_id: int, regra_id: str, codigo: st
         f"*Marcador:* EDNNA-CHECKPOINT:{regra_id}:{codigo}",
     ])
     try:
-        from ednna.redmine_writer import adicionar_nota_chamado
-        adicionar_nota_chamado(chamado_id=int(chamado_id), nota=nota)
+        from ednna.redmine_writer import registrar_checkpoint_humano_chamado
+        marcador = f"EDNNA-CHECKPOINT:{regra_id}:{codigo}"
+        registro = registrar_checkpoint_humano_chamado(
+            chamado_id=int(chamado_id), nota=nota, marcador=marcador,
+            status_nome=str(status_redmine or ""), anexos=list(anexos or []),
+        )
     except Exception as exc:
         erro = f"{type(exc).__name__}: {exc}"
         with _conectar() as conn:

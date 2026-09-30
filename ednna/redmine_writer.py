@@ -796,3 +796,52 @@ def atribuir_chamado_responsavel(*, chamado_id: int, responsavel_id: int) -> dic
     if resp.status_code not in {200,204}:
         raise RedmineWriteError(f"Falha ao devolver chamado ao responsável original: HTTP {resp.status_code} - {resp.text[:500]}")
     return {'ok':True,'chamado_id':int(chamado_id),'responsavel_id':rid}
+
+
+def registrar_checkpoint_humano_chamado(*, chamado_id: int, nota: str, marcador: str,
+                                        status_nome: str = "", anexos: list[dict] | None = None,
+                                        tentativas: int = 3) -> dict:
+    """Registra checkpoint em UMA atualização do Redmine, com anexos/status/prazo.
+
+    O marcador torna a operação idempotente inclusive quando o PUT foi aceito pelo
+    Redmine mas a resposta HTTP se perdeu. Antes de qualquer retry consultamos os
+    journals; se o marcador já existe, não escrevemos uma segunda nota.
+    """
+    if nota_marcador_ja_existe(int(chamado_id), marcador):
+        return {"ok": True, "ja_registrado": True, "chamado_id": int(chamado_id)}
+    uploads=[]
+    for anexo in (anexos or []):
+        conteudo=anexo.get("conteudo") or b""
+        if not conteudo:
+            continue
+        up=upload_arquivo_redmine(conteudo=conteudo, filename=str(anexo.get("filename") or "anexo.bin"),
+                                  content_type=str(anexo.get("content_type") or "application/octet-stream"), tentativas=tentativas)
+        uploads.append({"token":up["token"],"filename":up["filename"],"content_type":up["content_type"],
+                        "description":"Evidência do checkpoint humano EDNNA"})
+    issue_payload={"notes": nota}
+    if status_nome:
+        issue_payload["status_id"]=obter_status_id_por_nome(status_nome)
+        inicio,fim=_normalizar_datas_workflow(int(chamado_id))
+        issue_payload["start_date"]=inicio; issue_payload["due_date"]=fim
+    if uploads:
+        issue_payload["uploads"]=uploads
+    esperas=[0,2,5]; ultimo=None
+    for tentativa in range(1,tentativas+1):
+        if tentativa>1:
+            # Idempotência distribuída: o primeiro PUT pode ter sido aplicado.
+            try:
+                if nota_marcador_ja_existe(int(chamado_id), marcador):
+                    return {"ok":True,"ja_registrado":True,"chamado_id":int(chamado_id),"uploads":len(uploads)}
+            except Exception:
+                pass
+            sleep(esperas[min(tentativa-1,len(esperas)-1)])
+        try:
+            resposta=requests.put(f"{REDMINE_URL}/issues/{int(chamado_id)}.json",headers=_headers(),json={"issue":issue_payload},timeout=(20,60))
+            if resposta.status_code not in {200,204}:
+                raise RedmineWriteError(f"Falha ao registrar checkpoint no Redmine: HTTP {resposta.status_code} - {resposta.text[:800]}")
+            return {"ok":True,"chamado_id":int(chamado_id),"status_nome":status_nome,"uploads":len(uploads)}
+        except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError, RedmineWriteError) as exc:
+            ultimo=exc
+            if isinstance(exc,RedmineWriteError) and "HTTP 5" not in str(exc): break
+            if tentativa>=tentativas: break
+    raise RedmineWriteError(str(ultimo or "Falha desconhecida ao registrar checkpoint."))

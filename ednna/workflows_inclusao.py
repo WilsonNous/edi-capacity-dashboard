@@ -46,6 +46,15 @@ WORKFLOWS = {
 }
 
 
+# Contrato operacional EDNNA: toda regra tem primeiro follow-up explícito em 48h,
+# salvo override futuro deliberadamente maior/menor que zero. Zero não é usado como
+# valor operacional para evitar regras sem prazo explícito.
+FOLLOWUP_PADRAO_HORAS = 48
+for _workflow in WORKFLOWS.values():
+    if int(_workflow.get("sla_primeiro_followup_horas") or 0) <= 0:
+        _workflow["sla_primeiro_followup_horas"] = FOLLOWUP_PADRAO_HORAS
+
+
 
 def _garantir_tabela_configuracoes() -> None:
     with conectar() as conn:
@@ -141,6 +150,8 @@ def obter_workflow(player: str) -> dict:
     if p in WORKFLOWS:
         persistida=obter_configuracao_regra(p)
         cfg.update(dict(persistida.get("override") or {}))
+        if int(cfg.get("sla_primeiro_followup_horas") or 0) <= 0:
+            cfg["sla_primeiro_followup_horas"] = FOLLOWUP_PADRAO_HORAS
         cfg["ativa"] = bool(persistida.get("ativa", True))
         cfg["configuracao_atualizada_em"] = persistida.get("atualizado_em") or ""
     else:
