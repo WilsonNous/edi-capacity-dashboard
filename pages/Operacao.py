@@ -12,6 +12,7 @@ from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_a
 from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
+from ednna.checkpoints_humanos import garantir_checkpoint, registrar_resultado_checkpoint
 
 setup('🦾 Operação')
 require_edi()
@@ -129,6 +130,30 @@ with tab_voce:
         cols[1].write(cliente)
         cols[2].write(player or '—')
         cols[3].write(f"**{x.get('acao_sugerida') or estado.replace('_',' ')}**")
+        if estado=='CHECKPOINT_HUMANO':
+            rid=str(x.get('regra_id') or '')
+            player_norm=str(x.get('player') or '').upper()
+            codigo='TERMO_SAFRAPAY' if player_norm=='SAFRAPAY' else 'INTERVENCAO_HUMANA'
+            titulo=str(x.get('acao_sugerida') or 'Executar etapa humana solicitada pela EDNNA')
+            cp=garantir_checkpoint(cid,rid,codigo,titulo)
+            with st.expander(f'✍️ Registrar o que foi feito · #{cid}', expanded=True):
+                st.caption('A EDNNA continua dona do processo. Informe o resultado desta etapa; o mesmo relato será registrado no Redmine antes de o workflow continuar.')
+                resultado=st.radio('Resultado', ['Concluído','Não consegui','Pedir reavaliação'], horizontal=True, key=f'cp_result_{cid}_{codigo}_3347')
+                relato=st.text_area('O que você fez e como fez?', value=str(cp.get('relato_humano') or ''), height=130,
+                                    placeholder='Ex.: Preenchi o Termo SAFRAPAY, encaminhei ao contato do cliente e recebi o documento assinado...',
+                                    key=f'cp_relato_{cid}_{codigo}_3347')
+                mapa={'Concluído':'CONCLUIDO','Não consegui':'NAO_CONSEGUI','Pedir reavaliação':'REAVALIAR'}
+                if st.button('✅ Registrar no Redmine e continuar', type='primary', disabled=not relato.strip(), key=f'cp_save_{cid}_{codigo}_3347'):
+                    usr=current_user(); nome=display_name(usr) or usr.name or usr.email
+                    res=registrar_resultado_checkpoint(chamado_id=cid, regra_id=rid, codigo=codigo, titulo=titulo,
+                        resultado=mapa[resultado], relato=relato, usuario_email=usr.email, usuario_nome=nome,
+                        dados={'player':x.get('player') or '', 'cliente':x.get('cliente') or ''})
+                    if res.get('ok') and res.get('retomar'):
+                        st.success('Checkpoint registrado no Redmine. A EDNNA retomará o workflow a partir da próxima etapa.'); st.cache_data.clear(); st.rerun()
+                    elif res.get('ok'):
+                        st.warning('Resultado registrado. O workflow não avançou e ficará disponível para reavaliação.'); st.rerun()
+                    else:
+                        st.warning(res.get('motivo') or 'Não foi possível concluir o checkpoint.')
         if estado=='FOLLOWUP_ASSISTIDO_PRONTO':
             fitem=x.get('followup_item') or {}
             with st.expander(f'Revisar follow-up assistido #{cid}'):

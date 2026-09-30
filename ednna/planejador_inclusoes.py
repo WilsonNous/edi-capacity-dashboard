@@ -446,4 +446,18 @@ def preparar_operacao_inclusao(chamado_id: int, player: str, dados: dict | None 
             dados_motor["erro_extracao"] = str(exc)
     plano = planejar_workflow(player, dados=dados_motor)
     estado = plano.get("estado_planejamento") or ("PRONTO_OPERACAO_ASSISTIDA" if plano.get("pode_operar_assistido") else "AGUARDANDO_EXECUTOR")
+    # v3.34.7 — workflow automático com checkpoints humanos persistentes.
+    # SAFRAPAY só libera o envio ao adquirente depois que o operador registrar
+    # o resultado do Termo no próprio "Preciso de você" e o relato chegar ao Redmine.
+    if str(player or "").upper() == "SAFRAPAY" and estado == "CHECKPOINT_HUMANO":
+        try:
+            from ednna.checkpoints_humanos import garantir_checkpoint, checkpoint_concluido
+            rid = str(regra.get("regra_id") or "")
+            garantir_checkpoint(int(chamado_id), rid, "TERMO_SAFRAPAY", "Preparar/validar Termo SAFRAPAY com o cliente")
+            if checkpoint_concluido(int(chamado_id), rid, "TERMO_SAFRAPAY"):
+                estado = "PRONTO_OPERACAO_ASSISTIDA"
+                plano["estado_planejamento"] = estado
+                plano["checkpoint_concluido"] = "TERMO_SAFRAPAY"
+        except Exception as exc:
+            plano["checkpoint_erro"] = f"{type(exc).__name__}: {exc}"
     return {"chamado_id":int(chamado_id), "player":player, "regra_id":regra.get("regra_id"), "estado":estado, "pode_operar":plano.get("pode_operar_assistido",False), "workflow":plano, "autorizacao_motor":autorizacao}
