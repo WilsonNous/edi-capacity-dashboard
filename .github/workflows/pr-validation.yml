@@ -1,0 +1,77 @@
+name: EDNNA - Validate Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ednna-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Python project
+        run: |
+          python -m compileall app.py redmine_api.py ednna pages
+
+      - name: Validate EDNNA opening miner import
+        run: |
+          python - <<'PY'
+          from ednna.minerador_aberturas import (
+              eh_abertura,
+              identificar_player,
+              minerar_issue,
+              gerar_propostas,
+              simular_proposta,
+          )
+          print('MINERADOR_ABERTURAS_IMPORT_OK')
+          PY
+
+      - name: Static smoke test opening miner
+        run: |
+          python - <<'PY'
+          from ednna.minerador_aberturas import eh_abertura, identificar_player, minerar_issue
+
+          issue = {
+              'id': 999999,
+              'subject': '[Itaú] Abertura de relacionamento - CLIENTE TESTE',
+              'description': 'Solicitamos abertura. CNPJ 12.345.678/0001-90. Agência 1234 Conta Corrente 56789-0. contato@itau.com.br',
+              'status': {'name': 'Concluído'},
+              'journals': [{'notes': 'Retorno recebido e habilitação confirmada.'}],
+              'attachments': [],
+              'custom_fields': [],
+          }
+          assert eh_abertura(issue)
+          assert identificar_player(issue) == 'ITAU'
+          r = minerar_issue(issue)
+          assert r['chamado_id'] == 999999
+          assert r['sinais']['terminal_positivo'] is True
+          assert any(e['codigo'] == 'EXTRAIR_DADOS' for e in r['etapas'])
+          print('MINERADOR_ABERTURAS_SMOKE_OK')
+          PY
+
+      - name: Report repository hygiene debt
+        run: |
+          tracked=$(git ls-files | grep -E '(^|/)__pycache__/|\.pyc$' | wc -l || true)
+          echo "TRACKED_PYTHON_CACHE_FILES=$tracked"
+          echo "Informativo nesta versão: limpeza do legado de caches será tratada separadamente para não misturar escopo com o motor de aberturas."
