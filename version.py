@@ -1,3 +1,3 @@
 """Versionamento centralizado da EDNNA."""
-APP_VERSION = "3.34.10"
-APP_RELEASE = "Escola Contínua · prova surpresa · revisão e aprendizado operacional"
+APP_VERSION = "3.34.11"
+APP_RELEASE = "Escola Contínua · prova ponderada por recência e criticidade · professor no controle"
