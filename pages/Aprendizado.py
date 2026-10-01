@@ -109,10 +109,12 @@ try:
                 dono = 'EDNNA' if e.get('responsavel') == 'EDNNA' else 'Humano'
                 conf = '✓' if e.get('confianca') == 'ALTA' else '◐'
                 st.write(f"{conf} **{e.get('descricao')}** · {dono} · recorrência {e.get('recorrencia_pct')}%")
-            if st.button('🧪 Fazer prova nos históricos', key='sim_' + p.get('regra_id', '')):
-                sim = simular_proposta(p)
-                st.session_state['sim_' + p.get('regra_id', '')] = sim
-            sim = st.session_state.get('sim_' + p.get('regra_id', ''))
+            regra_id = str(p.get('regra_id') or '')
+            button_key = 'btn_sim_' + regra_id
+            result_key = 'resultado_sim_' + regra_id
+            if st.button('🧪 Fazer prova nos históricos', key=button_key):
+                st.session_state[result_key] = simular_proposta(p)
+            sim = st.session_state.get(result_key)
             if sim:
                 st.info(f"Resultado da prova: {sim.get('compativeis')}/{sim.get('casos')} casos com ≥80% das etapas recorrentes · compatibilidade {sim.get('compatibilidade_pct')}%.")
             st.warning('📌 Matéria candidata. Eu não executarei esta abertura até meu professor revisar, homologar e autorizar explicitamente.')
