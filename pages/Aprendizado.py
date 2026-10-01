@@ -1,71 +1,73 @@
 from ednna.security import require_admin
 import streamlit as st
-from ui.operational_shell import setup,footer
+from ui.operational_shell import setup, footer
 from ui.operational_data import regras_df
-setup('🧠 Aprendizado e homologação')
-require_admin()
+from ednna.escola_continua import sincronizar_regras_homologadas, listar_matriculas
+setup('🧠 Central de Aprendizagem · EDNNA'); require_admin()
 tech,_=st.columns([1.2,5])
 with tech:
-    if st.button('⚙️ Modo técnico',width="stretch"):
-        st.session_state['shell_main_navigation']='Motor EDNNA'; st.switch_page('pages/Painel_EDI.py')
+    if st.button('⚙️ Modo técnico',width='stretch'): st.session_state['shell_main_navigation']='Motor EDNNA'; st.switch_page('pages/Painel_EDI.py')
+st.markdown('### 🎓 A EDNNA está matriculada na operação')
+st.caption('Eu estudo os históricos, aprendo com a operação real e volto ao professor quando encontro algo que merece decisão humana.')
+st.info('📚 **Minha rotina:** Estudo → Prova → Prova surpresa → Professor → Homologação → Trabalho → Revisão → Novo aprendizado.')
 r=regras_df()
-if r.empty: st.info('A EDNNA ainda não possui regras de aprendizado disponíveis neste ambiente.')
+if r.empty: st.info('Ainda não encontrei regras de aprendizado disponíveis neste ambiente.')
 else:
-    estado=r['estado'].fillna('EM_APRENDIZADO')
-    rev=r[estado.eq('PRONTA_PARA_REVISAO')]; hom=r[(estado.eq('HOMOLOGADA')) | (r.get('estado_revisao','').fillna('').eq('HOMOLOGADA'))]; estudo=r[~r.index.isin(rev.index) & ~r.index.isin(hom.index)]
-    c1,c2,c3=st.columns(3)
-    for c,l,n,nota in [(c1,'Em estudo',len(estudo),'procedimentos em aprendizado'),(c2,'Para revisar',len(rev),'precisam da sua decisão'),(c3,'Homologadas',len(hom),'conhecimento aprovado')]:
+    estado=r['estado'].fillna('EM_APRENDIZADO'); rev=r[estado.eq('PRONTA_PARA_REVISAO')]; hom=r[(estado.eq('HOMOLOGADA'))|(r.get('estado_revisao','').fillna('').eq('HOMOLOGADA'))]; estudo=r[~r.index.isin(rev.index)&~r.index.isin(hom.index)]; sincronizar_regras_homologadas(r); matriculas=listar_matriculas(); atrasadas=[m for m in matriculas if m['situacao_visual']=='REVISAO_ATRASADA']; proximas=[m for m in matriculas if m['situacao_visual']=='REVISAO_PROXIMA']; divergentes=[m for m in matriculas if m['situacao_visual']=='PRECISO_DO_PROFESSOR']; saudaveis=[m for m in matriculas if m['situacao_visual']=='CONHECIMENTO_SAUDAVEL']
+    if divergentes: st.warning(f'👩‍🏫 Professor, encontrei **{len(divergentes)} matéria(s) com divergência**. Não alterei nenhuma regra; deixei tudo separado para sua revisão.')
+    elif atrasadas: st.warning(f'📚 Tenho **{len(atrasadas)} matéria(s) com revisão atrasada**. O conhecimento continua preservado, mas está na hora de estudar os casos recentes.')
+    elif proximas: st.info(f'🗓️ Estou em dia. Tenho **{len(proximas)} matéria(s)** entrando em revisão nos próximos 7 dias.')
+    elif matriculas: st.success(f'😊 Estou com a matéria em dia: **{len(saudaveis)} conhecimento(s)** sem divergência ou revisão vencida.')
+    c1,c2,c3,c4=st.columns(4)
+    for c,l,n,nota in [(c1,'📖 Em estudo',len(estudo),'matérias sendo aprendidas'),(c2,'📝 Provas para corrigir',len(rev),'precisam do professor'),(c3,'🎓 Matriculadas',len(matriculas),'conhecimento homologado'),(c4,'👩‍🏫 Atenção',len(divergentes)+len(atrasadas),'divergências ou revisão vencida')]:
         with c: st.markdown(f'<div class="op-card"><div class="op-k">{l}</div><div class="op-n">{n}</div><div class="op-note">{nota}</div></div>',unsafe_allow_html=True)
-    st.subheader('Precisam de você')
-    if rev.empty: st.success('Nenhuma regra aguarda sua revisão agora.')
+    st.subheader('👩‍🏫 Professores, preciso de vocês')
+    if rev.empty and not divergentes: st.success('Nenhuma prova ou divergência aguarda sua decisão agora.')
     for _,x in rev.iterrows():
-        cols=st.columns([4,1]);
-        with cols[0]: st.markdown(f'<div class="rule"><b>{x.get("player") or x.get("regra_id")}</b><br><span class="pill">Pronta para revisão</span> · {int(x.get("completude") or 0)}% de completude<br><small>{x.get("regra_id")}</small></div>',unsafe_allow_html=True)
+        cols=st.columns([4,1])
+        with cols[0]: st.markdown(f'<div class="rule"><b>{x.get("player") or x.get("regra_id")}</b><br><span class="pill">Prova pronta</span> · {int(x.get("completude") or 0)}% de completude<br><small>{x.get("regra_id")}</small></div>',unsafe_allow_html=True)
         with cols[1]:
-            if st.button('Revisar',key='rev_'+str(x.get('regra_id')),width="stretch"):
-                st.session_state['ednna_regra_foco']=x.get('regra_id'); st.session_state['shell_main_navigation']='Motor EDNNA'; st.switch_page('pages/Painel_EDI.py')
-    with st.expander(f'Em aprendizado ({len(estudo)})'):
+            if st.button('Corrigir prova',key='rev_'+str(x.get('regra_id')),width='stretch'): st.session_state['ednna_regra_foco']=x.get('regra_id'); st.session_state['shell_main_navigation']='Motor EDNNA'; st.switch_page('pages/Painel_EDI.py')
+    with st.expander(f'📚 Na sala de estudo ({len(estudo)})'):
         for _,x in estudo.sort_values('completude',ascending=False).iterrows(): st.write(f"**{x.get('player') or x.get('regra_id')}** — {int(x.get('completude') or 0)}% · {str(x.get('estado') or '').replace('_',' ').title()}")
-
-st.divider()
-st.subheader('⛏️ Descoberta histórica · Aberturas de Relacionamento')
-st.caption('A EDNNA procura históricos concluídos, reconstrói etapas e propõe automações. Nenhuma regra é homologada ou autorizada automaticamente.')
+    st.subheader('🔄 Minha agenda de revisão')
+    for m in matriculas:
+        situacao=m['situacao_visual']; icone={'PRECISO_DO_PROFESSOR':'👩‍🏫','REVISAO_ATRASADA':'⚠️','REVISAO_PROXIMA':'🗓️','CONHECIMENTO_SAUDAVEL':'🎓'}.get(situacao,'📚'); dias=int(m['dias_para_revisao']); prazo=f'atrasada há {abs(dias)} dia(s)' if dias<0 else ('revisão hoje' if dias==0 else f'revisão em {dias} dia(s)')
+        with st.expander(f"{icone} {m.get('player') or m['regra_id']} · {prazo}"):
+            a,b,c,d=st.columns(4); a.metric('Matrícula',m['matriculada_em']); b.metric('Última revisão',m.get('ultima_revisao_em') or 'Ainda não revisada'); c.metric('Aderência atual','—' if m.get('aderencia_atual') is None else f"{float(m['aderencia_atual']):.0f}%"); d.metric('Novas evidências',m.get('evidencias_desde_revisao',0))
+st.divider(); st.subheader('⛏️ Biblioteca histórica · Aberturas de Relacionamento'); st.caption('Começo com até 6 bons cadernos para aprender. Depois faço uma prova surpresa com até 12 históricos que não usei no aprendizado.')
 try:
-    from ednna.minerador_aberturas import descobrir_no_redmine, listar_propostas, simular_proposta
-    cmin1,cmin2=st.columns([1.4,4])
+    from ednna.minerador_aberturas import descobrir_no_redmine,listar_propostas,simular_proposta,simular_prova_surpresa
+    cmin1,_=st.columns([1.4,4])
     with cmin1:
-        if st.button('🔎 Minerar Redmine', key='minerar_aberturas', width='stretch'):
-            with st.spinner('Analisando Aberturas de Relacionamento com pressão controlada no Redmine...'):
-                st.session_state['mineracao_aberturas_resultado']=descobrir_no_redmine(limite_detalhes_por_player=6)
-            st.success('Mineração concluída. As propostas continuam bloqueadas até revisão/homologação.')
+        if st.button('🔎 Estudar Redmine',key='minerar_aberturas',width='stretch'):
+            with st.spinner('📚 Estou estudando os históricos e separando questões inéditas para a prova surpresa...'): st.session_state['mineracao_aberturas_resultado']=descobrir_no_redmine(limite_detalhes_por_player=6,limite_prova_surpresa_por_player=12)
+            st.success('Terminei esta rodada. O caderno de estudo e a prova surpresa ficaram separados.')
     res=st.session_state.get('mineracao_aberturas_resultado') or {}
     if res:
-        a,b,c,d=st.columns(4)
-        a.metric('Candidatos',res.get('candidatos_rasos',0)); b.metric('Detalhados',res.get('detalhados',0)); c.metric('Players',res.get('players',0)); d.metric('Erros',len(res.get('erros') or []))
+        a,b,c,d=st.columns(4); a.metric('Candidatos encontrados',res.get('candidatos_rasos',0)); b.metric('Históricos detalhados',res.get('detalhados',0)); c.metric('Players',res.get('players',0)); d.metric('Erros',len(res.get('erros') or []))
     propostas=listar_propostas()
-    if not propostas:
-        st.info('Ainda não há propostas de abertura mineradas. A mineração só ocorre quando um administrador aciona o botão.')
+    if not propostas: st.info('Ainda não preparei matérias novas. O estudo começa quando você aciona o botão.')
     for p in propostas:
-        titulo=f"{p.get('player')} · {p.get('regra_id')}"
-        with st.expander(titulo):
-            x1,x2,x3,x4=st.columns(4)
-            x1.metric('Evidências',p.get('evidencias',0)); x2.metric('Compatibilidade',f"{p.get('compatibilidade',0)}%")
-            x3.metric('Automatizáveis',p.get('automatizaveis_agora',0)); x4.metric('Checkpoints',p.get('checkpoints_humanos',0))
-            st.caption('Fontes: chamados ' + ', '.join('#'+str(i) for i in p.get('casos_ids',[])))
-            for e in p.get('etapas',[]):
-                dono='EDNNA' if e.get('responsavel')=='EDNNA' else 'Humano'
-                conf='✓' if e.get('confianca')=='ALTA' else '◐'
-                st.write(f"{conf} **{e.get('descricao')}** · {dono} · recorrência {e.get('recorrencia_pct')}%")
-            regra_id=str(p.get('regra_id') or '')
-            button_key='btn_sim_'+regra_id
-            result_key='resultado_sim_'+regra_id
-            if st.button('🧪 Simular nos históricos',key=button_key):
-                st.session_state[result_key]=simular_proposta(p)
-            sim=st.session_state.get(result_key)
-            if sim:
-                st.info(f"Backtest estrutural: {sim.get('compativeis')}/{sim.get('casos')} casos com ≥80% das etapas recorrentes · compatibilidade {sim.get('compatibilidade_pct')}%.")
-            st.warning('Candidata apenas para revisão. A EDNNA não executará esta abertura até existir homologação e autorização explícitas.')
-except Exception as exc:
-    st.error(f'Não foi possível carregar o minerador de aberturas: {type(exc).__name__}: {exc}')
-
-footer()
+        with st.expander(f"{p.get('player')} · {p.get('regra_id')}"):
+            x1,x2,x3,x4=st.columns(4); x1.metric('Caderno inicial',p.get('evidencias',0)); x2.metric('Universo encontrado',p.get('universo_encontrado',p.get('evidencias',0))); x3.metric('Posso fazer',p.get('automatizaveis_agora',0)); x4.metric('Preciso do professor',p.get('checkpoints_humanos',0)); st.caption('Aprendi com: '+', '.join('#'+str(i) for i in p.get('casos_ids',[])))
+            surpresa_ids=p.get('prova_surpresa_ids',[]); planejados=int(p.get('prova_surpresa_planejada') or len(surpresa_ids))
+            if surpresa_ids: st.caption('🧩 Separei para a prova surpresa: '+', '.join('#'+str(i) for i in surpresa_ids))
+            if not p.get('prova_surpresa_completa',True): st.warning(f'⚠️ A prova surpresa está incompleta: consegui carregar {len(surpresa_ids)} de {planejados} históricos planejados. Não vou publicar nota como se a prova estivesse completa.')
+            for e in p.get('etapas',[]): st.write(f"{'✓' if e.get('confianca')=='ALTA' else '◐'} **{e.get('descricao')}** · {'EDNNA' if e.get('responsavel')=='EDNNA' else 'Humano'} · recorrência {e.get('recorrencia_pct')}%")
+            rid=str(p.get('regra_id') or ''); col1,col2=st.columns(2)
+            with col1:
+                if st.button('🧪 Fazer prova do caderno',key='btn_sim_'+rid,width='stretch'): st.session_state['resultado_sim_'+rid]=simular_proposta(p)
+            with col2:
+                if st.button('🎁 Fazer prova surpresa',key='btn_surpresa_'+rid,width='stretch',disabled=not bool(surpresa_ids)): st.session_state['resultado_surpresa_'+rid]=simular_prova_surpresa(p)
+            sim=st.session_state.get('resultado_sim_'+rid)
+            if sim: st.info(f"**Prova do caderno:** {sim.get('compativeis')}/{sim.get('casos')} casos compatíveis · **{int(sim.get('compatibilidade_pct') or 0)}%**.")
+            surpresa=st.session_state.get('resultado_surpresa_'+rid)
+            if surpresa:
+                if not surpresa.get('completa',False): st.warning(f"👩‍🏫 **Prova surpresa incompleta.** Foram avaliados {surpresa.get('casos',0)} de {surpresa.get('planejados',0)} históricos planejados. A EDNNA não recebe nota até completar o conjunto inédito.")
+                else:
+                    comp=int(surpresa.get('compatibilidade_pct') or 0); frase='🎓 Professor, consegui aplicar o que aprendi em casos que eu não tinha estudado.' if comp>=90 else ('🧠 Consegui generalizar parte da matéria, mas quero revisar alguns casos com você.' if comp>=70 else '👩‍🏫 Professor, encontrei diferenças importantes quando saí do meu caderno. Ainda não quero trabalhar sozinha nesta matéria.'); st.success(f"{frase}\n\n**Prova surpresa:** {surpresa.get('compativeis')}/{surpresa.get('casos')} históricos inéditos compatíveis · **{comp}%**.") if comp>=90 else st.warning(f"{frase}\n\n**Prova surpresa:** {surpresa.get('compativeis')}/{surpresa.get('casos')} históricos inéditos compatíveis · **{comp}%**.")
+                with st.expander('🔬 Ver questões da prova surpresa'): st.write(surpresa)
+            st.caption('🔒 Estudar e passar nas provas não ativa a regra. Homologação e autorização continuam sendo decisões do professor.')
+except Exception as exc: st.error(f'Não consegui carregar o minerador de aberturas: {type(exc).__name__}: {exc}')
+st.divider(); st.caption('🎓 Quanto melhor o chamado for registrado, melhor eu aprendo. Contexto, evidência e conclusão fazem parte da aula.'); footer()
