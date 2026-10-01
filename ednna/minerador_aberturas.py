@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """EDNNA v3.34.9 — mineração histórica orientada à automação.
 
-Princípio de governança:
-- EVIDENCIA_HISTORICA: fato observado em chamados/journals/anexos do Redmine;
-- POLITICA_HOMOLOGADA: decisão operacional da Netunna, não deve ser "aprendida" por recorrência;
-- INFERENCIA_EDNNA: padrão sugerido pela EDNNA, sempre dependente de revisão/homologação.
+Governança:
+- EVIDENCIA_HISTORICA: fato observado em chamados/journals/anexos;
+- POLITICA_HOMOLOGADA: decisão operacional Netunna;
+- INFERENCIA_EDNNA: padrão sugerido pela EDNNA, sujeito a revisão.
 
-Este módulo NUNCA homologa ou autoriza execução automaticamente.
+Este módulo nunca homologa nem autoriza execução automaticamente.
 """
 
 import json
@@ -45,7 +45,6 @@ CAPACIDADES = {
     "DECISAO_AMBIGUA": ("CHECKPOINT_HUMANO", "Resolver ambiguidade real de dados/procedimento"),
 }
 
-# Políticas definidas pela operação. Não participam da contagem de recorrência histórica.
 POLITICAS_HOMOLOGADAS = {
     "FOLLOWUP_48H": {
         "responsavel": "EDNNA",
@@ -59,13 +58,14 @@ POLITICAS_HOMOLOGADAS = {
 
 PLAYER_ALIASES = {
     "ITAU": ["ITAÚ", "ITAU"], "SICREDI": ["SICREDI"], "SAFRAPAY": ["SAFRAPAY", "SAFRA PAY"],
-    "CIELO": ["CIELO"], "REDECARD": ["REDECARD", "REDE ", "USEREDE", "REDE-"],
+    "CIELO": ["CIELO"], "REDECARD": ["REDECARD", "USEREDE"],
     "SANTANDER": ["SANTANDER"], "BRADESCO": ["BRADESCO"], "BANRISUL": ["BANRISUL"],
     "ALELO": ["ALELO"], "PLUXEE": ["PLUXEE", "SODEXO"], "GREENCARD": ["GREENCARD", "GREEN CARD"],
     "TICKET": ["TICKET"], "SENFF": ["SENFF"], "VALECARD": ["VALECARD"], "WIZEO": ["WIZEO"],
     "TRUCKPAG": ["TRUCKPAG"], "FITCARD": ["FITCARD"], "EXPERS": ["EXPERS"], "SHELLBOX": ["SHELLBOX", "SHELL BOX"],
     "PICPAY": ["PICPAY"], "PROFROTAS": ["PROFROTAS"],
 }
+REDE_EXPLICITA_RE = re.compile(r"(?i)(?:^|[\[\]():;,_/\-\s])REDE(?:$|[\[\]():;,_/\-\s])")
 
 
 def _init() -> None:
@@ -85,23 +85,46 @@ def _init() -> None:
 
 def _texto(issue: dict) -> str:
     partes = [str(issue.get("subject") or ""), str(issue.get("description") or "")]
-    for j in issue.get("journals", []) or []:
-        if j.get("notes"):
-            partes.append(str(j.get("notes")))
+    partes.extend(str(j.get("notes")) for j in (issue.get("journals") or []) if j.get("notes"))
     return "\n".join(partes)
 
 
+def _player_em_texto(texto: str, *, aceitar_rede: bool = False) -> str:
+    up = str(texto or "").upper()
+    for player, aliases in PLAYER_ALIASES.items():
+        if any(alias.upper() in up for alias in aliases):
+            return player
+    if aceitar_rede and REDE_EXPLICITA_RE.search(str(texto or "")):
+        return "REDECARD"
+    return "NAO_IDENTIFICADO"
+
+
 def identificar_player(issue: dict) -> str:
-    texto = _texto(issue).upper()
+    """Prioridade: campo estruturado > assunto explícito > narrativa/journals."""
+    estruturados = []
     for cf in issue.get("custom_fields", []) or []:
         nome = str(cf.get("name") or "").upper()
-        val = str(cf.get("value") or "").upper()
         if "ORIGEM" in nome or "ADQUIREN" in nome or "BANCO" in nome:
-            texto += "\n" + val
-    for player, aliases in PLAYER_ALIASES.items():
-        if any(str(a).upper() in texto for a in aliases):
+            valor = cf.get("value")
+            if isinstance(valor, (list, tuple, set)):
+                estruturados.extend(str(v) for v in valor if v not in (None, ""))
+            elif valor not in (None, ""):
+                estruturados.append(str(valor))
+    for valor in estruturados:
+        player = _player_em_texto(valor, aceitar_rede=True)
+        if player != "NAO_IDENTIFICADO":
             return player
-    return "NAO_IDENTIFICADO"
+
+    assunto = str(issue.get("subject") or "")
+    player = _player_em_texto(assunto, aceitar_rede=True)
+    if player != "NAO_IDENTIFICADO":
+        return player
+
+    # Na narrativa, REDE isolado é ambíguo (ex.: "Rede Santa Lúcia").
+    narrativa = "\n".join([str(issue.get("description") or "")] + [
+        str(j.get("notes")) for j in (issue.get("journals") or []) if j.get("notes")
+    ])
+    return _player_em_texto(narrativa, aceitar_rede=False)
 
 
 def eh_abertura(issue: dict) -> bool:
@@ -113,9 +136,13 @@ def _status_nome(issue: dict) -> str:
     return str(s.get("name") if isinstance(s, dict) else s or "")
 
 
+def _terminal_positivo(issue: dict) -> bool:
+    status = _status_nome(issue).upper()
+    return any(x in status for x in ("CONCLU", "FECHAD"))
+
+
 def _score(issue: dict) -> tuple[int, dict]:
     texto = _texto(issue)
-    status = _status_nome(issue).upper()
     journals = len(issue.get("journals", []) or [])
     anexos = len(issue.get("attachments", []) or [])
     emails = sorted(set(e.lower() for e in EMAIL_RE.findall(texto)))
@@ -123,57 +150,40 @@ def _score(issue: dict) -> tuple[int, dict]:
     ecs = sorted(set(EC_RE.findall(texto)))
     contas = sorted(set(x.strip() for x in CONTA_RE.findall(texto)))
     agencias = sorted(set(AGENCIA_RE.findall(texto)))
-    terminal_positivo = any(x in status for x in ("CONCLU", "FECHAD"))
-    score = (30 if terminal_positivo else 0) + min(journals, 10) * 3 + min(anexos, 5) * 3
+    terminal = _terminal_positivo(issue)
+    score = (30 if terminal else 0) + min(journals, 10) * 3 + min(anexos, 5) * 3
     score += 10 if emails else 0
     score += 8 if cnpjs else 0
     score += 6 if (ecs or contas) else 0
     score += 5 if "BLUEPRINT" in texto.upper() or "BP " in texto.upper() else 0
-    score = min(100, score)
-    return score, {"terminal_positivo": terminal_positivo, "journals": journals, "anexos": anexos,
-                   "emails": emails, "cnpjs": cnpjs, "ecs": ecs, "contas": contas, "agencias": agencias}
+    return min(100, score), {"terminal_positivo": terminal, "journals": journals, "anexos": anexos,
+                            "emails": emails, "cnpjs": cnpjs, "ecs": ecs, "contas": contas, "agencias": agencias}
 
 
 def _etapas_evidenciadas(issue: dict) -> list[dict]:
-    """Extrai somente fatos encontrados no histórico. Políticas não entram aqui."""
-    texto = _texto(issue)
-    up = texto.upper()
-    etapas = []
-
+    texto = _texto(issue); up = texto.upper(); etapas = []
     def add(cod: str, evidencia: str) -> None:
         resp, desc = CAPACIDADES[cod]
         etapas.append({"codigo": cod, "responsavel": resp, "descricao": desc,
                        "evidencia": evidencia, "origem": EVIDENCIA_HISTORICA})
-
     add("IDENTIFICAR_CONTEXTO", "Chamado classificado como Abertura de Relacionamento")
-    if "BLUEPRINT" in up or "BP " in up:
-        add("CONSULTAR_BLUEPRINT", "Blueprint/BP referenciado no histórico")
-    if CNPJ_RE.search(texto) or EC_RE.search(texto) or CONTA_RE.search(texto):
-        add("EXTRAIR_DADOS", "Dados operacionais presentes no histórico")
-    if re.search(r"(?i)assunto\s*:|para\s*:|solicitamos|gostar[ií]amos de habilitar|abertura", texto):
-        add("PREPARAR_SOLICITACAO", "Solicitação/e-mail encontrado")
-    if EMAIL_RE.search(texto):
-        add("ENVIAR_EMAIL", "Destinatários/remetentes encontrados")
+    if "BLUEPRINT" in up or "BP " in up: add("CONSULTAR_BLUEPRINT", "Blueprint/BP referenciado no histórico")
+    if CNPJ_RE.search(texto) or EC_RE.search(texto) or CONTA_RE.search(texto): add("EXTRAIR_DADOS", "Dados operacionais presentes no histórico")
+    if re.search(r"(?i)assunto\s*:|para\s*:|solicitamos|gostar[ií]amos de habilitar|abertura", texto): add("PREPARAR_SOLICITACAO", "Solicitação/e-mail encontrado")
+    if EMAIL_RE.search(texto): add("ENVIAR_EMAIL", "Destinatários/remetentes encontrados")
     add("REGISTRAR_REDMINE", "Histórico está registrado no Redmine")
-    if re.search(r"(?i)retorno|respond|protocolo|aguardando", texto):
-        add("MONITORAR_RESPOSTA", "Há sinais de acompanhamento/retorno")
-    if re.search(r"(?i)retorno|confirmad|habilitad|conclu[ií]d|liberad", texto):
-        add("INTERPRETAR_RETORNO", "Há retorno operacional no histórico")
-    if re.search(r"(?i)\bapi\b|opt[- ]?in|portal", texto):
-        add("EXECUTAR_API_PORTAL", "Histórico menciona API/opt-in/portal")
-    if re.search(r"(?i)assin|termo|formul[aá]rio", texto):
-        add("ASSINATURA_DOCUMENTO", "Histórico menciona termo/formulário/assinatura")
-    if re.search(r"(?i)planilha|sharepoint", texto):
-        add("ATUALIZAR_PLANILHA", "Histórico menciona planilha")
-    if re.search(r"(?i)arquivo.{0,50}(recebid|cheg|movimento)|recep[cç][aã]o.{0,30}arquivo", texto):
-        add("VALIDAR_ARQUIVOS", "Histórico menciona validação/recepção de arquivos")
+    if re.search(r"(?i)retorno|respond|protocolo|aguardando", texto): add("MONITORAR_RESPOSTA", "Há sinais de acompanhamento/retorno")
+    if re.search(r"(?i)retorno|confirmad|habilitad|conclu[ií]d|liberad", texto): add("INTERPRETAR_RETORNO", "Há retorno operacional no histórico")
+    if re.search(r"(?i)\bapi\b|opt[- ]?in|portal", texto): add("EXECUTAR_API_PORTAL", "Histórico menciona API/opt-in/portal")
+    if re.search(r"(?i)assin|termo|formul[aá]rio", texto): add("ASSINATURA_DOCUMENTO", "Histórico menciona termo/formulário/assinatura")
+    if re.search(r"(?i)planilha|sharepoint", texto): add("ATUALIZAR_PLANILHA", "Histórico menciona planilha")
+    if re.search(r"(?i)arquivo.{0,50}(recebid|cheg|movimento)|recep[cç][aã]o.{0,30}arquivo", texto): add("VALIDAR_ARQUIVOS", "Histórico menciona validação/recepção de arquivos")
     seen = set()
     return [x for x in etapas if not (x["codigo"] in seen or seen.add(x["codigo"]))]
 
 
 def minerar_issue(issue: dict) -> dict:
-    score, sinais = _score(issue)
-    player = identificar_player(issue)
+    score, sinais = _score(issue); player = identificar_player(issue)
     return {"chamado_id": int(issue.get("id") or 0), "player": player, "status": _status_nome(issue),
             "assunto": str(issue.get("subject") or ""), "score": score, "sinais": sinais,
             "etapas": _etapas_evidenciadas(issue), "minerar_em": agora_brasil_iso()}
@@ -194,11 +204,9 @@ def _politicas_da_proposta() -> list[dict]:
 
 
 def gerar_propostas(resultados: Iterable[dict], minimo_evidencias: int = 2) -> list[dict]:
-    _init()
-    grupos = defaultdict(list)
+    _init(); grupos = defaultdict(list)
     for r in resultados:
-        if r.get("player") and r.get("player") != "NAO_IDENTIFICADO":
-            grupos[r["player"]].append(r)
+        if r.get("player") and r.get("player") != "NAO_IDENTIFICADO": grupos[r["player"]].append(r)
     propostas = []
     for player, casos in sorted(grupos.items()):
         bons = [c for c in casos if c.get("score", 0) >= 55 and c.get("sinais", {}).get("terminal_positivo")]
@@ -206,32 +214,27 @@ def gerar_propostas(resultados: Iterable[dict], minimo_evidencias: int = 2) -> l
         freq = Counter(e["codigo"] for c in base for e in c.get("etapas", []) if e.get("origem") == EVIDENCIA_HISTORICA)
         etapas = []
         for cod, n in freq.most_common():
-            resp, desc = CAPACIDADES[cod]
-            recorrencia = round(100 * n / max(1, len(base)))
+            resp, desc = CAPACIDADES[cod]; recorrencia = round(100 * n / max(1, len(base)))
             etapas.append({"codigo": cod, "responsavel": resp, "descricao": desc, "ocorrencias": n,
-                           "recorrencia_pct": recorrencia, "origem": INFERENCIA_EDNNA,
-                           "base_origem": EVIDENCIA_HISTORICA,
+                           "recorrencia_pct": recorrencia, "origem": INFERENCIA_EDNNA, "base_origem": EVIDENCIA_HISTORICA,
                            "confianca": "ALTA" if n >= minimo_evidencias and recorrencia >= 60 else "A_VALIDAR"})
         politicas = _politicas_da_proposta()
-        automaticas = sum(1 for e in etapas if e["responsavel"] == "EDNNA" and e["confianca"] == "ALTA")
-        automaticas += sum(1 for e in politicas if e["responsavel"] == "EDNNA" and e["confianca"] == "HOMOLOGADA")
+        automaticas = sum(1 for e in etapas if e["responsavel"] == "EDNNA" and e["confianca"] == "ALTA") + sum(1 for e in politicas if e["responsavel"] == "EDNNA")
         checkpoints = sum(1 for e in etapas if e["responsavel"] == "CHECKPOINT_HUMANO" and e["confianca"] == "ALTA")
         compat = round(sum(c.get("score", 0) for c in base) / max(1, len(base)))
         proposta = {"regra_id": f"ABERTURA-{player}-001", "player": player, "estado": "CANDIDATA",
                     "evidencias": len(base), "casos_ids": [c["chamado_id"] for c in base], "compatibilidade": compat,
-                    "etapas": etapas, "politicas_homologadas": politicas,
-                    "automatizaveis_agora": automaticas, "checkpoints_humanos": checkpoints,
+                    "etapas": etapas, "politicas_homologadas": politicas, "automatizaveis_agora": automaticas,
+                    "checkpoints_humanos": checkpoints,
                     "pronta_para_revisao": len(base) >= minimo_evidencias and any(e["confianca"] == "ALTA" for e in etapas),
-                    "governanca": {"historico": EVIDENCIA_HISTORICA, "inferencias": INFERENCIA_EDNNA,
-                                   "politicas": POLITICA_HOMOLOGADA},
+                    "governanca": {"historico": EVIDENCIA_HISTORICA, "inferencias": INFERENCIA_EDNNA, "politicas": POLITICA_HOMOLOGADA},
                     "nota": "Candidata inferida do histórico; políticas homologadas são anexadas separadamente. Não autorizada para execução."}
         propostas.append(proposta)
         with conectar() as conn:
             conn.execute("""INSERT INTO propostas_regras_abertura(regra_id,player,estado,evidencias,compatibilidade,payload_json,atualizado_em)
               VALUES(?,?,?,?,?,?,?) ON CONFLICT(regra_id) DO UPDATE SET player=excluded.player,estado=excluded.estado,
               evidencias=excluded.evidencias,compatibilidade=excluded.compatibilidade,payload_json=excluded.payload_json,atualizado_em=excluded.atualizado_em""",
-              (proposta["regra_id"], player, "CANDIDATA", len(base), compat,
-               json.dumps(proposta, ensure_ascii=False), agora_brasil_iso()))
+              (proposta["regra_id"], player, "CANDIDATA", len(base), compat, json.dumps(proposta, ensure_ascii=False), agora_brasil_iso()))
     return propostas
 
 
@@ -242,54 +245,50 @@ def listar_propostas() -> list[dict]:
     return [json.loads(r[0]) for r in rows]
 
 
+def _ordem_shortlist(issue: dict) -> tuple[int, int]:
+    """Casos terminais primeiro; recência apenas desempata."""
+    return (1 if _terminal_positivo(issue) else 0, int(issue.get("id") or 0))
+
+
 def descobrir_no_redmine(*, limite_detalhes_por_player: int = 6) -> dict:
-    """Descoberta explícita, acionada pelo ADMIN. Faz shortlist antes dos detalhes pesados."""
     from redmine_api import REDMINE_PROJECT_IDS, buscar_chamados_projeto, buscar_detalhes_chamado
     rasos = []
     for pid in REDMINE_PROJECT_IDS:
         rasos.extend(buscar_chamados_projeto(pid, status_id="*", max_workers_paginas=2))
     candidatos = [x for x in rasos if eh_abertura(x)]
     por_player = defaultdict(list)
-    for c in candidatos:
-        por_player[identificar_player(c)].append(c)
-    detalhados = []
-    erros = []
+    for c in candidatos: por_player[identificar_player(c)].append(c)
+    detalhados = []; erros = []
     for player, itens in por_player.items():
-        itens = sorted(itens, key=lambda x: int(x.get("id") or 0), reverse=True)[:max(1, limite_detalhes_por_player)]
+        if player == "NAO_IDENTIFICADO":
+            continue
+        itens = sorted(itens, key=_ordem_shortlist, reverse=True)[:max(1, limite_detalhes_por_player)]
         for item in itens:
             try:
                 d = buscar_detalhes_chamado(int(item["id"]), incluir_journals=True, incluir_relacoes=True,
                                             incluir_anexos=True, consulta_pontual=False, tentativas=1)
                 if d:
-                    r = minerar_issue(d)
-                    salvar_mineracao(r)
-                    detalhados.append(r)
+                    r = minerar_issue(d); salvar_mineracao(r); detalhados.append(r)
             except Exception as exc:
                 erros.append({"chamado_id": item.get("id"), "erro": f"{type(exc).__name__}: {exc}"})
     propostas = gerar_propostas(detalhados)
-    return {"candidatos_rasos": len(candidatos), "detalhados": len(detalhados), "players": len(por_player),
+    return {"candidatos_rasos": len(candidatos), "detalhados": len(detalhados), "players": len([p for p in por_player if p != "NAO_IDENTIFICADO"]),
             "propostas": propostas, "erros": erros, "executado_em": agora_brasil_iso()}
 
 
 def simular_proposta(proposta: dict) -> dict:
-    """Backtest estrutural somente das inferências históricas, sem efeitos externos."""
-    ids = set(int(x) for x in proposta.get("casos_ids", []))
-    _init()
-    casos = []
+    ids = set(int(x) for x in proposta.get("casos_ids", [])); _init(); casos = []
     with conectar() as conn:
         rows = conn.execute("SELECT payload_json FROM mineracao_aberturas WHERE player=?", (proposta.get("player"),)).fetchall()
     for r in rows:
         c = json.loads(r[0])
-        if not ids or int(c.get("chamado_id", 0)) in ids:
-            casos.append(c)
-    esperadas = {e["codigo"] for e in proposta.get("etapas", [])
-                 if e.get("confianca") == "ALTA" and e.get("origem") == INFERENCIA_EDNNA}
+        if not ids or int(c.get("chamado_id", 0)) in ids: casos.append(c)
+    esperadas = {e["codigo"] for e in proposta.get("etapas", []) if e.get("confianca") == "ALTA" and e.get("origem") == INFERENCIA_EDNNA}
     detalhes = []
     for c in casos:
         presentes = {e["codigo"] for e in c.get("etapas", []) if e.get("origem") == EVIDENCIA_HISTORICA}
         cob = round(100 * len(esperadas & presentes) / max(1, len(esperadas)))
-        detalhes.append({"chamado_id": c["chamado_id"], "cobertura_pct": cob,
-                         "faltantes": sorted(esperadas - presentes)})
+        detalhes.append({"chamado_id": c["chamado_id"], "cobertura_pct": cob, "faltantes": sorted(esperadas - presentes)})
     compativeis = sum(1 for d in detalhes if d["cobertura_pct"] >= 80)
     return {"casos": len(detalhes), "compativeis": compativeis,
             "compatibilidade_pct": round(100 * compativeis / max(1, len(detalhes))),
