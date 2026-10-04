@@ -1,75 +1,39 @@
 from pathlib import Path
 import html
-import re
 import streamlit as st
-import pandas as pd
 from version import APP_VERSION, APP_RELEASE
-from ui.operational_data import resumo, resumo_trabalho_ednna, chamados_ativos_df, redmine_link
-from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, diagnosticar_regras_operacionais, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
-from ednna.followup_engine import avaliar_followups, executar_followup
-from ednna.acompanhamento_acoes import listar_redmine_pendentes, obter_acompanhamento
-from ednna.redmine_outbox import reconciliar_redmine_chamado
+from ui.operational_data import resumo, resumo_trabalho_ednna, chamados_ativos_df
 from ednna.aprendizado_operacional import garantir_greencard_pronta, garantir_safrapay_pronta
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
 from ednna.security import current_user, role_label, audit, display_name
 
-# v3.32.1 — a Home também garante o worker. A função é idempotente por processo.
+# O package ednna.* permanece por compatibilidade técnica. A identidade de produto 4.x é EDDY.
 iniciar_monitor_respostas_background()
-
-try:
-    garantir_greencard_pronta()
-except Exception as _greencard_bootstrap_exc:
-    print(f"[EDNNA] Bootstrap Greencard pendente: {_greencard_bootstrap_exc}", flush=True)
-try:
-    garantir_safrapay_pronta()
-except Exception as _safrapay_bootstrap_exc:
-    print(f"[EDNNA] Bootstrap Safrapay pendente: {_safrapay_bootstrap_exc}", flush=True)
+for nome, bootstrap in [('Greencard', garantir_greencard_pronta), ('Safrapay', garantir_safrapay_pronta)]:
+    try:
+        bootstrap()
+    except Exception as exc:
+        print(f'[EDDY] Bootstrap {nome} pendente: {exc}', flush=True)
 
 ROOT = Path(__file__).resolve().parent
-AVATAR = ROOT / 'assets' / 'ednna_avatar.png'
-FAVICON = ROOT / 'assets' / 'ednna_favicon.png'
-
-st.set_page_config(
-    page_title='EDNNA · Netunna',
-    page_icon=str(FAVICON if FAVICON.exists() else AVATAR) if AVATAR.exists() else '✨',
-    layout='wide', initial_sidebar_state='collapsed'
-)
+AVATAR = ROOT / 'assets' / 'eddy_avatar.png'
+FAVICON = ROOT / 'assets' / 'eddy_favicon.png'
+st.set_page_config(page_title='EDDY · Netunna', page_icon=str(FAVICON) if FAVICON.exists() else '🦾', layout='wide', initial_sidebar_state='collapsed')
 
 user = current_user()
 if not user.authenticated:
     audit('ACCESS_BLOCKED', 'Home sem identidade Easy Auth', user)
-    st.error('Acesso não autenticado. Entre novamente com sua conta corporativa Netunna.')
-    st.stop()
+    st.error('Acesso não autenticado. Entre novamente com sua conta corporativa Netunna.'); st.stop()
 if user.role == 'BLOCKED':
     audit('ACCESS_DENIED', 'Domínio não autorizado', user)
-    st.error('Esta conta não está autorizada a acessar a EDNNA.')
-    st.stop()
+    st.error('Esta conta não está autorizada a acessar o EDDY.'); st.stop()
 
 st.markdown('''<style>
 [data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}
-.stApp{background:linear-gradient(180deg,#f7faff 0%,#f2f6fc 100%);color:#102a56}.block-container{max-width:1500px;padding:1rem 1.55rem 1.2rem}
-.topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 13px}.brand-main{font-size:1.25rem;font-weight:950;color:#1268e8;letter-spacing:.02em}.brand-sub{font-size:.72rem;letter-spacing:.14em;color:#6e8fc5;text-transform:uppercase}.status{display:inline-flex;align-items:center;gap:7px;background:#e9f8ef;color:#138348;padding:8px 14px;border-radius:999px;font-weight:850;font-size:.84rem}.status-dot{width:8px;height:8px;border-radius:50%;background:#17a85b}
-.st-key-hero_shell{background:#fff;border:1px solid #e0e9f5;border-radius:22px;padding:10px 14px;box-shadow:0 8px 26px rgba(24,75,140,.06);margin-bottom:0}.st-key-hero_shell>div{gap:.65rem}.hero-copy{padding:20px 12px 12px 5px}.greet{font-size:1rem;color:#173f79;margin-bottom:4px}.hero-title{font-size:2rem;font-weight:950;line-height:1.08;color:#0d326d;margin:6px 0 12px}.hero-text{font-size:1rem;color:#59708f;line-height:1.48;max-width:680px}.hero-text b{color:#1268e8}.avatar-wrap{text-align:center;padding:4px 0}.avatar-wrap img{border-radius:18px;box-shadow:0 12px 28px rgba(19,105,232,.15);animation:ednnaFloat 3.4s ease-in-out infinite}.avatar-state{display:inline-block;margin-top:6px;padding:5px 10px;border-radius:999px;background:#eef5ff;color:#1769d2;font-size:.72rem;font-weight:800}@keyframes ednnaFloat{50%{transform:translateY(-5px)}}
-.ops-panel{background:#fbfdff;border:1px solid #edf2f8;border-radius:18px;padding:13px;height:100%}.ops-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-weight:900;color:#17386b}.ops-pill{font-size:.72rem;color:#16834a;background:#eaf9f0;padding:6px 10px;border-radius:999px}.kpi{background:#fff;border:1px solid #e1eaf6;border-radius:15px;padding:13px 14px;min-height:103px;box-shadow:0 2px 8px rgba(24,75,140,.03)}.klabel{font-size:.78rem;color:#526b8c}.knum{font-size:1.72rem;font-weight:950;color:#0d326d;line-height:1.05;margin:5px 0}.knote{font-size:.72rem;color:#8093ae}.kpi.ednna .knum{color:#1268e8}
-.insight-card{background:#f2f7ff;border:1px solid #e1ebf8;border-radius:14px;padding:9px 12px;margin-top:14px}.insight-title{display:flex;justify-content:space-between;align-items:center;font-size:.82rem;font-weight:900;color:#17386b;margin-bottom:8px}.insight-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0}.insight{padding:1px 12px;border-right:1px solid #dce7f5;font-size:.74rem;color:#59708f}.insight:first-child{padding-left:0}.insight:last-child{border-right:0}.insight b{display:block;color:#0d326d;font-size:.88rem;margin-bottom:1px}
-.section-shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:15px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}.section-title{font-size:1.12rem;font-weight:950;color:#102f62}.section-sub{font-size:.76rem;color:#7790b2;margin:2px 0 11px}.people-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}.impact-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.person{background:#fff;border:1px solid #dfe8f4;border-radius:14px;padding:12px 13px;min-height:95px}.person-top{display:flex;align-items:center;gap:9px}.initial{width:34px;height:34px;border-radius:50%;background:#e7f0ff;color:#173f79;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.75rem;flex:0 0 auto}.initial.ai{background:#edf4ff;color:#1268e8}.pname{font-weight:900;font-size:.82rem;color:#17386b;line-height:1.12}.ptype{font-size:.66rem;color:#8093ae;margin-top:2px}.pnum{font-size:1.35rem;font-weight:950;color:#1268e8;line-height:1.05;margin-top:8px}.pnote{font-size:.68rem;color:#8093ae}
-.module-title{font-size:1.1rem;font-weight:950;color:#102f62;margin:0 0 2px}.module-sub{font-size:.72rem;color:#8093ae;margin-bottom:10px}div.stButton>button{border-radius:14px!important;min-height:70px!important;font-weight:850!important;border:1px solid #dce7f4!important;background:#fff!important;color:#17386b!important;box-shadow:0 2px 8px rgba(24,75,140,.03)!important}div.stButton>button:hover{border-color:#1268e8!important;color:#1268e8!important;transform:translateY(-1px)}
-.foot{text-align:center;color:#8ba0bd;font-size:.68rem;margin-top:14px}.redmine-note{font-size:.67rem;color:#8ba0bd;text-align:right;margin-top:6px}
-@media(max-width:1000px){.people-grid,.impact-grid{grid-template-columns:repeat(2,1fr)}.insight-grid{grid-template-columns:1fr}.insight{border-right:0;border-bottom:1px solid #dce7f5;padding:6px 0}.insight:last-child{border-bottom:0}.hero-title{font-size:1.65rem}}
-
-:root{--ed-blue:#1268e8;--ed-navy:#0b2d61;--ed-muted:#6f84a2}
-html,body,[class*="css"],.stApp{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-.brand-main{font-size:1.18rem;letter-spacing:.035em}.brand-sub{font-size:.66rem;letter-spacing:.18em}
-.st-key-hero_shell{border-color:#dbe6f4;box-shadow:0 10px 30px rgba(24,75,140,.055)}
-.hero-copy{padding:18px 14px 13px 7px}.greet{font-size:.88rem;font-weight:650;color:#476787}.hero-title{font-size:1.92rem;letter-spacing:-.025em;margin:5px 0 10px}.hero-text{font-size:.94rem;line-height:1.5;color:#607591}
-.ops-head,.section-title,.module-title{letter-spacing:-.012em}.klabel{font-size:.74rem;font-weight:650}.knum{letter-spacing:-.035em}.knote{line-height:1.3}
-.insight-card{padding:10px 13px}.insight b{letter-spacing:-.01em}.section-shell{padding:16px 19px}.person{transition:transform .15s ease,box-shadow .15s ease}.person:hover{transform:translateY(-1px);box-shadow:0 7px 18px rgba(24,75,140,.06)}
-div.stButton>button{font-size:.82rem!important;letter-spacing:-.005em!important}
-/* Operação deve ter a mesma escala visual dos demais módulos da Home. */
-.st-key-ednna_operation_shell{background:#fff;border:1px solid #e0e9f5;border-radius:20px;padding:14px 18px;margin-top:14px;box-shadow:0 5px 18px rgba(24,75,140,.04)}
-.st-key-ednna_operation_shell [data-testid="stMetric"]{background:#f8fbff;border:1px solid #e1eaf6;border-radius:14px;padding:9px 12px;min-height:78px}
-.st-key-ednna_operation_shell [data-testid="stMetricValue"]{font-size:1.42rem}
-.st-key-ednna_operation_shell div.stButton>button{min-height:40px!important;width:auto!important;padding:.45rem .9rem!important;border-radius:10px!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary]{background:#1268e8!important;color:#fff!important;border-color:#1268e8!important}.st-key-ednna_operation_shell div.stButton>button[kind=primary] p{color:#fff!important}
+.stApp{background:linear-gradient(180deg,#f7faff,#f2f6fc);color:#102a56}.block-container{max-width:1500px;padding:1rem 1.55rem 1.2rem}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 13px}.brand{font-size:1.2rem;font-weight:950;color:#1268e8;letter-spacing:.04em}.sub{font-size:.68rem;letter-spacing:.16em;color:#6e8fc5;text-transform:uppercase}.status{display:inline-flex;align-items:center;gap:7px;background:#e9f8ef;color:#138348;padding:8px 14px;border-radius:999px;font-weight:850;font-size:.84rem}.dot{width:8px;height:8px;border-radius:50%;background:#17a85b}
+.hero,.section{background:#fff;border:1px solid #dfe8f4;border-radius:20px;box-shadow:0 7px 22px rgba(24,75,140,.05)}.hero{padding:20px;margin-bottom:14px}.section{padding:16px 19px;margin-top:14px}.greet{font-size:.9rem;font-weight:700;color:#476787}.title{font-size:2rem;font-weight:950;line-height:1.08;color:#0d326d;margin:6px 0 10px}.copy{font-size:.94rem;line-height:1.5;color:#607591}.copy b{color:#1268e8}.section-title{font-size:1.12rem;font-weight:950;color:#102f62}.section-sub{font-size:.76rem;color:#7790b2;margin:3px 0 12px}.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.card{background:#fbfdff;border:1px solid #e1eaf6;border-radius:15px;padding:13px 14px;min-height:94px}.label{font-size:.75rem;color:#526b8c;font-weight:700}.num{font-size:1.65rem;font-weight:950;color:#1268e8;line-height:1.05;margin:6px 0}.note{font-size:.7rem;color:#8093ae}.voice{background:#f2f7ff;border:1px solid #dce8f8;border-radius:15px;padding:13px 15px;margin-top:14px;color:#476787;font-size:.8rem;line-height:1.45}.voice b{color:#17386b}.avatar img{border-radius:22px;box-shadow:0 12px 28px rgba(19,105,232,.15)}
+div.stButton>button{border-radius:14px!important;min-height:62px!important;font-weight:850!important;border:1px solid #dce7f4!important;background:#fff!important;color:#17386b!important}div.stButton>button:hover{border-color:#1268e8!important;color:#1268e8!important;transform:translateY(-1px)}.foot{text-align:center;color:#8ba0bd;font-size:.68rem;margin-top:16px}@media(max-width:950px){.grid4,.grid3{grid-template-columns:repeat(2,1fr)}.title{font-size:1.6rem}}
 </style>''', unsafe_allow_html=True)
 
 r = resumo(); trabalho = resumo_trabalho_ednna(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
@@ -77,151 +41,50 @@ if r['revisao'] == 1: title = 'Tenho 1 decisão para você.'
 elif r['revisao'] > 1: title = f"Tenho {r['revisao']} decisões para você."
 elif r['aprendendo'] > 0: title = 'Estou aprendendo enquanto você trabalha.'
 else: title = 'A operação está sob acompanhamento.'
-if r['revisao'] > 0: state_label='Atenção · decisão pendente'
-elif r['aprendendo'] > 0: state_label='Analisando a operação'
-else: state_label='Operação acompanhada'
 
-st.markdown(f'<div class="topbar"><div><div class="brand-main">EDNNA · NETUNNA</div><div class="brand-sub">Inteligência Operacional EDI</div></div><div style="text-align:right"><div class="status"><span class="status-dot"></span> Operando</div><div style="font-size:.68rem;color:#6f84a2;margin-top:4px">{html.escape(user.email)} · {html.escape(role_label(user.role))}</div></div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="topbar"><div><div class="brand">EDDY · NETUNNA</div><div class="sub">Super inteligência especializada em EDI</div></div><div style="text-align:right"><div class="status"><span class="dot"></span> Operando</div><div style="font-size:.68rem;color:#6f84a2;margin-top:4px">{html.escape(user.email)} · {html.escape(role_label(user.role))}</div></div></div>', unsafe_allow_html=True)
 
-hero = st.container(key='hero_shell')
-with hero:
-    avcol, copycol, opscol = st.columns([1.15, 2.55, 2.25], gap='medium', vertical_alignment='center')
-with avcol:
+st.markdown('<div class="hero">', unsafe_allow_html=True)
+av, main = st.columns([1,4], vertical_alignment='center')
+with av:
     if AVATAR.exists():
-        st.markdown('<div class="avatar-wrap">', unsafe_allow_html=True)
-        st.image(str(AVATAR), width='stretch')
-        st.markdown(f'<div class="avatar-state">{html.escape(state_label)}</div></div>', unsafe_allow_html=True)
-with copycol:
-    st.markdown(f'''<div class="hero-copy"><div class="greet">Olá, {html.escape(display_name(user) or "você")}! Eu sou a EDNNA.</div><div class="hero-title">{html.escape(title)}</div><div class="hero-text">Estou acompanhando <b>{r['total']} chamados ativos</b>. A equipe e a EDNNA continuam trabalhando; você entra apenas onde sua decisão faz diferença.</div><div class="hero-text" style="margin-top:8px"><b>{cobertura}%</b> das regras conhecidas estão homologadas. <b>{trabalho['regras_automaticas']}</b> já estão autorizadas para atuação automática.</div></div>''', unsafe_allow_html=True)
-    # v3.30.0 — Leitura operacional: só mostra situação, trabalho da EDNNA e decisão humana.
-    # Não mistura mais concentração por responsável/capacidade com a leitura principal.
-    pct_terceiros = round(r['terceiros']/r['total']*100) if r['total'] else 0
-    acompanhando = int(trabalho.get('acompanhando', 0) or 0)
-    decisoes = int(r.get('revisao', 0) or 0)
-    ins = [
-        (str(r['terceiros']), f'aguardam terceiros · {pct_terceiros}% da carteira'),
-        (str(acompanhando), 'estão comigo · acompanhamento EDNNA'),
-        (str(decisoes), 'precisam de você · decisões pendentes'),
-    ]
-    cells=''.join(f'<div class="insight"><b>{html.escape(a)}</b>{html.escape(b)}</div>' for a,b in ins)
-    if decisoes:
-        leitura = f"A maior parte da carteira está aguardando terceiros. Estou acompanhando {acompanhando} chamados e encontrei {decisoes} decisão" + ("" if decisoes == 1 else "ões") + " que ainda precisa" + ("" if decisoes == 1 else "m") + " de você."
-    elif acompanhando:
-        leitura = f"Estou acompanhando {acompanhando} chamados. No momento, não há decisões de regra esperando por você."
-    else:
-        leitura = "A operação está acompanhada. No momento, não há decisões de regra esperando por você."
-    st.markdown(
-        f'<div class="insight-card"><div class="insight-title"><span>💡 Leitura da EDNNA</span><span style="font-weight:700;color:#1268e8">agora</span></div>'
-        f'<div class="insight-grid">{cells}</div><div style="margin-top:9px;padding-top:8px;border-top:1px solid #dce7f5;font-size:.76rem;line-height:1.4;color:#476787">{html.escape(leitura)}</div></div>',
-        unsafe_allow_html=True,
-    )
-with opscol:
-    st.markdown('<div class="ops-panel"><div class="ops-head"><span>〽 Estado da operação</span><span class="ops-pill">✚ Em acompanhamento</span></div>', unsafe_allow_html=True)
-    k1,k2=st.columns(2); k3,k4=st.columns(2)
-    data=[(k1,'Chamados ativos',r['total'],'carteira ativa do Redmine',''),(k2,'Equipe / Atuação',r['em_atuacao'],'fora de espera por terceiros',''),(k3,'Aguardando terceiros',r['terceiros'],'dependência externa',''),(k4,'EDNNA',trabalho['acompanhando'],'chamados sob acompanhamento','ednna')]
-    for col,label,num,note,klass in data:
-        with col: st.markdown(f'<div class="kpi {klass}"><div class="klabel">{label}</div><div class="knum">{num}</div><div class="knote">{note}</div></div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-# Distribuição: EDNNA Automação EDI é usuário real do Redmine; EDNNA inteligência é outra camada.
-st.markdown('<div class="section-shell"><div class="section-title">👥 Quem está com o quê?</div><div class="section-sub">Distribuição dos chamados por responsável. O usuário “ednna automação edi” participa da operação no Redmine; a EDNNA Inteligência aparece separadamente.</div>', unsafe_allow_html=True)
-people=[]
+        st.markdown('<div class="avatar">', unsafe_allow_html=True); st.image(str(AVATAR), width='stretch'); st.markdown('</div>', unsafe_allow_html=True)
+    else: st.markdown('<div style="font-size:4rem;text-align:center">🦾</div>', unsafe_allow_html=True)
+with main:
+    st.markdown(f'<div class="greet">Olá, {html.escape(display_name(user) or "você")}! Eu sou o EDDY.</div><div class="title">{html.escape(title)}</div><div class="copy">Estou acompanhando <b>{r["total"]} chamados ativos</b>. A equipe e eu continuamos trabalhando; você entra onde sua decisão faz diferença.<br><b>{cobertura}%</b> das regras conhecidas estão homologadas e <b>{trabalho["regras_automaticas"]}</b> já estão autorizadas para atuação automática.</div>', unsafe_allow_html=True)
+pct = round(r['terceiros']/r['total']*100) if r['total'] else 0
+st.markdown(f'<div class="voice"><b>💡 Minha leitura agora:</b> {r["terceiros"]} chamados aguardam terceiros ({pct}% da carteira); estou acompanhando {trabalho["acompanhando"]} e tenho {r["revisao"]} decisão(ões) para o professor.</div></div>', unsafe_allow_html=True)
+
+def cards(items, cols='grid4'):
+    return f'<div class="{cols}">' + ''.join(f'<div class="card"><div class="label">{html.escape(str(a))}</div><div class="num">{b}</div><div class="note">{html.escape(str(c))}</div></div>' for a,b,c in items) + '</div>'
+
+estado=[('Chamados ativos',r['total'],'carteira ativa do Redmine'),('Equipe / atuação',r['em_atuacao'],'fora da espera por terceiros'),('Aguardando terceiros',r['terceiros'],'dependência externa'),('Comigo',trabalho['acompanhando'],'sob acompanhamento EDDY')]
+st.markdown('<div class="section"><div class="section-title">〽 Estado da operação</div><div class="section-sub">Uma leitura rápida da carteira antes de entrar nos módulos.</div>'+cards(estado)+'</div>', unsafe_allow_html=True)
+
+impact=[('Atuações executadas',trabalho['atuacoes'],'operações persistidas'),('Em acompanhamento',trabalho['acompanhando'],'retornos acompanhados'),('Follow-ups',trabalho['followups'],'cobranças automáticas'),('Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados'),('Conhecimento',trabalho['clientes_conhecidos'],f"{trabalho['blueprints']} registros · {trabalho['participantes']} contatos"),('Redmine pendente',trabalho['redmine_pendente'],'reconciliações pendentes')]
+st.markdown('<div class="section"><div class="section-title">🦾 O que estou fazendo por você</div><div class="section-sub">Trabalho já absorvido pelo EDDY.</div>'+cards(impact,'grid3')+'</div>', unsafe_allow_html=True)
+
 if not df.empty and 'responsavel' in df.columns:
-    vc=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts()
-    ednna_mask=vc.index.astype(str).str.lower().str.contains(r'ednna.*automa', regex=True)
-    ednna_user=vc[ednna_mask]
-    humanos=vc[~ednna_mask].head(3)
-    for nome,n in humanos.items(): people.append((str(nome),int(n),'chamados','humano'))
-    if len(ednna_user): people.append((str(ednna_user.index[0]),int(ednna_user.iloc[0]),'chamados · usuário Redmine','redmine_ai'))
-while len(people)<4: people.append(('Sem responsável',0,'chamados','humano'))
-people=people[:4]
-people.append(('EDNNA',trabalho['atuacoes'],'atuações absorvidas · inteligência','intel'))
-html_people=[]
-for nome,n,note,kind in people:
-    if kind=='redmine_ai': initials='⚙'; ptype='Usuário operacional Redmine'; cls='ai'
-    elif kind=='intel': initials='✦'; ptype='Inteligência operacional'; cls='ai'
-    else:
-        initials=''.join(x[0] for x in nome.split()[:2]).upper() if nome else '—'; ptype='Responsável Redmine'; cls=''
-    html_people.append(f'<div class="person"><div class="person-top"><div class="initial {cls}">{html.escape(initials)}</div><div><div class="pname">{html.escape(nome)}</div><div class="ptype">{html.escape(ptype)}</div></div></div><div class="pnum">{n}</div><div class="pnote">{html.escape(note)}</div></div>')
-st.markdown('<div class="people-grid">'+''.join(html_people)+'</div><div class="redmine-note">Os IDs individuais de chamados permanecem clicáveis nas telas de Equipe e Atendimentos.</div></div>', unsafe_allow_html=True)
+    vc=df.responsavel.fillna('Sem responsável').replace('','Sem responsável').value_counts().head(4)
+    pessoas=[(str(n),int(v),'responsável Redmine') for n,v in vc.items()]+[('EDDY',int(trabalho['atuacoes']),'inteligência EDI')]
+    st.markdown('<div class="section"><div class="section-title">👥 Quem está com o quê?</div><div class="section-sub">Distribuição operacional. EDDY aparece como inteligência; usuários técnicos continuam sendo usuários do Redmine.</div>'+cards(pessoas)+'</div>', unsafe_allow_html=True)
 
-
-# v3.29.5 — mesma linguagem visual de "Quem está com o quê?".
-st.markdown('<div class="section-shell"><div class="section-title">✦ O que estou fazendo por você</div><div class="section-sub">Indicadores locais do trabalho já absorvido pela EDNNA. Sem consulta externa para abrir esta tela.</div>', unsafe_allow_html=True)
-impacto_cards = [
-    ('✓','Atuações executadas',trabalho['atuacoes'],'envios confirmados · operações persistidas'),
-    ('↻','Em acompanhamento',trabalho['acompanhando'],'retornos acompanhados pela inteligência'),
-    ('↗','Follow-ups',trabalho['followups'],'cobranças executadas automaticamente'),
-    ('⚡','Regras automáticas',trabalho['regras_automaticas'],'procedimentos autorizados para agir'),
-    ('▣','Conhecimento',trabalho['clientes_conhecidos'],f"clientes · {trabalho['blueprints']} registros · {trabalho['participantes']} contatos"),
-    ('⟳','Redmine pendente',trabalho['redmine_pendente'],'reconciliações aguardando processamento'),
-]
-html_impacto=[]
-for icone,label,num,note in impacto_cards:
-    html_impacto.append(f'<div class="person"><div class="person-top"><div class="initial ai">{html.escape(icone)}</div><div><div class="pname">{html.escape(label)}</div><div class="ptype">Trabalho absorvido pela EDNNA</div></div></div><div class="pnum">{num}</div><div class="pnote">{html.escape(note)}</div></div>')
-st.markdown('<div class="impact-grid">'+''.join(html_impacto)+'</div>', unsafe_allow_html=True)
+st.markdown('<div class="section"><div class="section-title">Acesso rápido</div><div class="section-sub">Cada botão leva diretamente ao assunto proposto. O Painel EDI fica reservado à observabilidade da carteira.</div>', unsafe_allow_html=True)
+if user.is_admin:
+    nav=[('🦾 Operação de hoje','pages/Operacao.py'),('🧠 Central de Regras','pages/Regras.py'),('🎓 Central de Aprendizagem','pages/Aprendizado.py'),('⚡ Automações','pages/Automacoes.py'),('📡 Observabilidade','pages/Observabilidade.py'),('📚 Conhecimento','pages/Conhecimento.py'),('📥 Atendimentos','pages/Atendimentos.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
+elif user.is_edi:
+    nav=[('🦾 Operação de hoje','pages/Operacao.py'),('⚡ Automações','pages/Automacoes.py'),('📚 Conhecimento','pages/Conhecimento.py'),('📥 Atendimentos','pages/Atendimentos.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
+else: nav=[('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
+for i in range(0,len(nav),3):
+    row=nav[i:i+3]; cols=st.columns(len(row))
+    for col,(label,page) in zip(cols,row):
+        with col:
+            if st.button(label,width='stretch',key='nav_'+page):
+                if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
+                st.switch_page(page)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# v3.29.1 — Home intencionalmente leve.
-# Operação, regras e conhecimento possuem telas próprias; a Home não executa
-# motores nem consulta serviços externos ao ser aberta ou ao retornar de outra página.
-# Acesso e visão operacional respeitam o perfil resolvido pelo Easy Auth.
-if user.is_viewer:
-    try:
-        _aguardando = listar_acoes_aguardando_resposta()
-    except Exception:
-        _aguardando = []
-    try:
-        _fups = avaliar_followups()
-    except Exception:
-        _fups = {'total': 0, 'prontos': 0, 'itens': []}
-    _ativos = set(int(v) for v in df.get('id', pd.Series(dtype=int)).dropna().tolist()) if not df.empty else set()
-    _aguardando = [a for a in _aguardando if int(a.get('chamado_id') or 0) in _ativos]
-    _fup_itens = [x for x in (_fups.get('itens') or []) if int(x.get('chamado_id') or 0) in _ativos]
-    _vencidos = sum(1 for x in _fup_itens if bool(x.get('vencido')) or str(x.get('situacao') or '').lower().startswith('atras'))
-    _ops = [
-        ('Preciso de você', int(r.get('revisao', 0) or 0), 'decisões humanas identificadas'),
-        ('Estou cuidando', int(trabalho.get('acompanhando', 0) or 0), 'chamados acompanhados pela EDNNA'),
-        ('Fiz / acompanhei', int(trabalho.get('atuacoes', 0) or 0), 'atuações registradas'),
-        ('Acompanhamentos', len(_aguardando), f'{_vencidos} com atenção de prazo'),
-    ]
-    _cards=''.join(f'<div class="person"><div class="pname">{html.escape(lbl)}</div><div class="pnum">{num}</div><div class="pnote">{html.escape(note)}</div></div>' for lbl,num,note in _ops)
-    st.markdown('<div class="section-shell"><div class="section-title">🦾 Resumo da Central de Operações</div><div class="section-sub">Visão executiva somente leitura. Ações operacionais e configurações permanecem restritas à equipe autorizada.</div><div class="people-grid">'+_cards+'</div></div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-shell"><div class="module-title">Acesso de visualização</div><div class="module-sub">Seu perfil pode acompanhar os indicadores gerais da EDNNA. Não há comandos de execução, alteração de regras ou acesso aos módulos operacionais.</div></div>', unsafe_allow_html=True)
-else:
-    st.markdown(
-        '<div class="section-shell"><div class="module-title">Acesso rápido</div>'
-        '<div class="module-sub">A Home abre com o último snapshot local. Escolha o assunto; dados externos são atualizados somente dentro do módulo correspondente.</div>',
-        unsafe_allow_html=True,
-    )
-    if user.is_admin:
-        nav_rows = [
-            [('🦾  Operação de hoje','pages/Operacao.py'),('🧠  Central de Regras','pages/Regras.py'),('🧩  Ensinar regra','pages/Construtor_Regras.py'),('📚  Conhecimento do cliente','pages/Conhecimento.py'),('📥  Atendimentos','pages/Atendimentos.py')],
-            [('🔬  Aprendizado','pages/Aprendizado.py'),('⚡  Automações','pages/Automacoes.py'),('📡  Observabilidade','pages/Observabilidade.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
-        ]
-    else:
-        nav_rows = [
-            [('🦾  Operação de hoje','pages/Operacao.py'),('📚  Conhecimento do cliente','pages/Conhecimento.py'),('📥  Atendimentos','pages/Atendimentos.py')],
-            [('⚡  Automações','pages/Automacoes.py'),('👥  Equipe e capacidade','pages/Equipe.py'),('📊  Painel EDI','pages/Painel_EDI.py')],
-        ]
-    for linha in nav_rows:
-        cols = st.columns(len(linha))
-        for col,(label,page) in zip(cols,linha):
-            with col:
-                if st.button(label,width='stretch',key=f'nav_{page}'):
-                    if 'Painel_EDI' in page: st.session_state['shell_main_navigation']='Visão Geral'
-                    st.switch_page(page)
-    st.markdown('</div>', unsafe_allow_html=True)
-
 if user.is_edi:
-    st.markdown(
-        '<div class="section-shell"><div class="module-title">Como a EDNNA carrega</div>'
-        '<div class="module-sub">Interface primeiro, dados depois — sem bloquear a navegação.</div>'
-        '<div class="insight-grid">'
-        '<div class="insight"><b>1 · Imediato</b>Home e navegação usam SQLite/cache local.</div>'
-        '<div class="insight"><b>2 · Sob demanda</b>Cada módulo calcula apenas o que precisa.</div>'
-        '<div class="insight"><b>3 · Segundo plano</b>Redmine e demais fontes atualizam snapshots sem travar a Home.</div>'
-        '</div></div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="section"><div class="section-title">Como eu carrego</div><div class="section-sub">Interface primeiro, dados depois.</div>'+cards([('1 · Imediato','SQLite','Home e navegação usam cache local.'),('2 · Sob demanda','Módulos','Cada área calcula somente o que precisa.'),('3 · Segundo plano','Snapshots','Redmine e demais fontes atualizam sem travar a Home.')],'grid3')+'</div>', unsafe_allow_html=True)
 
-st.markdown(f'<div class="foot">EDNNA v{APP_VERSION} · {APP_RELEASE} · Netunna &nbsp;&nbsp;|&nbsp;&nbsp; Inteligência que trabalha com você.</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="foot">EDDY v{APP_VERSION} · {APP_RELEASE} · Netunna &nbsp;|&nbsp; Inteligência EDI que trabalha com você.</div>', unsafe_allow_html=True)
