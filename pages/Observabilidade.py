@@ -10,9 +10,8 @@ from ui.operational_shell import setup, footer
 
 setup('📡 Observabilidade')
 require_admin()
-st.caption('Eventos operacionais persistidos pela EDNNA. Visão administrativa sem necessidade de abrir o Log Stream do Azure para a rotina normal.')
+st.caption('Eventos operacionais persistidos pelo EDDY. Visão administrativa sem necessidade de abrir o Log Stream do Azure para a rotina normal.')
 
-# Console operacional pode permanecer aberto em uma aba independente.
 st.markdown('<a href="/Observabilidade" target="_blank" rel="noopener noreferrer">↗ Abrir Observabilidade em nova aba</a>', unsafe_allow_html=True)
 
 c1,c2,c3,c4 = st.columns([1.2,1.3,1.1,2.4])
@@ -38,7 +37,7 @@ eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
                          chamado_id=chamado, busca=busca.strip())
 
 if not eventos:
-    st.info('Ainda não há eventos estruturados para este filtro. Os eventos são persistidos a partir das atuações executadas pela EDNNA.')
+    st.info('Ainda não há eventos estruturados para este filtro. Os eventos são persistidos a partir das atuações executadas pelo EDDY.')
 else:
     df = pd.DataFrame(eventos)
     dt = pd.to_datetime(df['created_at'], utc=True, errors='coerce').dt.tz_convert('America/Sao_Paulo')
@@ -47,5 +46,5 @@ else:
     cols = ['Horário','Nível','Categoria','Chamado','Player','Regra','Evento','Detalhe']
     st.dataframe(df[cols], hide_index=True, width='stretch', height=600)
 
-st.caption('O Log Stream do Azure continua sendo a fonte técnica de infraestrutura. Esta tela registra eventos operacionais estruturados da EDNNA para diagnóstico e auditoria diária.')
+st.caption('O Log Stream do Azure continua sendo a fonte técnica de infraestrutura. Esta tela registra eventos operacionais estruturados do EDDY para diagnóstico e auditoria diária.')
 footer()
