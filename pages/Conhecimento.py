@@ -7,12 +7,12 @@ from ednna.blueprint_knowledge import listar_participantes, resumo_conhecimento
 from ednna.contexto_relacionamentos import sincronizar_conhecimento_blueprint
 from version import APP_VERSION
 
-st.set_page_config(page_title="EDNNA · Conhecimento", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="EDDY · Conhecimento", page_icon="🧠", layout="wide")
 require_edi()
 st.title("🧠 Base de Conhecimento do Cliente")
-st.caption(f"EDNNA {APP_VERSION} · Blueprints viram conhecimento persistente, incremental e rastreável.")
+st.caption(f"EDDY {APP_VERSION} · Blueprints viram conhecimento persistente, incremental e rastreável.")
 
-st.info("Informe um chamado pertencente ao contexto do cliente. A EDNNA localiza o BP/Novo Cliente e suas relações, procura anexos Excel que sejam Blueprints e incorpora apenas documentos novos.")
+st.info("Informe um chamado pertencente ao contexto do cliente. O EDDY localiza o BP/Novo Cliente e suas relações, procura anexos Excel que sejam Blueprints e incorpora apenas documentos novos.")
 
 chamado = st.number_input("Chamado para sincronizar", min_value=1, step=1, value=1)
 if st.button("🔄 Localizar e sincronizar Blueprints", type="primary"):

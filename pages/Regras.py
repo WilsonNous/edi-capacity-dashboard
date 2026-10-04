@@ -7,24 +7,17 @@ import pandas as pd
 
 from version import APP_VERSION
 from ednna.aprendizado_operacional import (
-    listar_regras_operacionais,
-    obter_revisao,
-    obter_aprendizado,
-    salvar_revisao_assistida,
-    homologar_regra_assistida,
-    obter_autorizacao_motor,
-    autorizar_regra_motor,
-    garantir_greencard_pronta,
-    garantir_safrapay_pronta,
+    listar_regras_operacionais, obter_revisao, obter_aprendizado, salvar_revisao_assistida,
+    homologar_regra_assistida, obter_autorizacao_motor, autorizar_regra_motor,
+    garantir_greencard_pronta, garantir_safrapay_pronta,
 )
 from ednna.workflows_inclusao import obter_workflow, WORKFLOWS, salvar_configuracao_regra, listar_catalogo_workflows
 from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 
-st.set_page_config(page_title="EDNNA · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
-
 st.markdown("""<style>
 [data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}
 .stApp{background:#f5f8fc}.block-container{max-width:1450px;padding:1.1rem 1.6rem 2rem}
@@ -34,254 +27,133 @@ st.markdown("""<style>
 div.stButton>button{border-radius:10px!important;font-weight:750!important;min-height:38px!important;width:auto!important;padding:.4rem .8rem!important}div.stButton>button[kind="primary"]{background:#1268e8!important;color:#fff!important;border-color:#1268e8!important}div.stButton>button[kind="primary"] p{color:#fff!important}
 </style>""", unsafe_allow_html=True)
 
-cback, _ = st.columns([1, 7])
+cback,_=st.columns([1,7])
 with cback:
-    if st.button("← EDNNA", width="stretch"):
-        st.switch_page("app.py")
+    if st.button("← EDDY",width="stretch"): st.switch_page("app.py")
 
-st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDNNA</div><div class="rule-sub">Veja a regra, os chamados que ela encontrou e o motivo de cada estado. Depois decida, conscientemente, o que permanece assistido e o que a EDNNA pode executar sozinha.</div></div>', unsafe_allow_html=True)
+st.markdown('<div class="rule-hero"><div class="rule-title">🧠 Central de Regras EDDY</div><div class="rule-sub">Veja a regra, os chamados que ele encontrou e o motivo de cada estado. Depois decida, conscientemente, o que permanece assistido e o que o EDDY pode executar sozinho.</div></div>',unsafe_allow_html=True)
+if st.button('🧩 Ensinar nova regra ao EDDY',width='content'): st.switch_page('pages/Construtor_Regras.py')
 
-if st.button('🧩 Ensinar nova regra à EDNNA', width='content'):
-    st.switch_page('pages/Construtor_Regras.py')
+try: garantir_greencard_pronta()
+except Exception as exc: st.warning(f"Greencard ainda não pôde ser preparada automaticamente: {exc}")
+try: garantir_safrapay_pronta()
+except Exception as exc: st.warning(f"Safrapay ainda não pôde ser preparada automaticamente: {exc}")
 
-try:
-    garantir_greencard_pronta()
-except Exception as exc:
-    st.warning(f"Greencard ainda não pôde ser preparada automaticamente: {exc}")
-try:
-    garantir_safrapay_pronta()
-except Exception as exc:
-    st.warning(f"Safrapay ainda não pôde ser preparada automaticamente: {exc}")
-
-regras = listar_regras_operacionais()
-regras_treinaveis = listar_regras_treinaveis()
-catalogo_declarativo = listar_catalogo_workflows()
-
-# Diagnóstico operacional usa o mesmo snapshot da Home; nenhuma ação externa é executada aqui.
-df_ativos = chamados_ativos_df()
-snapshot_regras = pd.DataFrame()
+regras=listar_regras_operacionais(); regras_treinaveis=listar_regras_treinaveis(); catalogo_declarativo=listar_catalogo_workflows()
+df_ativos=chamados_ativos_df(); snapshot_regras=pd.DataFrame()
 if not df_ativos.empty:
-    snapshot_regras = df_ativos.rename(columns={
-        'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade',
-        'assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'
-    }).copy()
-diag_regras = diagnosticar_regras_operacionais(snapshot_regras) if not snapshot_regras.empty else {'regras': []}
-diag_por_id = {str(x.get('regra_id') or ''): x for x in (diag_regras.get('regras') or [])}
+    snapshot_regras=df_ativos.rename(columns={'id':'#','cliente':'Clientes','tipo':'Tipo','estado':'Estado','prioridade':'Prioridade','assunto':'Assunto','responsavel':'Atribuído a','projeto':'Projeto'}).copy()
+diag_regras=diagnosticar_regras_operacionais(snapshot_regras) if not snapshot_regras.empty else {'regras':[]}
+diag_por_id={str(x.get('regra_id') or ''):x for x in (diag_regras.get('regras') or [])}
 
-# v3.34.5 — auditoria de cobertura técnica. Diferencia regra conhecida de
-# executor realmente disponível, evitando interpretar catálogo como automação pronta.
-with st.expander("🔎 Saúde técnica das regras", expanded=False):
+with st.expander("🔎 Saúde técnica das regras",expanded=False):
     linhas_saude=[]
     for wf in catalogo_declarativo:
         faltantes=list(wf.get("executores_faltantes") or [])
-        linhas_saude.append({
-            "Player": wf.get("player"),
-            "Workflow": str(wf.get("workflow") or "").replace("_", " ").title(),
-            "Canal": str(wf.get("canal") or "").replace("_", " "),
-            "Situação": "Executor disponível" if not faltantes and wf.get("ativa", True) else ("Inativa" if not wf.get("ativa", True) else "Aguardando executor"),
-            "Executor pendente": ", ".join(faltantes),
-        })
-    _df_saude=pd.DataFrame(linhas_saude)
-    _disp=int((_df_saude["Situação"]=="Executor disponível").sum()) if not _df_saude.empty else 0
-    _pend=int((_df_saude["Situação"]=="Aguardando executor").sum()) if not _df_saude.empty else 0
-    sc1,sc2,sc3=st.columns(3)
-    sc1.metric("Workflows conhecidos", len(_df_saude))
-    sc2.metric("Com executor disponível", _disp)
-    sc3.metric("Aguardando executor", _pend)
-    st.dataframe(_df_saude, hide_index=True, width="stretch")
+        linhas_saude.append({"Player":wf.get("player"),"Workflow":str(wf.get("workflow") or "").replace("_"," ").title(),"Canal":str(wf.get("canal") or "").replace("_"," "),"Situação":"Executor disponível" if not faltantes and wf.get("ativa",True) else ("Inativa" if not wf.get("ativa",True) else "Aguardando executor"),"Executor pendente":", ".join(faltantes)})
+    _df_saude=pd.DataFrame(linhas_saude); _disp=int((_df_saude["Situação"]=="Executor disponível").sum()) if not _df_saude.empty else 0; _pend=int((_df_saude["Situação"]=="Aguardando executor").sum()) if not _df_saude.empty else 0
+    sc1,sc2,sc3=st.columns(3); sc1.metric("Workflows conhecidos",len(_df_saude)); sc2.metric("Com executor disponível",_disp); sc3.metric("Aguardando executor",_pend); st.dataframe(_df_saude,hide_index=True,width="stretch")
     st.caption("Esta visão valida a infraestrutura do workflow. Homologação e autorização continuam sendo decisões separadas e aparecem na configuração de cada regra.")
 
-hom = [r for r in regras if r.get("estado_revisao") == "HOMOLOGADA"]
-revisar = [r for r in regras if r.get("estado_revisao") != "HOMOLOGADA"]
-autorizadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") in {"ASSISTIDA", "AUTOMATICA"}]
-bloqueadas = [r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") == "BLOQUEADA"]
-
-m1,m2,m3,m4 = st.columns(4)
-m1.metric("Regras configuradas", len(catalogo_declarativo) + len(regras_treinaveis))
-m2.metric("A revisar / homologar", len(revisar))
-m3.metric("Homologadas", len(hom))
-m4.metric("Autorizadas no motor", len(autorizadas))
-
+hom=[r for r in regras if r.get("estado_revisao")=="HOMOLOGADA"]; revisar=[r for r in regras if r.get("estado_revisao")!="HOMOLOGADA"]
+autorizadas=[r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA") in {"ASSISTIDA","AUTOMATICA"}]
+bloqueadas=[r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA")=="BLOQUEADA"]
+m1,m2,m3,m4=st.columns(4); m1.metric("Regras configuradas",len(catalogo_declarativo)+len(regras_treinaveis)); m2.metric("A revisar / homologar",len(revisar)); m3.metric("Homologadas",len(hom)); m4.metric("Autorizadas no motor",len(autorizadas))
 st.caption("Fluxo: 1) revisar e homologar → 2) autorizar como assistida ou automática. Automática só fica disponível quando o workflow possui executor implementado.")
 
-# v3.28.58 — aceleração controlada: um único comando promove para AUTOMATICA
-# somente regras já HOMOLOGADAS cujo executor está realmente disponível.
-# Regras sem executor continuam bloqueadas; nenhuma homologação é criada aqui.
-aptas_auto = [r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao") == "ASSISTIDA_DISPONIVEL"]
-pendentes_auto = [r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper() != "AUTOMATICA"]
+aptas_auto=[r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao")=="ASSISTIDA_DISPONIVEL"]
+pendentes_auto=[r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper()!="AUTOMATICA"]
 if pendentes_auto:
     st.warning(f"⚡ {len(pendentes_auto)} regra(s) homologada(s) com executor disponível ainda não estão em modo automático.")
-    if st.button("⚡ Colocar TODAS as homologadas aptas em AUTOMÁTICO", type="primary", key="central_auto_todas", width="content"):
-        ok, erros = 0, []
+    if st.button("⚡ Colocar TODAS as homologadas aptas em AUTOMÁTICO",type="primary",key="central_auto_todas",width="content"):
+        ok,erros=0,[]
         for rr in pendentes_auto:
-            rid = str(rr.get("regra_id") or "")
-            try:
-                autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Autorização em lote explícita: executar automaticamente todas as regras já homologadas e com executor disponível.")
-                ok += 1
-            except Exception as exc:
-                erros.append(f"{rr.get('player')}: {exc}")
-        if ok:
-            st.success(f"{ok} regra(s) promovida(s) para execução automática.")
-        if erros:
-            st.error("Não foi possível ativar: " + " | ".join(erros))
+            rid=str(rr.get("regra_id") or "")
+            try: autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização em lote explícita: executar automaticamente todas as regras já homologadas e com executor disponível."); ok+=1
+            except Exception as exc: erros.append(f"{rr.get('player')}: {exc}")
+        if ok: st.success(f"{ok} regra(s) promovida(s) para execução automática.")
+        if erros: st.error("Não foi possível ativar: "+" | ".join(erros))
         st.rerun()
 
-aba0, aba1, aba2, aba3 = st.tabs([f"📚 Todas as regras ({len(catalogo_declarativo) + len(regras_treinaveis)})", f"1 · Revisar e homologar ({len(revisar)})", f"2 · Autorizar motor ({len(bloqueadas)})", f"Regras ativas ({len(autorizadas)})"])
-
+aba0,aba1,aba2,aba3=st.tabs([f"📚 Todas as regras ({len(catalogo_declarativo)+len(regras_treinaveis)})",f"1 · Revisar e homologar ({len(revisar)})",f"2 · Autorizar motor ({len(bloqueadas)})",f"Regras ativas ({len(autorizadas)})"])
 with aba0:
-    st.caption("Este é o catálogo operacional da EDNNA. Abra uma regra para ver o modelo que está configurado, alterar parâmetros seguros ou inativá-la sem apagar seu histórico.")
-    filtro=st.text_input("Buscar regra", placeholder="Ex.: SICREDI, GREENCARD, banco, inclusão...", key="catalogo_busca")
-    alvo=str(filtro or '').casefold().strip()
+    st.caption("Este é o catálogo operacional do EDDY. Abra uma regra para ver o modelo configurado, alterar parâmetros seguros ou inativá-la sem apagar seu histórico.")
+    filtro=st.text_input("Buscar regra",placeholder="Ex.: SICREDI, GREENCARD, banco, inclusão...",key="catalogo_busca"); alvo=str(filtro or '').casefold().strip()
     for wf in catalogo_declarativo:
-        player=str(wf.get("player") or "")
-        texto=" ".join([player,str(wf.get("workflow") or ""),str(wf.get("tipo_player") or ""),str(wf.get("regra_dados") or "")]).casefold()
+        player=str(wf.get("player") or ""); texto=" ".join([player,str(wf.get("workflow") or ""),str(wf.get("tipo_player") or ""),str(wf.get("regra_dados") or "")]).casefold()
         if alvo and alvo not in texto: continue
-        ativa=bool(wf.get("ativa",True))
-        status="ATIVA" if ativa else "INATIVA"
-        with st.expander(f"{player} · {wf.get('workflow') or 'SEM WORKFLOW'} · {status}", expanded=(player=="SICREDI" and not alvo)):
-            a,b,c,d=st.columns(4)
-            a.metric("Tipo",wf.get("tipo_player") or "—"); b.metric("Canal",wf.get("canal") or "—"); c.metric("Executor",wf.get("prontidao") or "—"); d.metric("Estado",status)
-            st.write("**Como está configurada**")
-            st.write(wf.get("regra_dados") or "Regra declarativa sem descrição operacional detalhada.")
-            st.write("**Dados obrigatórios:**", ", ".join(wf.get("campos_obrigatorios") or []) or "—")
-            st.write("**Etapas:**", " → ".join(wf.get("etapas") or []) or "—")
+        ativa=bool(wf.get("ativa",True)); status="ATIVA" if ativa else "INATIVA"
+        with st.expander(f"{player} · {wf.get('workflow') or 'SEM WORKFLOW'} · {status}",expanded=(player=="SICREDI" and not alvo)):
+            a,b,c,d=st.columns(4); a.metric("Tipo",wf.get("tipo_player") or "—"); b.metric("Canal",wf.get("canal") or "—"); c.metric("Executor",wf.get("prontidao") or "—"); d.metric("Estado",status)
+            st.write("**Como está configurada**"); st.write(wf.get("regra_dados") or "Regra declarativa sem descrição operacional detalhada."); st.write("**Dados obrigatórios:**",", ".join(wf.get("campos_obrigatorios") or []) or "—"); st.write("**Etapas:**"," → ".join(wf.get("etapas") or []) or "—")
             extras=[]
             for k in ("destinatario_padrao","fonte_dados","status_pos_envio","sla_primeiro_followup_horas","van_solicitada","layout_extrato","periodicidade"):
                 if wf.get(k) not in (None,""): extras.append(f"**{k}:** {wf.get(k)}")
             if extras: st.markdown("  \n".join(extras))
             with st.form(f"edit_cfg_{player}"):
-                st.markdown("**Editar configuração operacional segura**")
-                nova_ativa=st.checkbox("Regra ativa",value=ativa)
-                novo_dest=st.text_input("Destinatário padrão",value=str(wf.get("destinatario_padrao") or ""),help="Deixe vazio quando o destinatário for resolvido pelo Blueprint/regra.")
-                nova_desc=st.text_area("Descrição / regra operacional",value=str(wf.get("regra_dados") or ""),height=110)
-                novo_sla=st.number_input("Primeiro follow-up (horas)",min_value=1,max_value=720,value=int(wf.get("sla_primeiro_followup_horas") or 48),step=1)
+                st.markdown("**Editar configuração operacional segura**"); nova_ativa=st.checkbox("Regra ativa",value=ativa); novo_dest=st.text_input("Destinatário padrão",value=str(wf.get("destinatario_padrao") or ""),help="Deixe vazio quando o destinatário for resolvido pelo Blueprint/regra."); nova_desc=st.text_area("Descrição / regra operacional",value=str(wf.get("regra_dados") or ""),height=110); novo_sla=st.number_input("Primeiro follow-up (horas)",min_value=1,max_value=720,value=int(wf.get("sla_primeiro_followup_horas") or 48),step=1)
                 if st.form_submit_button("💾 Salvar alterações",type="primary"):
-                    override={"regra_dados":nova_desc}
-                    if novo_dest.strip(): override["destinatario_padrao"]=novo_dest.strip()
-                    elif "destinatario_padrao" in wf: override["destinatario_padrao"]=""
-                    override["sla_primeiro_followup_horas"]=int(novo_sla)
-                    salvar_configuracao_regra(player,ativa=nova_ativa,override=override)
-                    st.success(f"{player}: configuração salva. Histórico preservado."); st.rerun()
+                    override={"regra_dados":nova_desc}; override["destinatario_padrao"]=novo_dest.strip() if novo_dest.strip() else ""; override["sla_primeiro_followup_horas"]=int(novo_sla); salvar_configuracao_regra(player,ativa=nova_ativa,override=override); st.success(f"{player}: configuração salva. Histórico preservado."); st.rerun()
     if regras_treinaveis:
         st.markdown("### Regras ensinadas pelo Construtor")
         for rt in regras_treinaveis:
             with st.expander(f"{rt['player']} · {rt['nome']} · {rt['estado']}"):
                 st.write(explicar_regra(rt)); st.caption(f"ID {rt['id']} · Canal {rt['canal']} · Fonte {rt['fonte_dados']}")
-                if st.button("✏️ Abrir para editar/testar",key=f"open_train_{rt['id']}"):
-                    st.session_state["ednna_editar_regra_id"]=rt['id']; st.switch_page("pages/Construtor_Regras.py")
+                if st.button("✏️ Abrir para editar/testar",key=f"open_train_{rt['id']}"): st.session_state["ednna_editar_regra_id"]=rt['id']; st.switch_page("pages/Construtor_Regras.py")
 
 with aba1:
-    if not revisar:
-        st.success("Não há regras aguardando homologação.")
+    if not revisar: st.success("Não há regras aguardando homologação.")
     for rr in revisar:
-        rid = str(rr.get("regra_id") or "")
-        player = str(rr.get("player") or "Player")
-        aprendido = rr.get("payload") or obter_aprendizado(rid) or {}
-        rev = obter_revisao(rid)
-        wf = rr.get("workflow") or obter_workflow(player)
-        comp = int(rr.get("completude") or aprendido.get("completude") or 0)
-        recorr = list(dict.fromkeys(aprendido.get("destinatarios_recorrentes") or []))
-        sugerido = str(rev.get("destinatario_confirmado") or "") or (recorr[0] if recorr else "")
-        with st.expander(f"{player} · {rid} · {comp}% · {rr.get('estado_operacional') or rr.get('estado') or 'A revisar'}", expanded=True):
-            a,b,c = st.columns(3)
-            a.metric("Completude", f"{comp}%")
-            b.metric("Canal", wf.get("canal") or "—")
-            c.metric("Executor", wf.get("prontidao") or "—")
-            st.write(f"**Workflow:** `{wf.get('workflow') or 'NAO_CLASSIFICADO'}`")
-            if wf.get("procedimento_confirmado"):
-                st.success("Procedimento operacional confirmado. O histórico complementa a evidência, mas não bloqueia a homologação.")
-            if recorr:
-                st.caption("Destinatários encontrados: " + " · ".join(recorr))
-            dest = st.text_input("Destinatário confirmado", value=sugerido, key=f"central_dest_{rid}", placeholder="contato@player.com.br")
-            obs = st.text_area("Observação da homologação", value=str(rev.get("observacoes") or ""), key=f"central_obs_{rid}", height=75)
-            if st.button("✅ Revisar e homologar", key=f"central_hom_{rid}", type="primary", width="content"):
-                try:
-                    salvar_revisao_assistida(rid, destinatario_confirmado=dest, observacoes=obs, revisado_por="OPERADOR_EDNNA")
-                    homologar_regra_assistida(rid, revisado_por="OPERADOR_EDNNA")
-                    st.success(f"{player}: regra homologada. Agora ela aparecerá na etapa 2 para autorização do motor.")
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Não foi possível homologar {player}: {exc}")
+        rid=str(rr.get("regra_id") or ""); player=str(rr.get("player") or "Player"); aprendido=rr.get("payload") or obter_aprendizado(rid) or {}; rev=obter_revisao(rid); wf=rr.get("workflow") or obter_workflow(player); comp=int(rr.get("completude") or aprendido.get("completude") or 0); recorr=list(dict.fromkeys(aprendido.get("destinatarios_recorrentes") or [])); sugerido=str(rev.get("destinatario_confirmado") or "") or (recorr[0] if recorr else "")
+        with st.expander(f"{player} · {rid} · {comp}% · {rr.get('estado_operacional') or rr.get('estado') or 'A revisar'}",expanded=True):
+            a,b,c=st.columns(3); a.metric("Completude",f"{comp}%"); b.metric("Canal",wf.get("canal") or "—"); c.metric("Executor",wf.get("prontidao") or "—"); st.write(f"**Workflow:** `{wf.get('workflow') or 'NAO_CLASSIFICADO'}`")
+            if wf.get("procedimento_confirmado"): st.success("Procedimento operacional confirmado. O histórico complementa a evidência, mas não bloqueia a homologação.")
+            if recorr: st.caption("Destinatários encontrados: "+" · ".join(recorr))
+            dest=st.text_input("Destinatário confirmado",value=sugerido,key=f"central_dest_{rid}",placeholder="contato@player.com.br"); obs=st.text_area("Observação da homologação",value=str(rev.get("observacoes") or ""),key=f"central_obs_{rid}",height=75)
+            if st.button("✅ Revisar e homologar",key=f"central_hom_{rid}",type="primary",width="content"):
+                try: salvar_revisao_assistida(rid,destinatario_confirmado=dest,observacoes=obs,revisado_por="OPERADOR_EDNNA"); homologar_regra_assistida(rid,revisado_por="OPERADOR_EDNNA"); st.success(f"{player}: regra homologada. Agora ela aparecerá na etapa 2 para autorização do motor."); st.rerun()
+                except Exception as exc: st.error(f"Não foi possível homologar {player}: {exc}")
 
 with aba2:
-    if not bloqueadas:
-        st.success("Nenhuma regra homologada aguarda autorização.")
+    if not bloqueadas: st.success("Nenhuma regra homologada aguarda autorização.")
     for rr in bloqueadas:
-        rid = str(rr.get("regra_id") or "")
-        player = str(rr.get("player") or "Player")
-        wf = rr.get("workflow") or obter_workflow(player)
-        with st.expander(f"{player} · {rid} · BLOQUEADA", expanded=True):
-            a,b,c = st.columns(3)
-            a.metric("Conhecimento", "Homologado")
-            b.metric("Executor", wf.get("prontidao") or "—")
-            c.metric("Motor", "Bloqueado")
-            st.caption("Canal: " + str(wf.get("canal") or "—") + " · Workflow: " + str(wf.get("workflow") or "—"))
-            if wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
-                st.info("Executor disponível. Escolha se a regra exige confirmação humana ou se a EDNNA pode executar automaticamente.")
-                c_ass, c_auto = st.columns(2)
+        rid=str(rr.get("regra_id") or ""); player=str(rr.get("player") or "Player"); wf=rr.get("workflow") or obter_workflow(player)
+        with st.expander(f"{player} · {rid} · BLOQUEADA",expanded=True):
+            a,b,c=st.columns(3); a.metric("Conhecimento","Homologado"); b.metric("Executor",wf.get("prontidao") or "—"); c.metric("Motor","Bloqueado"); st.caption("Canal: "+str(wf.get("canal") or "—")+" · Workflow: "+str(wf.get("workflow") or "—"))
+            if wf.get("prontidao")=="ASSISTIDA_DISPONIVEL":
+                st.info("Executor disponível. Escolha se a regra exige confirmação humana ou se o EDDY pode executar automaticamente.")
+                c_ass,c_auto=st.columns(2)
                 with c_ass:
-                    if st.button("▶️ Autorizar assistida", key=f"central_auth_{rid}", type="primary", width="content"):
-                        try:
-                            autorizar_regra_motor(rid, modo="ASSISTIDA", autorizado_por="OPERADOR_EDNNA")
-                            st.success(f"{player}: operação assistida autorizada.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(str(exc))
+                    if st.button("▶️ Autorizar assistida",key=f"central_auth_{rid}",type="primary",width="content"):
+                        try: autorizar_regra_motor(rid,modo="ASSISTIDA",autorizado_por="OPERADOR_EDNNA"); st.success(f"{player}: operação assistida autorizada."); st.rerun()
+                        except Exception as exc: st.error(str(exc))
                 with c_auto:
-                    if st.button("⚡ Autorizar automática", key=f"central_auto_{rid}", width="content"):
-                        try:
-                            autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Autorização explícita para execução automática de regra homologada.")
-                            st.success(f"{player}: execução automática autorizada.")
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(str(exc))
+                    if st.button("⚡ Autorizar automática",key=f"central_auto_{rid}",width="content"):
+                        try: autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização explícita para execução automática de regra homologada."); st.success(f"{player}: execução automática autorizada."); st.rerun()
+                        except Exception as exc: st.error(str(exc))
             else:
-                falt = wf.get("executores_faltantes") or []
-                st.warning("Não pode ser ativada ainda: o executor deste workflow não está disponível." + ((" Falta: " + " · ".join(falt)) if falt else ""))
+                falt=wf.get("executores_faltantes") or []; st.warning("Não pode ser ativada ainda: o executor deste workflow não está disponível."+((" Falta: "+" · ".join(falt)) if falt else ""))
 
 with aba3:
-    if not autorizadas:
-        st.info("Nenhuma regra está autorizada no motor.")
+    if not autorizadas: st.info("Nenhuma regra está autorizada no motor.")
     for rr in autorizadas:
-        rid = str(rr.get("regra_id") or "")
-        player = str(rr.get("player") or "Player")
-        wf = rr.get("workflow") or obter_workflow(player)
-        modo = str((rr.get("autorizacao_motor") or {}).get("modo") or "ASSISTIDA").upper()
-        dg = diag_por_id.get(rid) or {}
-        situacao = str(dg.get("situacao") or "SEM_DIAGNOSTICO")
-        total_demanda = int(dg.get("total_chamados") or 0)
-        with st.expander(f"{player} · {rid} · {modo} · {situacao.replace('_',' ')} · {total_demanda} chamado(s)", expanded=(modo == "ASSISTIDA")):
-            a,b,c,d = st.columns(4)
-            a.metric("Conhecimento", "Homologado")
-            b.metric("Executor", wf.get("prontidao") or "—")
-            c.metric("Motor", modo.title())
-            d.metric("Chamados ativos", total_demanda)
-            st.info(str(dg.get("motivo") or "Diagnóstico operacional indisponível."))
-            chamados_dg = dg.get("chamados") or []
+        rid=str(rr.get("regra_id") or ""); player=str(rr.get("player") or "Player"); wf=rr.get("workflow") or obter_workflow(player); modo=str((rr.get("autorizacao_motor") or {}).get("modo") or "ASSISTIDA").upper(); dg=diag_por_id.get(rid) or {}; situacao=str(dg.get("situacao") or "SEM_DIAGNOSTICO"); total_demanda=int(dg.get("total_chamados") or 0)
+        with st.expander(f"{player} · {rid} · {modo} · {situacao.replace('_',' ')} · {total_demanda} chamado(s)",expanded=(modo=="ASSISTIDA")):
+            a,b,c,d=st.columns(4); a.metric("Conhecimento","Homologado"); b.metric("Executor",wf.get("prontidao") or "—"); c.metric("Motor",modo.title()); d.metric("Chamados ativos",total_demanda); st.info(str(dg.get("motivo") or "Diagnóstico operacional indisponível.")); chamados_dg=dg.get("chamados") or []
             if chamados_dg:
                 st.markdown("**Chamados encontrados para esta regra**")
                 for ch in chamados_dg:
-                    cid = int(ch.get("id") or 0)
-                    st.markdown(f"- [#{cid}]({redmine_link(cid)}) · {html.escape(str(ch.get('cliente') or 'Cliente não informado'))} · **{html.escape(str(ch.get('motivo') or 'Revisar'))}** · próxima ação: {html.escape(str(ch.get('acao_sugerida') or 'Revisar'))}")
-            else:
-                st.caption("Nenhum chamado ativo compatível. A regra está disponível, mas não há demanda para ela neste momento.")
-            ca, cb = st.columns(2)
+                    cid=int(ch.get("id") or 0); st.markdown(f"- [#{cid}]({redmine_link(cid)}) · {html.escape(str(ch.get('cliente') or 'Cliente não informado'))} · **{html.escape(str(ch.get('motivo') or 'Revisar'))}** · próxima ação: {html.escape(str(ch.get('acao_sugerida') or 'Revisar'))}")
+            else: st.caption("Nenhum chamado ativo compatível. A regra está disponível, mas não há demanda para ela neste momento.")
+            ca,cb=st.columns(2)
             with ca:
-                if modo == "ASSISTIDA" and wf.get("prontidao") == "ASSISTIDA_DISPONIVEL":
-                    if st.button("⚡ Tornar AUTOMÁTICA", key=f"central_promote_{rid}", type="primary", width="content"):
-                        autorizar_regra_motor(rid, modo="AUTOMATICA", autorizado_por="OPERADOR_EDNNA", observacoes="Promoção explícita após revisão dos chamados e do diagnóstico operacional na Central de Regras v3.28.59.")
-                        st.success(f"{player}: a EDNNA está autorizada a executar esta regra automaticamente.")
-                        st.rerun()
+                if modo=="ASSISTIDA" and wf.get("prontidao")=="ASSISTIDA_DISPONIVEL":
+                    if st.button("⚡ Tornar AUTOMÁTICA",key=f"central_promote_{rid}",type="primary",width="content"):
+                        autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Promoção explícita após revisão dos chamados e do diagnóstico operacional na Central de Regras."); st.success(f"{player}: o EDDY está autorizado a executar esta regra automaticamente."); st.rerun()
             with cb:
-                if st.button("⏸️ Suspender regra", key=f"central_suspend_{rid}", width="content"):
-                    autorizar_regra_motor(rid, modo="BLOQUEADA", autorizado_por="OPERADOR_EDNNA")
-                    st.rerun()
+                if st.button("⏸️ Suspender regra",key=f"central_suspend_{rid}",width="content"): autorizar_regra_motor(rid,modo="BLOQUEADA",autorizado_por="OPERADOR_EDNNA"); st.rerun()
 
-st.divider()
-rows=[]
+st.divider(); rows=[]
 for r in regras:
-    wf=r.get("workflow") or obter_workflow(r.get("player"))
-    rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Executor":wf.get("prontidao"),"Workflow":wf.get("workflow")})
-st.markdown("### Inventário completo")
-st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-st.caption(f"EDNNA v{APP_VERSION} · Central de Regras")
+    wf=r.get("workflow") or obter_workflow(r.get("player")); rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Executor":wf.get("prontidao"),"Workflow":wf.get("workflow")})
+st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="stretch",hide_index=True); st.caption(f"EDDY v{APP_VERSION} · Central de Regras")

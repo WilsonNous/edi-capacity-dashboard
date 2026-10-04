@@ -5,18 +5,18 @@ from version import APP_VERSION
 from ednna.construtor_regras import *
 from ednna.workflows_inclusao import WORKFLOWS, obter_workflow
 
-st.set_page_config(page_title="EDNNA · Ensinar regra", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="EDDY · Ensinar regra", page_icon="🧩", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
 st.markdown("""<style>[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stSidebar"],[data-testid="stSidebarCollapsedControl"]{display:none!important}.stApp{background:#f5f8fc}.block-container{max-width:1450px;padding:1.1rem 1.6rem 2rem}div.stButton>button{border-radius:10px!important;font-weight:750!important}</style>""", unsafe_allow_html=True)
 
 c1,c2,_=st.columns([1,1,6])
 with c1:
-    if st.button("← EDNNA", width="stretch"): st.switch_page("app.py")
+    if st.button("← EDDY", width="stretch"): st.switch_page("app.py")
 with c2:
     if st.button("🧠 Regras", width="stretch"): st.switch_page("pages/Regras.py")
 
-st.title("🧩 Ensinar uma regra à EDNNA")
-st.caption("Descreva o procedimento como a operação trabalha. A EDNNA estrutura, simula e explica o que aprendeu antes de qualquer homologação.")
+st.title("🧩 Ensinar uma regra ao EDDY")
+st.caption("Descreva o procedimento como a operação trabalha. O EDDY estrutura, simula e explica o que aprendeu antes de qualquer homologação.")
 
 regras=listar_regras_treinaveis()
 aba_nova, aba_lab, aba_catalogo = st.tabs(["➕ Ensinar nova regra", "🧪 Laboratório", f"📚 Regras ensinadas ({len(regras)})"])
@@ -103,4 +103,4 @@ with aba_catalogo:
             st.write("**Etapas:**", " → ".join(ACOES.get(x,x) for x in r.get('etapas',[])) or "—")
             if r.get('corpo_template'): st.code(r['corpo_template'], language=None)
 
-st.caption(f"EDNNA v{APP_VERSION} · Construtor de Regras · RASCUNHO → EM TESTE → HOMOLOGADA → autorização na Central de Regras")
+st.caption(f"EDDY v{APP_VERSION} · Construtor de Regras · RASCUNHO → EM TESTE → HOMOLOGADA → autorização na Central de Regras")
