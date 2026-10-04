@@ -3,6 +3,7 @@ import streamlit as st
 from ui.operational_shell import setup,footer
 from ui.operational_data import regras_df
 from ednna.homologacao import estado_regra
+from ednna.aberturas_ativas import plano_assistido
 
 setup('⚡ Automações do EDDY')
 require_edi()
@@ -26,14 +27,22 @@ else:
     c2.metric('Aberturas ativas',len(aberturas))
     c3.metric('Em observação',sum(1 for _,h in itens if h and h.get('estado')=='EM_OBSERVACAO'))
 
-    st.caption('Esta visão mostra o patrimônio operacional efetivamente autorizado. Regras de abertura homologadas aparecem aqui como prática do EDDY, sem misturar aprendizado com autorização.')
+    st.caption('Patrimônio operacional autorizado. Aprender não é executar: somente regras homologadas entram em prática.')
     st.subheader('🏢 Aberturas de relacionamento em prática')
     if not aberturas:
-        st.warning('Ainda não há regra de abertura homologada em estado ATIVA ou EM OBSERVAÇÃO. O EDDY pode estudar aberturas, mas não deve executá-las antes da homologação do professor.')
+        st.warning('Ainda não há regra de abertura homologada em ATIVA ou EM OBSERVAÇÃO. O EDDY pode estudar, mas não executará antes da decisão do professor.')
     for x,hom in aberturas:
         estado=(hom or {}).get('estado') or 'HOMOLOGADA_LEGADO'
+        regra=x.to_dict() if hasattr(x,'to_dict') else dict(x)
+        plano=plano_assistido(regra) if hom else None
         modo='Ativo assistido' if estado=='EM_OBSERVACAO' else 'Ativa'
         st.markdown(f'<div class="rule"><b>{x.get("player") or x.get("regra_id")}</b><br><span class="pill">{modo}</span> · Abertura de relacionamento<br><small>{x.get("regra_id")}</small></div>',unsafe_allow_html=True)
+        if plano:
+            etapas=plano.get('etapas') or []
+            eddy=sum(1 for e in etapas if e.get('destino_operacional')=='CONTINUIDADE_EDNNA')
+            humano=sum(1 for e in etapas if e.get('destino_operacional')=='PRECISO_DE_VOCE')
+            a,b,c=st.columns(3); a.metric('Modo',plano.get('modo','—')); b.metric('Etapas EDDY',eddy); c.metric('Checkpoints humanos',humano)
+            if estado=='EM_OBSERVACAO': st.info('👀 Regra homologada excepcionalmente ou mantida sob observação. O EDDY pratica dentro do procedimento e devolve evidências à Escola Contínua.')
 
     st.subheader('⚙️ Demais regras em operação')
     demais=[(x,h) for x,h in itens if (x,h) not in aberturas]
