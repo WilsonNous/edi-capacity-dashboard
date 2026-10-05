@@ -5,6 +5,7 @@ from ednna.armazenamento import conectar, agora_brasil_iso
 ESTADOS={'ATIVA','EM_OBSERVACAO','SUSPENSA'}
 NOTA_AUTONOMIA=90
 NOTA_EXCECAO_HUMANA=85
+NOTA_AUTO_HOMOLOGACAO=100
 
 def _init():
     with conectar() as c:
@@ -23,12 +24,16 @@ def _snapshot(regra, prova):
     return raw,hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 def homologar_e_ativar(regra:dict, prova:dict, professor:str, justificativa_excecao:str=''):
-    """Homologa conhecimento sem alterar a nota obtida pelo EDDY.
+    """Homologa conhecimento preservando a nota ponderada obtida pelo EDDY.
 
-    >=90: apto à autonomia normal (ATIVA).
-    85-89: professor pode excepcionalmente homologar, com justificativa, em EM_OBSERVACAO.
+    >=90: professor pode homologar normalmente (ATIVA).
+    85-89: professor pode homologar excepcionalmente, com justificativa (EM_OBSERVACAO).
     <85: continua em estudo.
     Divergência crítica recente bloqueia homologação em qualquer faixa.
+
+    A decisão humana não depende do campo legado ``situacao`` da prova: a fonte de
+    verdade é a nota ponderada + criticidade. Isso evita bloquear uma prova que a
+    própria Escola já classificou como apta.
     """
     _init(); rid=str(regra.get('regra_id') or '').strip(); professor=str(professor or '').strip(); justificativa_excecao=str(justificativa_excecao or '').strip()
     if not rid or not professor: raise ValueError('Regra e professor são obrigatórios.')
@@ -38,8 +43,6 @@ def homologar_e_ativar(regra:dict, prova:dict, professor:str, justificativa_exce
     excepcional=nota<NOTA_AUTONOMIA
     if excepcional and not justificativa_excecao:
         raise ValueError(f'Entre {NOTA_EXCECAO_HUMANA}% e {NOTA_AUTONOMIA-1}% a homologação exige justificativa do professor.')
-    if not excepcional and prova.get('situacao') not in ('APROVADA_PARA_PROFESSOR','APROVADA'):
-        raise ValueError('A prova ainda não habilita homologação automática.')
     raw,sha=_snapshot(regra,prova); agora=agora_brasil_iso(); estado='EM_OBSERVACAO' if excepcional else 'ATIVA'
     motivo=(f'Homologação excepcional pelo professor: {justificativa_excecao}' if excepcional else 'Homologada pelo professor após prova ponderada')
     with conectar() as c:
@@ -47,6 +50,22 @@ def homologar_e_ativar(regra:dict, prova:dict, professor:str, justificativa_exce
         c.execute("UPDATE homologacoes_regras SET estado='SUSPENSA', atualizado_em=? WHERE regra_id=? AND estado IN ('ATIVA','EM_OBSERVACAO')",(agora,rid))
         c.execute('''INSERT INTO homologacoes_regras(regra_id,versao,player,estado,homologado_por,homologado_em,nota,snapshot_json,snapshot_sha256,motivo,atualizado_em) VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(rid,versao,str(regra.get('player') or ''),estado,professor,agora,nota,raw,sha,motivo,agora))
     return {'regra_id':rid,'versao':versao,'estado':estado,'nota':nota,'homologado_por':professor,'homologado_em':agora,'snapshot_sha256':sha,'excepcional':excepcional}
+
+def auto_homologar_se_perfeito(regra:dict, prova:dict):
+    """Permite ao EDDY auto-homologar somente prova perfeita e sem crítica recente."""
+    nota=int(prova.get('nota_ponderada_pct') or 0)
+    if nota < NOTA_AUTO_HOMOLOGACAO or prova.get('criticas_recentes'):
+        return None
+    rid=str(regra.get('regra_id') or '').strip()
+    atual=estado_regra(rid) if rid else None
+    if atual and atual.get('estado') in ('ATIVA','EM_OBSERVACAO'):
+        return atual
+    resultado=homologar_e_ativar(regra,prova,'EDDY · auto-homologação')
+    # Mantém rastreabilidade explícita da decisão autônoma no motivo persistido.
+    with conectar() as c:
+        c.execute('UPDATE homologacoes_regras SET motivo=?, atualizado_em=? WHERE regra_id=? AND versao=?',('Auto-homologada pelo EDDY após prova ponderada perfeita (100%) e sem divergência crítica recente',agora_brasil_iso(),rid,resultado['versao']))
+    resultado['auto_homologada']=True
+    return resultado
 
 def estado_regra(regra_id):
     _init()
