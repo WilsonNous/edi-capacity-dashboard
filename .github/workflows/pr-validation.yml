@@ -135,6 +135,26 @@ jobs:
           curl --fail --silent --show-error http://127.0.0.1:8000/ >/dev/null
           echo "EDDY_GATEWAY_STREAMLIT_HTTP_OK"
 
+          python - <<'PY'
+          import concurrent.futures
+          import urllib.request
+
+          urls = [
+              "http://127.0.0.1:8000/",
+              "http://127.0.0.1:8000/_stcore/health",
+          ] * 20
+
+          def fetch(url):
+              with urllib.request.urlopen(url, timeout=8) as response:
+                  body = response.read()
+                  return response.status, len(body)
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+              results = list(pool.map(fetch, urls))
+          assert all(status == 200 for status, _ in results), results
+          print("EDDY_GATEWAY_CONCURRENT_HTTP_OK", len(results))
+          PY
+
       - name: Report repository hygiene debt
         run: |
           tracked=$(git ls-files | grep -E '(^|/)__pycache__/|\.pyc$' | wc -l || true)
