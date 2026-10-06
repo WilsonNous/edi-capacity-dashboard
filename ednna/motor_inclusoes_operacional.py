@@ -308,6 +308,118 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
 
 
 
+def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
+    """Transforma o balde genérico CONTINUIDADE em uma fila explicável e acionável.
+
+    Não executa ações externas. A execução continua pertencendo ao monitor,
+    follow-up engine e outbox. Aqui apenas classificamos cada chamado e deixamos
+    explícito por que ele ainda não avançou.
+    """
+    fila = avaliar_fila_inclusoes(snapshot)
+    try:
+        from ednna.followup_engine import avaliar_followups
+        followups = avaliar_followups()
+        followup_por_id = {
+            int(x.get("chamado_id") or 0): x
+            for x in (followups.get("itens") or [])
+            if int(x.get("chamado_id") or 0)
+        }
+    except Exception as exc:
+        followup_por_id = {}
+        print(f"[EDNNA] Continuidade diagnóstico | follow-up indisponível | {type(exc).__name__}: {exc}", flush=True)
+
+    itens = []
+    contadores = {
+        "total": 0,
+        "aguardando_prazo": 0,
+        "followup_automatico": 0,
+        "followup_assistido": 0,
+        "aguardando_intervalo": 0,
+        "limite_followup": 0,
+        "sem_thread": 0,
+        "redmine_pendente": 0,
+        "atuacao_previa_sem_acompanhamento": 0,
+        "estado_redmine_sem_acompanhamento": 0,
+        "outros": 0,
+    }
+
+    for item in fila.get("itens") or []:
+        estado = str(item.get("estado_motor") or "")
+        if estado not in {
+            "REDMINE_PENDENTE", "AGUARDANDO_RESPOSTA",
+            "CONTINUIDADE_ESTADO_REDMINE", "CONTINUIDADE_ATUACAO_PREVIA",
+        }:
+            continue
+        cid = int(item.get("id") or 0)
+        diagnostico = {
+            "chamado_id": cid,
+            "cliente": item.get("cliente") or "",
+            "player": item.get("player") or "",
+            "estado_motor": estado,
+            "proxima_acao": item.get("acao_sugerida") or "Revisar continuidade",
+            "motivo": "",
+            "executavel_agora": False,
+        }
+        contadores["total"] += 1
+
+        if estado == "REDMINE_PENDENTE":
+            contadores["redmine_pendente"] += 1
+            diagnostico.update(motivo="Ação já ocorreu; falta reconciliar o efeito no Redmine.", proxima_acao="Reconciliar Redmine")
+        elif estado == "AGUARDANDO_RESPOSTA":
+            fu = followup_por_id.get(cid)
+            if not fu:
+                contadores["outros"] += 1
+                diagnostico["motivo"] = "Acompanhamento ativo sem diagnóstico de follow-up."
+            else:
+                est_fu = str(fu.get("estado_followup") or "")
+                modo = str(fu.get("modo_followup") or "ASSISTIDO")
+                diagnostico["estado_followup"] = est_fu
+                diagnostico["modo_followup"] = modo
+                diagnostico["prazo_resposta_em"] = fu.get("prazo_resposta_em")
+                diagnostico["followup_count"] = int(fu.get("followup_count") or 0)
+                if est_fu == "AGUARDANDO_PRAZO":
+                    contadores["aguardando_prazo"] += 1
+                    diagnostico.update(motivo="Prazo de resposta ainda não venceu.", proxima_acao="Aguardar prazo")
+                elif est_fu == "AGUARDANDO_INTERVALO":
+                    contadores["aguardando_intervalo"] += 1
+                    diagnostico.update(motivo="Follow-up anterior ainda está dentro do intervalo mínimo.", proxima_acao="Aguardar intervalo")
+                elif est_fu == "LIMITE_FOLLOWUP":
+                    contadores["limite_followup"] += 1
+                    diagnostico.update(motivo="Limite automático de follow-ups atingido.", proxima_acao="Decisão humana / escalonamento")
+                elif est_fu == "SEM_THREAD":
+                    contadores["sem_thread"] += 1
+                    diagnostico.update(motivo="Envio existe, mas não há message_id para responder na thread.", proxima_acao="Reconstruir thread")
+                elif est_fu == "FOLLOWUP_PRONTO" and modo == "AUTOMATICO":
+                    contadores["followup_automatico"] += 1
+                    diagnostico.update(motivo="Prazo vencido e regra autoriza continuidade automática.", proxima_acao="Enviar follow-up automático", executavel_agora=True)
+                elif est_fu == "FOLLOWUP_PRONTO":
+                    contadores["followup_assistido"] += 1
+                    diagnostico.update(motivo="Prazo vencido, mas a regra exige decisão humana.", proxima_acao="Aprovar follow-up assistido")
+                else:
+                    contadores["outros"] += 1
+                    diagnostico["motivo"] = f"Estado de follow-up não classificado: {est_fu or 'vazio'}."
+        elif estado == "CONTINUIDADE_ATUACAO_PREVIA":
+            contadores["atuacao_previa_sem_acompanhamento"] += 1
+            diagnostico.update(
+                motivo="Há evidência de atuação anterior, mas o chamado não está na fila transacional de acompanhamento.",
+                proxima_acao="Reconstruir acompanhamento / classificar última atuação",
+            )
+        elif estado == "CONTINUIDADE_ESTADO_REDMINE":
+            contadores["estado_redmine_sem_acompanhamento"] += 1
+            diagnostico.update(
+                motivo="O Redmine indica continuidade, mas não existe acompanhamento transacional ativo.",
+                proxima_acao="Classificar continuidade pelo histórico",
+            )
+        itens.append(diagnostico)
+
+    print(
+        "[EDNNA] Continuidade diagnóstico | "
+        + " | ".join(f"{k}={v}" for k, v in contadores.items()),
+        flush=True,
+    )
+    return {"resumo": contadores, "itens": itens}
+
+
 def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
     """Traduz o estado técnico do motor para uma visão operacional por regra.
 
