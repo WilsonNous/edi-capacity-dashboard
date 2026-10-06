@@ -23,29 +23,44 @@ pids+=("$!")
 python -m uvicorn eddy_api.main:app --host 127.0.0.1 --port "$API_PORT" --workers 1 &
 pids+=("$!")
 
+export EDDY_READY_UI_URL="http://127.0.0.1:${UI_PORT}/_stcore/health"
+export EDDY_READY_API_URL="http://127.0.0.1:${API_PORT}/api/intelligence/handshake"
+
 python - <<'PY'
-import time, urllib.request
+import os
+import time
+import urllib.error
+import urllib.request
+
 targets = [
-    ("Streamlit", "http://127.0.0.1:8501/_stcore/health", {200}),
-    ("Intelligence API", "http://127.0.0.1:8001/api/intelligence/handshake", {200, 401, 422}),
+    ("Streamlit", os.environ["EDDY_READY_UI_URL"], {200}),
+    ("Intelligence API", os.environ["EDDY_READY_API_URL"], {200, 401, 403, 422}),
 ]
+
 for name, url, accepted in targets:
     deadline = time.time() + 60
+    last_detail = "sem resposta"
     while time.time() < deadline:
         try:
-            urllib.request.urlopen(url, timeout=2)
+            with urllib.request.urlopen(url, timeout=2) as response:
+                code = response.status
+            last_detail = f"HTTP {code}"
+            if code in accepted:
+                print(f"[EDDY] {name} pronto: HTTP {code}", flush=True)
+                break
+            print(f"[EDDY] {name} ainda não pronto: HTTP {code}", flush=True)
         except urllib.error.HTTPError as exc:
+            last_detail = f"HTTP {exc.code}"
             if exc.code in accepted:
                 print(f"[EDDY] {name} pronto: HTTP {exc.code}", flush=True)
                 break
-        except Exception:
-            pass
-        else:
-            print(f"[EDDY] {name} pronto", flush=True)
-            break
+            print(f"[EDDY] {name} ainda não pronto: HTTP {exc.code}", flush=True)
+        except Exception as exc:
+            last_detail = f"{type(exc).__name__}: {exc}"
+            print(f"[EDDY] {name} aguardando: {last_detail}", flush=True)
         time.sleep(1)
     else:
-        raise SystemExit(f"[EDDY] Timeout aguardando {name}")
+        raise SystemExit(f"[EDDY] Timeout aguardando {name}; último resultado: {last_detail}")
 PY
 
 python -m uvicorn eddy_gateway:app --host 0.0.0.0 --port "$PUBLIC_PORT" --workers 1 &
