@@ -74,6 +74,7 @@ jobs:
 
       - name: Validate EDDY Intelligence Contract v1
         env:
+          PYTHONPATH: ${{ github.workspace }}
           EDDY_INTELLIGENCE_TOKEN: test-secret
           EDNNA_MONITOR_EMAIL_ENABLED: "false"
         run: |
@@ -81,6 +82,7 @@ jobs:
 
       - name: Validate combined runtime startup and health
         env:
+          PYTHONPATH: ${{ github.workspace }}
           EDDY_INTELLIGENCE_TOKEN: test-secret
           EDNNA_MONITOR_EMAIL_ENABLED: "false"
           EDNNA_AUTO_EXECUTE: "false"
