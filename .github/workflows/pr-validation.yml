@@ -29,10 +29,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
 
       - name: Compile Python project
         run: |
-          python -m compileall app.py redmine_api.py ednna pages
+          python -m compileall app.py redmine_api.py ednna eddy_api eddy_gateway.py pages
 
       - name: Validate EDNNA opening miner import
         run: |
@@ -69,6 +70,68 @@ jobs:
           assert any(e['codigo'] == 'EXTRAIR_DADOS' for e in r['etapas'])
           print('MINERADOR_ABERTURAS_SMOKE_OK')
           PY
+
+
+      - name: Validate EDDY Intelligence Contract v1
+        env:
+          EDDY_INTELLIGENCE_TOKEN: test-secret
+          EDNNA_MONITOR_EMAIL_ENABLED: "false"
+        run: |
+          pytest -q tests/test_intelligence_contract.py
+
+      - name: Validate combined runtime startup and health
+        env:
+          EDDY_INTELLIGENCE_TOKEN: test-secret
+          EDNNA_MONITOR_EMAIL_ENABLED: "false"
+          EDNNA_AUTO_EXECUTE: "false"
+          EDNNA_FOLLOWUP_AUTO: "false"
+        run: |
+          bash scripts/start_eddy.sh > /tmp/eddy-runtime.log 2>&1 &
+          runtime_pid=$!
+          cleanup() {
+            kill -TERM "$runtime_pid" 2>/dev/null || true
+            wait "$runtime_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          deadline = time.time() + 45
+          last = None
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:8000/healthz", timeout=3) as response:
+                      data = json.load(response)
+                      if response.status == 200 and data.get("status") == "ok":
+                          print("EDDY_RUNTIME_HEALTH_OK", data)
+                          break
+              except Exception as exc:
+                  last = exc
+              time.sleep(1)
+          else:
+              raise SystemExit(f"Runtime did not become healthy: {last}")
+
+          req = urllib.request.Request(
+              "http://127.0.0.1:8000/api/intelligence/handshake",
+              headers={
+                  "Authorization": "Bearer test-secret",
+                  "X-EDNNA-Contract-Version": "1",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=5) as response:
+              data = json.load(response)
+              assert response.status == 200
+              assert data["specialist_id"] == "eddy"
+              assert data["contract_version"] == "1"
+          print("EDDY_GATEWAY_API_OK")
+          PY
+
+          curl --fail --silent --show-error http://127.0.0.1:8000/ >/dev/null
+          echo "EDDY_GATEWAY_STREAMLIT_HTTP_OK"
 
       - name: Report repository hygiene debt
         run: |
