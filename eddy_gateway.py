@@ -104,10 +104,13 @@ async def streamlit_websocket(websocket: WebSocket, path: str):
     upstream_url = f"{UI_WS_BASE}/{path}{query}"
     headers = []
     for key, value in websocket.headers.items():
-        if key.lower() not in {"host", "connection", "upgrade", "sec-websocket-key",
+        if key.lower() not in {"host", "origin", "connection", "upgrade", "sec-websocket-key",
                                "sec-websocket-version", "sec-websocket-extensions",
                                "sec-websocket-protocol"}:
             headers.append((key, value))
+    # Streamlit valida Origin x Host. O salto interno do gateway usa loopback,
+    # portanto ambos precisam representar o upstream interno.
+    headers.append(("Origin", UI_BASE))
     subprotocols = list(websocket.scope.get("subprotocols") or [])
     try:
         async with websockets.connect(
