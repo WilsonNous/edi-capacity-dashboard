@@ -921,6 +921,38 @@ def executar_monitoramento_respostas() -> dict:
                 resumo["execucao_automatica"] = resumo_auto
                 from ednna.motor_inclusoes_operacional import executar_inclusoes_automaticas
                 resumo["inclusoes_automaticas"] = executar_inclusoes_automaticas(pd.DataFrame(snapshot_auto))
+
+                # A fila de inclusão chama muitos chamados de "continuidade", mas isso
+                # não significa que todos estejam efetivamente sendo acompanhados.
+                # Explicamos o balde inteiro a cada ciclo para tornar visíveis órfãos,
+                # follow-ups vencidos e pendências de Redmine.
+                from ednna.motor_inclusoes_operacional import diagnosticar_continuidade_operacional
+                continuidade = diagnosticar_continuidade_operacional(pd.DataFrame(snapshot_auto))
+                resumo["continuidade_operacional"] = continuidade
+                cr = continuidade.get("resumo") or {}
+                if int(cr.get("total", 0) or 0):
+                    print(
+                        "[EDNNA] Continuidade operacional | "
+                        f"total={cr.get('total',0)} | aguardando_prazo={cr.get('aguardando_prazo',0)} | "
+                        f"followup_auto={cr.get('followup_automatico',0)} | followup_assistido={cr.get('followup_assistido',0)} | "
+                        f"redmine_pendente={cr.get('redmine_pendente',0)} | sem_thread={cr.get('sem_thread',0)} | "
+                        f"atuacao_sem_acompanhamento={cr.get('atuacao_previa_sem_acompanhamento',0)} | "
+                        f"estado_sem_acompanhamento={cr.get('estado_redmine_sem_acompanhamento',0)} | "
+                        f"limite_followup={cr.get('limite_followup',0)}",
+                        flush=True,
+                    )
+                    orfaos = [
+                        x for x in continuidade.get("itens", [])
+                        if x.get("estado_motor") in {"CONTINUIDADE_ATUACAO_PREVIA", "CONTINUIDADE_ESTADO_REDMINE"}
+                    ]
+                    if orfaos:
+                        print(
+                            "[EDNNA] Continuidade órfã | "
+                            + " | ".join(
+                                f"#{x.get('chamado_id')}:{x.get('proxima_acao')}" for x in orfaos[:20]
+                            ),
+                            flush=True,
+                        )
                 if int(resumo_auto.get("enviados",0) or 0) or int(resumo_auto.get("redmine_pendente",0) or 0):
                     print(
                         "[EDNNA] Executor background | "
