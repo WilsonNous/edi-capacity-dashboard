@@ -44,3 +44,12 @@ def test_action_is_dry_run_only():
 def test_status_lookup_never_replays():
     r=client.get("/api/intelligence/actions/k-1",headers=HEADERS)
     assert r.status_code==200 and r.json()["state"]=="unknown"
+
+
+def test_api_service_does_not_depend_on_streamlit_ui():
+    import sys
+    assert "ui.operational_data" not in sys.modules
+
+def test_api_import_does_not_start_operational_worker():
+    import ednna.monitor_respostas as monitor
+    assert monitor._THREAD is None or not monitor._THREAD.is_alive()
