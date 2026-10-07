@@ -338,6 +338,17 @@ def _processar_lote(
     erros_consecutivos = 0
 
     for _, row in lote.iterrows():
+        # Aprendizado/histórico nunca fura o circuit breaker. Se a infraestrutura
+        # degradar no meio do lote, devolve a fila imediatamente para o próximo ciclo.
+        try:
+            from painel_cache import circuit_breaker_ativo as _redmine_breaker_ativo
+            if _redmine_breaker_ativo():
+                resultado["interrompido"] = True
+                resultado["motivo_interrupcao"] = "CIRCUIT_BREAKER"
+                print("[EDDY] Fila journals suspensa | motivo=CIRCUIT_BREAKER | prioridade=OPERACAO", flush=True)
+                break
+        except Exception:
+            pass
         item = processar_chamado(
             row,
             autores_edi,
