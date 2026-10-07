@@ -750,7 +750,7 @@ def carregar_snapshot_chamados() -> list[dict]:
         except Exception as exc:
 
             print(
-                "[EDNNA] Payload inválido "
+                "[EDDY] Payload inválido "
                 "no SQLite | "
                 f"chamado={linha['id']} | "
                 f"erro={exc}"
@@ -1426,6 +1426,6 @@ inicializar_banco()
 
 
 print(
-    "[EDNNA] SQLite inicializado | "
+    "[EDDY] SQLite inicializado | "
     f"arquivo={DB_PATH}"
 )
