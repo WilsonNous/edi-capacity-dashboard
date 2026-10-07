@@ -6,12 +6,13 @@ Não executa ações externas. Converte snapshot + memória transacional + journ
 já armazenados em uma decisão explicável para o worker.
 """
 import json
+import os
 from ednna.armazenamento import listar_journals
 from ednna.acompanhamento_acoes import obter_responsavel_original_cancelamento
 
 ESTADOS_TERCEIRO=("AGUARDANDO RETORNO","AGUARDANDO CLIENTE","AGUARDANDO ADQUIRENTE","AGUARDANDO BANCO","AGUARDANDO FORNECEDOR","AGUARDANDO TERCEIRO")
 ESTADOS_HUMANO=("AGUARDANDO RETORNO CLIENTE","AGUARDANDO CLIENTE","AGUARDANDO USUARIO","AGUARDANDO USUÁRIO")
-EDDY_USER_ID=166
+EDDY_USER_ID=int(os.getenv("REDMINE_EDNNA_USER_ID","166") or 166)
 
 ASSIGNED_FIELDS={"assigned_to_id","assigned_to"}
 
