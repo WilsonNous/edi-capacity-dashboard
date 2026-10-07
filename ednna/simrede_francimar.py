@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from ednna.armazenamento import carregar_snapshot_chamados
 from ednna.email_sender import GRAPH_BASE_URL, _graph_get, baixar_mensagem_eml
-from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome
+from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome\nfrom ednna.regras_ocorrencias import obter_regra_ocorrencia
 
 FRANCIMAR="francimar.tondello@grupoargenta.com.br"
 PLAYERS=("SENFF","POLICARD","STONE","CIELO","GREENCARD","ROTACARD")
@@ -92,7 +92,7 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                 if existente: resumo["existentes"]+=1; continue
                 try:
                     if eml is None: eml=baixar_mensagem_eml(caixa_postal=caixa,message_id=str(msg.get("id") or ""))
-                    cid=_criar_chamado(oc,eml=eml); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"]})
+                    regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])\n                    cid=_criar_chamado(oc,eml=eml); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
                     print(f"[EDDY] SIM REDE | chamado aberto #{cid} | player={oc['player']} | tipo={oc['tipo']} | responsavel=EDNNA | origem=Francimar",flush=True)
                 except Exception as exc: resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
