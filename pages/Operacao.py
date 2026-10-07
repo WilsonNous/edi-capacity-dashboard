@@ -77,7 +77,12 @@ for a in aguardando:
         except Exception: pass
 
 aguardando_ednna=[a for a in aguardando if int(a.get('chamado_id') or 0) not in fup_assistidos_ids]
-cuidando_total=len(aguardando_ednna)+len(historico_auto)+len(redmine_auto)\n# A carteira real também inclui demandas do motor ainda não absorvidas por acoes_operacionais.\nexecutando_motor=[x for x in itens if x.get('estado_motor') in {'PRONTO_OPERACAO_ASSISTIDA','AGUARDANDO_RESPOSTA','CONTINUIDADE_ATUACAO_PREVIA','CONTINUIDADE_ESTADO_REDMINE'} and int(x.get('id') or 0) in active_ids]\nids_cuidando={int(a.get('chamado_id') or 0) for a in aguardando_ednna}|{int(x.get('id') or 0) for x in historico_auto+redmine_auto}\nexecutando_motor=[x for x in executando_motor if int(x.get('id') or 0) not in ids_cuidando]\ncuidando_total += len(executando_motor)
+cuidando_total=len(aguardando_ednna)+len(historico_auto)+len(redmine_auto)
+# A carteira real também inclui demandas do motor ainda não absorvidas por acoes_operacionais.
+executando_motor=[x for x in itens if x.get('estado_motor') in {'PRONTO_OPERACAO_ASSISTIDA','AGUARDANDO_RESPOSTA','CONTINUIDADE_ATUACAO_PREVIA','CONTINUIDADE_ESTADO_REDMINE'} and int(x.get('id') or 0) in active_ids]
+ids_cuidando={int(a.get('chamado_id') or 0) for a in aguardando_ednna}|{int(x.get('id') or 0) for x in historico_auto+redmine_auto}
+executando_motor=[x for x in executando_motor if int(x.get('id') or 0) not in ids_cuidando]
+cuidando_total += len(executando_motor)
 usuario=current_user(); nome_usuario=display_name(usuario) or 'você'
 st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, {nome_usuario}. Preciso de você em **{quantidade(len(preciso), 'situação', 'situações')}**. Estou cuidando de **{quantidade(cuidando_total, 'chamado')}**.")
 
