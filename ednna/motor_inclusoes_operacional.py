@@ -21,6 +21,7 @@ from ednna.workflows_inclusao import obter_workflow
 from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
 from ednna.sincronizador import normalizar_marca_alteracao
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta
+from ednna.status_guard import estado_terminal_nome
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -173,6 +174,22 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
             continue
         player = str(players[0])
         row = _row_por_id(snapshot, cid_candidato)
+
+        # INVARIANTE DE SEGURANÇA: rejeitado/terminal/inválido nunca entra em
+        # fila executável. O registro pode existir para histórico/auditoria,
+        # mas não pode ser reativado por cache, regra homologada ou aprendizado.
+        estado_snapshot = str(row.get("Estado", "") or "").strip()
+        invalido_snapshot = not bool(row) or cid_candidato <= 0
+        if invalido_snapshot or estado_terminal_nome(estado_snapshot):
+            itens.append({
+                **candidato,
+                "player": player,
+                "estado_motor": "IGNORADO_ESTADO_TERMINAL" if not invalido_snapshot else "IGNORADO_INVALIDO",
+                "acao_sugerida": "Somente histórico / auditoria",
+                "executavel": False,
+                "estado_redmine": estado_snapshot,
+            })
+            continue
 
         # Precedência operacional única:
         # REDMINE_PENDENTE > AGUARDANDO_RESPOSTA > primeira atuação.
@@ -352,6 +369,8 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
         "REGRA_HOMOLOGADA_NAO_AUTORIZADA": 100,
         "REGRA_NAO_HOMOLOGADA": 110,
         "PLAYER_AMBIGUO": 120,
+        "IGNORADO_ESTADO_TERMINAL": 1000,
+        "IGNORADO_INVALIDO": 1000,
     }
     tipo_por_estado = {
         "PRONTO_OPERACAO_ASSISTIDA": "EXECUTAR",
@@ -366,6 +385,8 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
         "REGRA_HOMOLOGADA_NAO_AUTORIZADA": "AUTORIZAR_MOTOR",
         "REGRA_NAO_HOMOLOGADA": "HOMOLOGAR_REGRA",
         "PLAYER_AMBIGUO": "REVISAR",
+        "IGNORADO_ESTADO_TERMINAL": "IGNORAR",
+        "IGNORADO_INVALIDO": "IGNORAR",
     }
     demandas = []
     for item in fila.get("itens") or []:
@@ -384,7 +405,7 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
             "acao": str(item.get("acao_sugerida") or "Revisar"),
             "cliente": str(item.get("cliente") or item.get("Clientes") or ""),
             "assunto": str(item.get("assunto") or item.get("Assunto") or ""),
-            "executavel_agora": estado == "PRONTO_OPERACAO_ASSISTIDA",
+            "executavel_agora": estado == "PRONTO_OPERACAO_ASSISTIDA" and chamado_id > 0,
         })
     demandas.sort(key=lambda x: (int(x["prioridade"]), int(x["chamado_id"] or 0)))
     if limite > 0:
