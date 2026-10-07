@@ -704,7 +704,11 @@ def executar_monitoramento_respostas() -> dict:
     # Mantém a experiência interativa rápida e desloca retries mais tolerantes
     # para o ciclo já existente do monitor.
     try:
-        enriquecimento = processar_enriquecimentos_pendentes(limite=12)
+        # EDDY 4.2: operação corrente tem precedência sobre mineração histórica.
+        # O enriquecimento legado fica estritamente orçado para não monopolizar
+        # o ciclo quando o Redmine está lento/indisponível.
+        limite_enriquecimento = max(0, int(os.getenv("EDDY_LEARNING_ENRICH_MAX_PER_CYCLE", "2") or 2))
+        enriquecimento = processar_enriquecimentos_pendentes(limite=limite_enriquecimento) if limite_enriquecimento else {}
         if enriquecimento.get("consultados"):
             resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
         if enriquecimento.get("atualizados"):
@@ -897,6 +901,22 @@ def executar_monitoramento_respostas() -> dict:
             from ednna.executor_automatico import executar_acoes_automaticas
             snapshot_auto = carregar_snapshot_chamados()
             if snapshot_auto:
+                # EDDY 4.2: aprender ocorrências comuns usando somente o snapshot
+                # local. Isso não consome chamadas pontuais ao Redmine e alimenta
+                # a Escola com falta de arquivo/registro e demais padrões.
+                try:
+                    from ednna.aprendizado_ocorrencias import aprender_snapshot
+                    resumo["aprendizado_ocorrencias"] = aprender_snapshot(
+                        snapshot_auto,
+                        limite=max(25, int(os.getenv("EDDY_OCCURRENCE_LEARNING_MAX_PER_CYCLE", "300") or 300)),
+                    )
+                    ao = resumo["aprendizado_ocorrencias"]
+                    if int(ao.get("persistidos", 0) or 0):
+                        print("[EDDY] Aprendizado ocorrências | " + " | ".join(
+                            f"{k}={v}" for k,v in (ao.get("tipos") or {}).items()
+                        ), flush=True)
+                except Exception as occ_exc:
+                    print(f"[EDDY] Aprendizado ocorrências | falha | {type(occ_exc).__name__}: {occ_exc}", flush=True)
                 # v3.32.1 — histórico é trabalho da EDNNA, não do operador.
                 # Antes a inclusão podia parar em AGUARDANDO_VERIFICACAO_HISTORICO
                 # indefinidamente se ninguém abrisse a tela antiga que sincronizava journals.
@@ -904,7 +924,7 @@ def executar_monitoramento_respostas() -> dict:
                 try:
                     from ednna.sincronizador_journals import sincronizar_proximo_lote
                     frame_journals = pd.DataFrame(snapshot_auto)
-                    limite_hist = max(1, int(os.getenv('EDNNA_HISTORY_SYNC_MAX_PER_CYCLE', '20') or 20))
+                    limite_hist = max(1, int(os.getenv('EDNNA_HISTORY_SYNC_MAX_PER_CYCLE', '4') or 4))
                     resumo['historico_sincronizacao'] = sincronizar_proximo_lote(frame_journals, limite=limite_hist)
                     hs = resumo.get('historico_sincronizacao') or {}
                     if int(hs.get('processados', 0) or 0):
