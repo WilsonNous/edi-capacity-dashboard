@@ -983,6 +983,30 @@ def executar_monitoramento_respostas() -> dict:
                         resumo["retomada_continuidade"] = reconstruir_continuidades_orfas(
                             pd.DataFrame(snapshot_auto), limite=limite_retomada
                         )
+                        # Depois de reconstruir evidências, classifica quem possui
+                        # a próxima responsabilidade. Ainda é decisão read-only:
+                        # handoff automático entra somente após observarmos os logs.
+                        try:
+                            from ednna.continuidade_responsabilidade import classificar_lote
+                            responsabilidade = classificar_lote(
+                                pd.DataFrame(snapshot_auto), continuidade,
+                                limite=max(1, int(os.getenv("EDDY_CONTINUITY_CLASSIFY_MAX_PER_CYCLE", "30") or 30)),
+                            )
+                            resumo["responsabilidade_continuidade"] = responsabilidade
+                            if responsabilidade.get("total"):
+                                print(
+                                    "[EDDY] Responsabilidade continuidade | "
+                                    + " | ".join(f"{k}={v}" for k,v in (responsabilidade.get("decisoes") or {}).items()),
+                                    flush=True,
+                                )
+                                pendentes=[x for x in responsabilidade.get("itens",[]) if x.get("decisao") in {"DEVOLVER_ORIGEM","DECISAO_HUMANA","ACAO_EDDY_DUE"}]
+                                if pendentes:
+                                    print("[EDDY] Próximas responsabilidades | " + " | ".join(
+                                        f"#{x.get('chamado_id')}:{x.get('decisao')}:{x.get('responsavel_origem',{}).get('id','-')}"
+                                        for x in pendentes[:20]
+                                    ), flush=True)
+                        except Exception as resp_exc:
+                            print(f"[EDDY] Responsabilidade continuidade | falha | {type(resp_exc).__name__}: {resp_exc}", flush=True)
                 if int(resumo_auto.get("enviados",0) or 0) or int(resumo_auto.get("redmine_pendente",0) or 0):
                     print(
                         "[EDNNA] Executor background | "
