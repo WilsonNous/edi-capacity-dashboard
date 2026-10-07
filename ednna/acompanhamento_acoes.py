@@ -278,9 +278,9 @@ def adquirir_envio(
                         stale = False
                 if not stale:
                     conn.execute("ROLLBACK")
-                    print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EXECUCAO_EM_ANDAMENTO | estado={estado}", flush=True)
+                    print(f"[EDDY] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EXECUCAO_EM_ANDAMENTO | estado={estado}", flush=True)
                     return False, dados_row
-                print(f"[EDNNA] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
+                print(f"[EDDY] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
 
             elif estado in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA"}:
                 # v3.28.50 — estado/enviado_em NÃO são mais prova suficiente de envio.
@@ -298,7 +298,7 @@ def adquirir_envio(
                 if confirmado or graph_ids:
                     conn.execute("ROLLBACK")
                     print(
-                        f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} "
+                        f"[EDDY] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} "
                         f"| motivo=EMAIL_JA_ENVIADO | estado={estado} | evidencia="
                         f"{'ENVIO_CONFIRMADO' if confirmado else 'GRAPH_ID'}",
                         flush=True,
@@ -310,7 +310,7 @@ def adquirir_envio(
                 # Liberamos a execução e limpamos somente os marcadores derivados para que
                 # a nova tentativa seja transacional e auditável.
                 print(
-                    f"[EDNNA] Idempotência inconsistente recuperada | chamado={chamado_id} "
+                    f"[EDDY] Idempotência inconsistente recuperada | chamado={chamado_id} "
                     f"| regra={regra_id} | estado={estado} | enviado_em="
                     f"{str(dados_row.get('enviado_em') or 'ausente')} | evidencia_graph=ausente "
                     f"| nova_tentativa=liberada",
