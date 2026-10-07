@@ -71,7 +71,7 @@ def _registrar_retorno_checkpoint(cp: dict, msg: dict, caixa: str) -> dict:
                WHERE id=? AND status='PENDENTE'""",
             (json.dumps(dados, ensure_ascii=False), int(cp["id"])),
         )
-    print(f"[EDNNA] Monitor checkpoint | RETORNO_RECEBIDO | chamado={chamado_id} | regra={regra_id} | checkpoint={codigo} | assunto={assunto[:140]}", flush=True)
+    print(f"[EDDY] Monitor checkpoint | RETORNO_RECEBIDO | chamado={chamado_id} | regra={regra_id} | checkpoint={codigo} | assunto={assunto[:140]}", flush=True)
     return {"chamado_id": chamado_id, "regra_id": regra_id, "checkpoint": codigo, "resposta": True}
 
 
@@ -85,13 +85,13 @@ def monitorar_checkpoints_email(caixa: str) -> dict:
             continue
         elegiveis.append(cp)
     ids = sorted({int(cp["chamado_id"]) for cp in elegiveis})
-    print(f"[EDNNA] Monitor e-mail | checkpoints_aguardando={len(elegiveis)} | checkpoints_ids={ids}", flush=True)
+    print(f"[EDDY] Monitor e-mail | checkpoints_aguardando={len(elegiveis)} | checkpoints_ids={ids}", flush=True)
     respostas, sem_resposta, erros, detalhes = 0, 0, 0, []
     for cp in elegiveis:
         chamado_id = int(cp["chamado_id"])
         codigo = str(cp["codigo"])
         regra_id = str(cp["regra_id"])
-        print(f"[EDNNA] Monitor e-mail | candidato checkpoint | chamado={chamado_id} | regra={regra_id} | checkpoint={codigo}", flush=True)
+        print(f"[EDDY] Monitor e-mail | candidato checkpoint | chamado={chamado_id} | regra={regra_id} | checkpoint={codigo}", flush=True)
         try:
             msg = localizar_resposta_por_chamado(
                 caixa_postal=caixa, chamado_id=chamado_id,
@@ -104,7 +104,7 @@ def monitorar_checkpoints_email(caixa: str) -> dict:
             respostas += 1
         except Exception as exc:
             erros += 1
-            print(f"[EDNNA] Monitor checkpoint | ERRO | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+            print(f"[EDDY] Monitor checkpoint | ERRO | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
     return {"aguardando": len(elegiveis), "respostas": respostas, "sem_resposta": sem_resposta, "erros": erros, "detalhes": detalhes}
 
 
@@ -128,7 +128,7 @@ def instalar() -> None:
             resumo.setdefault("detalhes", []).extend(cp["detalhes"])
         except Exception as exc:
             resumo["erros"] = int(resumo.get("erros") or 0) + 1
-            print(f"[EDNNA] Monitor checkpoint | falha geral | {type(exc).__name__}: {exc}", flush=True)
+            print(f"[EDDY] Monitor checkpoint | falha geral | {type(exc).__name__}: {exc}", flush=True)
         return resumo
 
     monitor.executar_monitoramento_respostas = executar_monitoramento_respostas_v3414
