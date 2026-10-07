@@ -548,7 +548,17 @@ def _auditar_processados_redmine(caixa: str) -> dict:
     Se o SQLite diz RESPOSTA_RECEBIDA mas a nota não existe no chamado, reabre
     somente a sincronização Redmine usando a resposta já preservada. Não relê nem
     reinterpreta o e-mail e não dispara novo envio.
+
+    Background nunca fura o circuit breaker; auditoria pode aguardar o próximo
+    ciclo sem comprometer a operação corrente.
     """
+    try:
+        from painel_cache import circuit_breaker_ativo
+        if circuit_breaker_ativo():
+            print("[EDDY] Auditoria conclusão suspensa | motivo=CIRCUIT_BREAKER | prioridade=OPERACAO", flush=True)
+            return {"confirmados": [], "reparo": [], "indisponiveis": [], "suspenso": True}
+    except Exception:
+        pass
     regra_id = "CANCELAMENTO-GETNET-001"
     envios = listar_envios_cancelamento_getnet(remetente=caixa, top=500)
     ids = sorted({int(x.get("chamado_id") or 0) for x in envios if int(x.get("chamado_id") or 0)})
