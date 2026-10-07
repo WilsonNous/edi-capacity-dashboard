@@ -395,6 +395,16 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
             chamado_id = int(item.get("id") or item.get("#") or 0)
         except Exception:
             chamado_id = 0
+        # Defesa em profundidade: a fila publicada recalcula o estado diretamente
+        # do snapshot, em vez de confiar apenas no estado_motor recebido. Assim,
+        # nenhum caminho legado/cache pode republicar terminal/rejeitado como EXECUTAR.
+        row_demanda = _row_por_id(snapshot, chamado_id) if chamado_id > 0 else {}
+        estado_redmine = str(row_demanda.get("Estado", "") or item.get("estado_redmine") or "").strip()
+        invalido = chamado_id <= 0 or not bool(row_demanda)
+        terminal = bool(estado_terminal_nome(estado_redmine))
+        if invalido or terminal:
+            estado = "IGNORADO_INVALIDO" if invalido else "IGNORADO_ESTADO_TERMINAL"
+
         demandas.append({
             "chamado_id": chamado_id,
             "player": str(item.get("player") or ""),
@@ -402,10 +412,11 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
             "estado_motor": estado,
             "tipo_demanda": tipo_por_estado.get(estado, "REVISAR"),
             "prioridade": prioridade.get(estado, 999),
-            "acao": str(item.get("acao_sugerida") or "Revisar"),
+            "acao": "Somente histórico / auditoria" if (invalido or terminal) else str(item.get("acao_sugerida") or "Revisar"),
             "cliente": str(item.get("cliente") or item.get("Clientes") or ""),
             "assunto": str(item.get("assunto") or item.get("Assunto") or ""),
-            "executavel_agora": estado == "PRONTO_OPERACAO_ASSISTIDA" and chamado_id > 0,
+            "estado_redmine": estado_redmine,
+            "executavel_agora": estado == "PRONTO_OPERACAO_ASSISTIDA" and chamado_id > 0 and not invalido and not terminal,
         })
     demandas.sort(key=lambda x: (int(x["prioridade"]), int(x["chamado_id"] or 0)))
     if limite > 0:
