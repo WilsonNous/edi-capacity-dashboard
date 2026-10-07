@@ -946,6 +946,13 @@ def executar_monitoramento_respostas() -> dict:
                 resumo["execucao_automatica"] = resumo_auto
                 from ednna.motor_inclusoes_operacional import executar_inclusoes_automaticas
                 resumo["inclusoes_automaticas"] = executar_inclusoes_automaticas(pd.DataFrame(snapshot_auto))
+                # EDDY 4.3.2 — materializa a fila de trabalho em todo ciclo.
+                # É observacional: nenhuma ação externa adicional é disparada aqui.
+                from ednna.motor_inclusoes_operacional import gerar_demandas_operacionais
+                limite_demandas = max(1, int(os.getenv("EDDY_DEMAND_MAX_PER_CYCLE", "50") or 50))
+                resumo["demandas_operacionais"] = gerar_demandas_operacionais(
+                    pd.DataFrame(snapshot_auto), limite=limite_demandas
+                )
 
                 # A fila de inclusão chama muitos chamados de "continuidade", mas isso
                 # não significa que todos estejam efetivamente sendo acompanhados.
