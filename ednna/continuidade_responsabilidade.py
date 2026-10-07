@@ -13,6 +13,8 @@ ESTADOS_TERCEIRO=("AGUARDANDO RETORNO","AGUARDANDO CLIENTE","AGUARDANDO ADQUIREN
 ESTADOS_HUMANO=("AGUARDANDO RETORNO CLIENTE","AGUARDANDO CLIENTE","AGUARDANDO USUARIO","AGUARDANDO USUÁRIO")
 EDDY_USER_ID=166
 
+ASSIGNED_FIELDS={"assigned_to_id","assigned_to"}
+
 def _txt(v): return str(v or "").strip()
 def _upper(v): return _txt(v).upper()
 
@@ -22,22 +24,34 @@ def _detalhes(j):
     try: return json.loads(raw or "[]") if raw else []
     except Exception: return []
 
+def _id(v):
+    try: return int(float(v)) if v not in (None,"") else None
+    except Exception: return None
+
+def _assigned_snapshot(row:dict) -> tuple[int|None,str]:
+    """Lê o responsável usando os nomes reais do snapshot do redmine_api."""
+    rid=None
+    for k in ("_Atribuído a ID","_Atribuido a ID","Responsável ID","Responsavel ID","assigned_to_id"):
+        rid=_id(row.get(k))
+        if rid is not None: break
+    nome=_txt(row.get("Atribuído a") or row.get("Atribuido a") or row.get("Responsável") or row.get("Responsavel"))
+    return rid,nome
+
 def responsavel_historico(chamado_id:int) -> dict:
-    """Tenta reconstruir o último responsável humano anterior ao EDDY pelos journals locais."""
+    """Reconstrói o responsável humano anterior ao EDDY pelos journals locais.
+
+    Prioriza a transição explícita humano -> EDDY. Se o chamado legado nunca foi
+    atribuído ao EDDY, não inventa uma origem a partir de qualquer autor/comentário.
+    """
     journals=listar_journals(int(chamado_id))
     candidato=None
     for j in journals:
         for d in _detalhes(j):
             if _txt(d.get("property")).lower() not in {"attr","attribute"}: continue
-            if _txt(d.get("name")).lower() not in {"assigned_to_id","assigned_to"}: continue
-            old=_txt(d.get("old_value"))
-            new=_txt(d.get("new_value"))
-            try: old_id=int(old) if old else None
-            except Exception: old_id=None
-            try: new_id=int(new) if new else None
-            except Exception: new_id=None
+            if _txt(d.get("name")).lower() not in ASSIGNED_FIELDS: continue
+            old_id=_id(d.get("old_value")); new_id=_id(d.get("new_value"))
             if new_id==EDDY_USER_ID and old_id and old_id!=EDDY_USER_ID:
-                candidato={"id":old_id,"nome":"","fonte":"JOURNAL"}
+                candidato={"id":old_id,"nome":"","fonte":"JOURNAL_ATRIBUICAO"}
     return candidato or {}
 
 def obter_responsavel_origem(chamado_id:int) -> dict:
@@ -51,9 +65,7 @@ def classificar_proxima_responsabilidade(row:dict, estado_motor:str="", acompanh
     cid=int(float(row.get("#") or row.get("id") or 0))
     estado_tx=_upper(acompanhamento.get("estado"))
     status=_upper(row.get("Estado") or row.get("Status"))
-    assigned=row.get("Responsável ID") or row.get("Responsavel ID") or row.get("assigned_to_id")
-    try: assigned_id=int(float(assigned)) if assigned not in (None,"") else None
-    except Exception: assigned_id=None
+    assigned_id, assigned_nome=_assigned_snapshot(row)
 
     if estado_tx in {"AGUARDANDO_RESPOSTA","PRAZO_VENCIDO"} and (acompanhamento.get("envio_confirmado") or acompanhamento.get("graph_message_id")):
         return {"chamado_id":cid,"decisao":"AGUARDAR_TERCEIRO","confianca":0.99,"motivo":"Há envio transacional confirmado; acompanhamento/follow-up pertence ao EDDY.","responsavel_origem":obter_responsavel_origem(cid)}
@@ -61,15 +73,27 @@ def classificar_proxima_responsabilidade(row:dict, estado_motor:str="", acompanh
         return {"chamado_id":cid,"decisao":"ACAO_EDDY_DUE","confianca":0.95,"motivo":"Existe resposta recebida que precisa ser interpretada/sincronizada.","responsavel_origem":obter_responsavel_origem(cid)}
 
     origem=obter_responsavel_origem(cid)
+
+    # Chamados legados podem já estar corretamente nas mãos de um humano sem
+    # nunca terem passado pelo usuário técnico do EDDY. Nesse caso o responsável
+    # atual é evidência forte de ownership, mas não é rotulado como "origem".
+    atual_humano = bool(assigned_id and assigned_id != EDDY_USER_ID)
     if any(x in status for x in ESTADOS_HUMANO):
+        if atual_humano:
+            return {"chamado_id":cid,"decisao":"MANTER_RESPONSAVEL_ATUAL","confianca":0.95,"motivo":f"Status '{status}' depende de ação humana/cliente e o chamado já está atribuído a responsável humano.","responsavel_origem":origem,"responsavel_atual":{"id":assigned_id,"nome":assigned_nome,"fonte":"SNAPSHOT"}}
+
         if origem:
             return {"chamado_id":cid,"decisao":"DEVOLVER_ORIGEM","confianca":0.90,"motivo":f"Status '{status}' indica dependência humana/cliente e há responsável original preservado.","responsavel_origem":origem}
         return {"chamado_id":cid,"decisao":"DECISAO_HUMANA","confianca":0.65,"motivo":f"Status '{status}' sugere dependência humana, mas o responsável de origem não pôde ser provado.","responsavel_origem":{}}
 
     if any(x in status for x in ESTADOS_TERCEIRO):
+        if atual_humano:
+            return {"chamado_id":cid,"decisao":"MANTER_RESPONSAVEL_ATUAL","confianca":0.85,"motivo":"O Redmine indica espera de terceiro sem thread transacional do EDDY; o responsável humano atual permanece dono até reconstrução suficiente.","responsavel_origem":origem,"responsavel_atual":{"id":assigned_id,"nome":assigned_nome,"fonte":"SNAPSHOT"}}
         return {"chamado_id":cid,"decisao":"DECISAO_HUMANA","confianca":0.65,"motivo":"O Redmine indica espera de terceiro, mas não existe acompanhamento transacional que prove envio/thread.","responsavel_origem":origem}
 
     if _upper(estado_motor)=="CONTINUIDADE_ATUACAO_PREVIA":
+        if atual_humano:
+            return {"chamado_id":cid,"decisao":"MANTER_RESPONSAVEL_ATUAL","confianca":0.80,"motivo":"Há atuação histórica sem prova transacional do EDDY e o chamado já possui responsável humano atual.","responsavel_origem":origem,"responsavel_atual":{"id":assigned_id,"nome":assigned_nome,"fonte":"SNAPSHOT"}}
         return {"chamado_id":cid,"decisao":"DECISAO_HUMANA","confianca":0.60,"motivo":"Há atuação histórica, mas falta prova transacional suficiente para automatizar a próxima etapa.","responsavel_origem":origem}
     return {"chamado_id":cid,"decisao":"INDETERMINADO","confianca":0.50,"motivo":"Histórico disponível ainda não prova a próxima responsabilidade.","responsavel_origem":origem}
 
