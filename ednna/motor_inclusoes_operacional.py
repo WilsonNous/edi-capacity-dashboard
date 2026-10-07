@@ -134,7 +134,7 @@ def _elegibilidade_primeira_atuacao(row: dict) -> dict:
     return {"elegivel": True, "motivo": "Chamado em estado inicial", "estado_redmine": estado}
 
 
-def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
+def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = True) -> dict:
     inventario = descobrir_candidatos_inclusao(snapshot)
     itens: list[dict[str, Any]] = []
     contadores = {
@@ -311,18 +311,19 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         players_fila = [str(x.get("player") or "") for x in itens if x.get("player")]
         prontidao = resumir_prontidao(players_fila)
         estados = prontidao.get("estados") or {}
-        if estados:
+        if emitir_prontidao and estados:
             print("[EDDY] Prontidão regras | " + " | ".join(f"{k}={v}" for k,v in sorted(estados.items())), flush=True)
-        for p in prontidao.get("itens") or []:
-            if p.get("conhecimento") == "HOMOLOGADA" and not p.get("pronta"):
-                print(
-                    "[EDDY] Regra homologada não executável | "
-                    f"player={p.get('player')} | regra={p.get('regra_id') or '-'} | "
-                    f"workflow={p.get('workflow')} | executor={p.get('executor')} | "
-                    f"motor={p.get('modo_motor')} | bloqueios={','.join(p.get('bloqueios') or []) or '-'} | "
-                    f"proxima_acao={p.get('proxima_acao')}",
-                    flush=True,
-                )
+        if emitir_prontidao:
+            for p in prontidao.get("itens") or []:
+                if p.get("conhecimento") == "HOMOLOGADA" and not p.get("pronta"):
+                    print(
+                        "[EDDY] Regra homologada não executável | "
+                        f"player={p.get('player')} | regra={p.get('regra_id') or '-'} | "
+                        f"workflow={p.get('workflow')} | executor={p.get('executor')} | "
+                        f"motor={p.get('modo_motor')} | bloqueios={','.join(p.get('bloqueios') or []) or '-'} | "
+                        f"proxima_acao={p.get('proxima_acao')}",
+                        flush=True,
+                    )
     except Exception as exc:
         prontidao = {"erro": f"{type(exc).__name__}: {exc}"}
         print(f"[EDDY] Prontidão regras | falha={type(exc).__name__}: {exc}", flush=True)
@@ -337,7 +338,7 @@ def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
     follow-up engine e outbox. Aqui apenas classificamos cada chamado e deixamos
     explícito por que ele ainda não avançou.
     """
-    fila = avaliar_fila_inclusoes(snapshot)
+    fila = avaliar_fila_inclusoes(snapshot, emitir_prontidao=False)
     try:
         from ednna.followup_engine import avaliar_followups
         followups = avaliar_followups()

@@ -15,6 +15,7 @@ from ednna.workflows_inclusao import obter_workflow, WORKFLOWS, salvar_configura
 from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
+from ednna.prontidao_operacional import avaliar_prontidao_regra
 
 st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
@@ -60,6 +61,30 @@ autorizadas=[r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo"
 bloqueadas=[r for r in hom if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA")=="BLOQUEADA"]
 m1,m2,m3,m4=st.columns(4); m1.metric("Regras configuradas",len(catalogo_declarativo)+len(regras_treinaveis)); m2.metric("A revisar / homologar",len(revisar)); m3.metric("Homologadas",len(hom)); m4.metric("Autorizadas no motor",len(autorizadas))
 st.caption("Fluxo: 1) revisar e homologar → 2) autorizar como assistida ou automática. Automática só fica disponível quando o workflow possui executor implementado.")
+
+# EDDY 4.3 — transforma a prontidão em uma fila de demandas técnicas/operacionais.
+# Assim a Central não mostra apenas "bloqueada": ela diz o que falta fazer.
+players_prontidao=list(dict.fromkeys(
+    [str(r.get("player") or "").strip().upper() for r in regras if str(r.get("player") or "").strip()]
+    + [str(w.get("player") or "").strip().upper() for w in catalogo_declarativo if str(w.get("player") or "").strip()]
+))
+matriz_prontidao=[avaliar_prontidao_regra(p) for p in players_prontidao]
+demandas_prontidao=[x for x in matriz_prontidao if not x.get("pronta")]
+prontas_prontidao=[x for x in matriz_prontidao if x.get("pronta")]
+with st.expander(f"🚦 Prontidão operacional · {len(prontas_prontidao)} prontas · {len(demandas_prontidao)} demandas",expanded=True):
+    st.caption("Esta fila separa conhecimento, workflow, executor e autorização. Cada bloqueio vira uma demanda objetiva para colocar o EDDY para trabalhar.")
+    if demandas_prontidao:
+        ordem={"AUTORIZAR_MOTOR":0,"IMPLEMENTAR_EXECUTOR":1,"DEFINIR_WORKFLOW":2,"ATIVAR_WORKFLOW":3,"APRENDER":4}
+        for item in sorted(demandas_prontidao,key=lambda x:(ordem.get(str(x.get("estado_prontidao")),9),str(x.get("player")))):
+            estado=str(item.get("estado_prontidao") or "REVISAR")
+            icone={"AUTORIZAR_MOTOR":"🟠","IMPLEMENTAR_EXECUTOR":"🛠️","DEFINIR_WORKFLOW":"🧭","ATIVAR_WORKFLOW":"⏯️","APRENDER":"🧠"}.get(estado,"⚠️")
+            st.markdown(
+                f"{icone} **{item.get('player')}** · `{item.get('regra_id') or 'sem regra homologada'}` · "
+                f"**{estado.replace('_',' ')}** — {item.get('proxima_acao')}. "
+                f"Bloqueios: `{', '.join(item.get('bloqueios') or []) or '—'}`"
+            )
+    else:
+        st.success("Todas as regras conhecidas estão operacionalmente prontas.")
 
 aptas_auto=[r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao")=="ASSISTIDA_DISPONIVEL"]
 pendentes_auto=[r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper()!="AUTOMATICA"]
@@ -155,5 +180,5 @@ with aba3:
 
 st.divider(); rows=[]
 for r in regras:
-    wf=r.get("workflow") or obter_workflow(r.get("player")); rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Executor":wf.get("prontidao"),"Workflow":wf.get("workflow")})
+    wf=r.get("workflow") or obter_workflow(r.get("player")); pr=avaliar_prontidao_regra(r.get("player")); rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Workflow":wf.get("workflow"),"Executor":wf.get("prontidao"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Prontidão":pr.get("estado_prontidao"),"Bloqueios":", ".join(pr.get("bloqueios") or []),"Próxima ação":pr.get("proxima_acao")})
 st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="stretch",hide_index=True); st.caption(f"EDDY v{APP_VERSION} · Central de Regras")
