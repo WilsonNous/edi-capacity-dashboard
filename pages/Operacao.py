@@ -95,12 +95,26 @@ if fup_assistidos_prontos:
 tab_voce,tab_ednna,tab_feito,tab_exc=st.tabs([f'🔴 Preciso de você · {len(preciso)}',f'🟢 Estou cuidando · {cuidando_total}',f'🤖 Fiz / acompanhei · {len(recentes)}',f'⚠️ Exceções · {len(falhas)}'])
 
 with tab_voce:
-    st.caption('Só entra aqui o que realmente exige decisão, autorização, dado ou confirmação humana.')
-    busca=st.text_input('🔎 Filtrar por chamado, cliente ou player',key='busca_voce_3325',placeholder='Ex.: 49229, Sander, REDECARD')
+    st.caption('Mesa de trabalho: filtre, priorize e abra o chamado sem sair do fluxo operacional.')
+    f1,f2,f3,f4=st.columns([2.8,1.7,1.7,1.7])
+    busca=f1.text_input('🔎 Busca',key='busca_voce_3325',placeholder='Chamado, cliente, player ou ação')
+    clientes=sorted({str(x.get('cliente') or '').strip() for x in preciso if str(x.get('cliente') or '').strip()})
+    players=sorted({str(x.get('player') or '').strip() for x in preciso if str(x.get('player') or '').strip()})
+    acoes=sorted({str(x.get('acao_sugerida') or x.get('estado_motor') or '').strip() for x in preciso if str(x.get('acao_sugerida') or x.get('estado_motor') or '').strip()})
+    cliente_sel=f2.selectbox('Cliente',['Todos']+clientes,key='op_cliente_32')
+    player_sel=f3.selectbox('Player',['Todos']+players,key='op_player_32')
+    acao_sel=f4.selectbox('Ação',['Todas']+acoes,key='op_acao_32')
     lista=preciso
     if busca.strip():
-        q=busca.casefold().strip(); lista=[x for x in lista if q in f"{x.get('id')} {x.get('cliente')} {x.get('player')} {x.get('acao_sugerida')}".casefold()]
-    if not lista: st.success('Nenhuma interação humana pendente.')
+        q=busca.casefold().strip(); lista=[x for x in lista if q in f"{x.get('id')} {x.get('cliente')} {x.get('player')} {x.get('acao_sugerida')} {x.get('estado_motor')}".casefold()]
+    if cliente_sel!='Todos': lista=[x for x in lista if str(x.get('cliente') or '')==cliente_sel]
+    if player_sel!='Todos': lista=[x for x in lista if str(x.get('player') or '')==player_sel]
+    if acao_sel!='Todas': lista=[x for x in lista if str(x.get('acao_sugerida') or x.get('estado_motor') or '')==acao_sel]
+    csel1,csel2=st.columns([1.2,4.8])
+    somente_criticos=csel1.checkbox('Só pendências críticas',value=False,key='op_criticos_32')
+    if somente_criticos: lista=[x for x in lista if x.get('estado_motor') in {'CHECKPOINT_HUMANO','AGUARDANDO_DADOS','AGUARDANDO_DESTINATARIO','PLAYER_AMBIGUO'}]
+    csel2.caption(f'{len(lista)} de {len(preciso)} situações exibidas · clique no número do chamado para abrir o Redmine.')
+    if not lista: st.success('Nenhuma interação humana pendente neste filtro.')
     for x in lista[:50]:
         cid=int(x.get('id') or 0); estado=str(x.get('estado_motor') or ''); cliente=str(x.get('cliente') or 'Cliente não informado'); player=str(x.get('player') or '')
         cols=st.columns([1.1,2.5,1.6,2.2]); cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**'); cols[1].write(cliente); cols[2].write(player or '—'); cols[3].write(f"**{x.get('acao_sugerida') or estado.replace('_',' ')}**")

@@ -902,6 +902,24 @@ def executar_monitoramento_respostas() -> dict:
                 flush=True,
             )
 
+    # EDDY 4.4.1 — porta de entrada prioritária SIM REDE / Francimar.
+    # Abertura de chamado é ação interna; ações externas derivadas continuam
+    # submetidas ao calendário operacional, autorização e pre-flight.
+    try:
+        if _bool_env("EDDY_SIMREDE_FRANCIMAR_ENABLED", True):
+            from ednna.simrede_francimar import processar_entrada_francimar
+            simrede = processar_entrada_francimar(
+                limite=int(os.getenv("EDDY_SIMREDE_EMAIL_MAX_PER_CYCLE", "100") or 100)
+            )
+            print(
+                f"[EDDY] SIM REDE ciclo | mensagens={simrede.get('mensagens',0)} | "
+                f"ocorrencias={simrede.get('ocorrencias',0)} | existentes={simrede.get('existentes',0)} | "
+                f"abertos={len(simrede.get('abertos') or [])} | erros={len(simrede.get('erros') or [])}",
+                flush=True,
+            )
+    except Exception as exc:
+        print(f"[EDDY] SIM REDE ciclo | erro={type(exc).__name__}: {exc}", flush=True)
+
     # v3.28.54 — executor automático também roda no worker de background.
     # Assim a EDNNA trabalha mesmo sem alguém abrir/recarregar a tela Streamlit.
     try:
