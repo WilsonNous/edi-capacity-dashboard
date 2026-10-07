@@ -11,7 +11,8 @@ import re
 from collections import Counter, defaultdict
 from ednna.armazenamento import conectar, agora_brasil_iso
 
-PADROES = {\n    "FALTA_VENDAS": [r"(?i)falta\\s+(?:de\\s+)?vendas?", r"(?i)n[aã]o\\s+(?:localizamos|localizei|encontramos|encontrei).{0,60}vendas?", r"(?i)sem\\s+vendas?"],
+PADROES = {
+    "FALTA_VENDAS": [r"(?i)falta\\s+(?:de\\s+)?vendas?", r"(?i)n[aã]o\\s+(?:localizamos|localizei|encontramos|encontrei).{0,60}vendas?", r"(?i)sem\\s+vendas?"],
     "FALTA_ARQUIVO": [
         r"(?i)falta\s+(?:de\s+)?arquivo", r"(?i)arquivo\s+(?:n[aã]o\s+)?(?:recebid|cheg|dispon)",
         r"(?i)n[aã]o\s+(?:recebemos|recebi).{0,50}arquivo", r"(?i)arquivo.{0,50}n[aã]o\s+cheg",
@@ -52,7 +53,8 @@ def _id(row):
     return 0
 
 def _texto(row):
-    return "\n".join(str(row.get(k) or "") for k in ("Tipo","Assunto","Descrição","Origem","Clientes","Estado"))
+    return "
+".join(str(row.get(k) or "") for k in ("Tipo","Assunto","Descrição","Origem","Clientes","Estado"))
 
 def classificar_ocorrencias(row: dict) -> list[str]:
     texto=_texto(row)
