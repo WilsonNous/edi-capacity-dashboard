@@ -331,6 +331,82 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
 
 
 
+def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dict:
+    """Converte a leitura do motor em uma fila única de trabalho do EDDY.
+
+    Não executa ação externa. A função somente prioriza o que já foi descoberto
+    pelo motor, preservando todas as travas de homologação, autorização,
+    histórico e continuidade.
+    """
+    fila = avaliar_fila_inclusoes(snapshot, emitir_prontidao=False)
+    prioridade = {
+        "PRONTO_OPERACAO_ASSISTIDA": 10,
+        "AGUARDANDO_RESPOSTA": 20,
+        "REDMINE_PENDENTE": 30,
+        "CONTINUIDADE_ATUACAO_PREVIA": 40,
+        "CONTINUIDADE_ESTADO_REDMINE": 50,
+        "AGUARDANDO_VERIFICACAO_HISTORICO": 60,
+        "AGUARDANDO_DADOS": 70,
+        "AGUARDANDO_DESTINATARIO": 80,
+        "AGUARDANDO_EXECUTOR": 90,
+        "REGRA_HOMOLOGADA_NAO_AUTORIZADA": 100,
+        "REGRA_NAO_HOMOLOGADA": 110,
+        "PLAYER_AMBIGUO": 120,
+    }
+    tipo_por_estado = {
+        "PRONTO_OPERACAO_ASSISTIDA": "EXECUTAR",
+        "AGUARDANDO_RESPOSTA": "ACOMPANHAR",
+        "REDMINE_PENDENTE": "RECONCILIAR",
+        "CONTINUIDADE_ATUACAO_PREVIA": "CONTINUAR",
+        "CONTINUIDADE_ESTADO_REDMINE": "CONTINUAR",
+        "AGUARDANDO_VERIFICACAO_HISTORICO": "SINCRONIZAR_HISTORICO",
+        "AGUARDANDO_DADOS": "COMPLETAR_DADOS",
+        "AGUARDANDO_DESTINATARIO": "CONFIRMAR_DESTINATARIO",
+        "AGUARDANDO_EXECUTOR": "IMPLEMENTAR_EXECUTOR",
+        "REGRA_HOMOLOGADA_NAO_AUTORIZADA": "AUTORIZAR_MOTOR",
+        "REGRA_NAO_HOMOLOGADA": "HOMOLOGAR_REGRA",
+        "PLAYER_AMBIGUO": "REVISAR",
+    }
+    demandas = []
+    for item in fila.get("itens") or []:
+        estado = str(item.get("estado_motor") or "REVISAR")
+        try:
+            chamado_id = int(item.get("id") or item.get("#") or 0)
+        except Exception:
+            chamado_id = 0
+        demandas.append({
+            "chamado_id": chamado_id,
+            "player": str(item.get("player") or ""),
+            "regra_id": str(item.get("regra_id") or ""),
+            "estado_motor": estado,
+            "tipo_demanda": tipo_por_estado.get(estado, "REVISAR"),
+            "prioridade": prioridade.get(estado, 999),
+            "acao": str(item.get("acao_sugerida") or "Revisar"),
+            "cliente": str(item.get("cliente") or item.get("Clientes") or ""),
+            "assunto": str(item.get("assunto") or item.get("Assunto") or ""),
+            "executavel_agora": estado == "PRONTO_OPERACAO_ASSISTIDA",
+        })
+    demandas.sort(key=lambda x: (int(x["prioridade"]), int(x["chamado_id"] or 0)))
+    if limite > 0:
+        demandas = demandas[:int(limite)]
+    resumo = {}
+    for item in demandas:
+        chave = str(item.get("tipo_demanda") or "REVISAR")
+        resumo[chave] = resumo.get(chave, 0) + 1
+    print(
+        f"[EDDY] Demandas operacionais | total={len(demandas)} | "
+        + " | ".join(f"{k}={v}" for k, v in sorted(resumo.items())),
+        flush=True,
+    )
+    for item in demandas[:10]:
+        print(
+            f"[EDDY] Demanda | #{item['chamado_id']} | player={item['player'] or '-'} | "
+            f"tipo={item['tipo_demanda']} | acao={item['acao']} | executavel={item['executavel_agora']}",
+            flush=True,
+        )
+    return {"total": len(demandas), "resumo": resumo, "itens": demandas, "fila_motor": fila.get("resumo") or {}}
+
+
 def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
     """Transforma o balde genérico CONTINUIDADE em uma fila explicável e acionável.
 
