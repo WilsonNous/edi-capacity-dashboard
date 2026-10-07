@@ -700,21 +700,21 @@ def executar_monitoramento_respostas() -> dict:
     if not resumo["habilitado"]:
         return resumo
 
-    # v3.28.11 — enriquece em background os contextos que falharam na UI.
-    # Mantém a experiência interativa rápida e desloca retries mais tolerantes
-    # para o ciclo já existente do monitor.
+    # EDDY 4.2.1 — operação primeiro. Aprendizado/enriquecimento remoto não
+    # disputa o gateway quando o Redmine já está degradado.
     try:
-        # EDDY 4.2: operação corrente tem precedência sobre mineração histórica.
-        # O enriquecimento legado fica estritamente orçado para não monopolizar
-        # o ciclo quando o Redmine está lento/indisponível.
-        limite_enriquecimento = max(0, int(os.getenv("EDDY_LEARNING_ENRICH_MAX_PER_CYCLE", "2") or 2))
-        enriquecimento = processar_enriquecimentos_pendentes(limite=limite_enriquecimento) if limite_enriquecimento else {}
-        if enriquecimento.get("consultados"):
-            resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
-        if enriquecimento.get("atualizados"):
-            reaprendizado = reprocessar_aprendizados_incompletos(enriquecimento.get("atualizados"))
-            if reaprendizado.get("reprocessadas"):
-                resumo["detalhes"].append({"reaprendizado": reaprendizado})
+        from painel_cache import circuit_breaker_ativo as _redmine_breaker_ativo
+        if _redmine_breaker_ativo():
+            print("[EDDY] Aprendizado remoto suspenso | motivo=CIRCUIT_BREAKER | prioridade=OPERACAO", flush=True)
+        else:
+            limite_enriquecimento = max(0, int(os.getenv("EDDY_LEARNING_ENRICH_MAX_PER_CYCLE", "2") or 2))
+            enriquecimento = processar_enriquecimentos_pendentes(limite=limite_enriquecimento) if limite_enriquecimento else {}
+            if enriquecimento.get("consultados"):
+                resumo["detalhes"].append({"enriquecimento_contexto": enriquecimento})
+            if enriquecimento.get("atualizados"):
+                reaprendizado = reprocessar_aprendizados_incompletos(enriquecimento.get("atualizados"))
+                if reaprendizado.get("reprocessadas"):
+                    resumo["detalhes"].append({"reaprendizado": reaprendizado})
     except Exception as exc:
         print(f"[EDNNA] Enriquecimento assíncrono | falha geral | {type(exc).__name__}: {exc}", flush=True)
 
@@ -922,18 +922,23 @@ def executar_monitoramento_respostas() -> dict:
                 # indefinidamente se ninguém abrisse a tela antiga que sincronizava journals.
                 # Agora o próprio worker atualiza um lote antes de decidir/executar.
                 try:
-                    from ednna.sincronizador_journals import sincronizar_proximo_lote
-                    frame_journals = pd.DataFrame(snapshot_auto)
-                    limite_hist = max(1, int(os.getenv('EDNNA_HISTORY_SYNC_MAX_PER_CYCLE', '4') or 4))
-                    resumo['historico_sincronizacao'] = sincronizar_proximo_lote(frame_journals, limite=limite_hist)
-                    hs = resumo.get('historico_sincronizacao') or {}
-                    if int(hs.get('processados', 0) or 0):
-                        print(
-                            '[EDNNA] Histórico automático | '
-                            f"processados={hs.get('processados',0)} | sucesso={hs.get('sucesso',0)} | "
-                            f"ja_atuados={hs.get('ja_atuados',0)} | aguardando={hs.get('aguardando',0)} | erros={hs.get('erros',0)}",
-                            flush=True,
-                        )
+                    from painel_cache import circuit_breaker_ativo as _redmine_breaker_ativo
+                    if _redmine_breaker_ativo():
+                        resumo['historico_sincronizacao'] = {'suspenso': True, 'motivo': 'CIRCUIT_BREAKER'}
+                        print('[EDDY] Histórico remoto suspenso | motivo=CIRCUIT_BREAKER | prioridade=OPERACAO', flush=True)
+                    else:
+                        from ednna.sincronizador_journals import sincronizar_proximo_lote
+                        frame_journals = pd.DataFrame(snapshot_auto)
+                        limite_hist = max(0, int(os.getenv('EDNNA_HISTORY_SYNC_MAX_PER_CYCLE', '4') or 4))
+                        resumo['historico_sincronizacao'] = sincronizar_proximo_lote(frame_journals, limite=limite_hist) if limite_hist else {}
+                        hs = resumo.get('historico_sincronizacao') or {}
+                        if int(hs.get('processados', 0) or 0):
+                            print(
+                                '[EDNNA] Histórico automático | '
+                                f"processados={hs.get('processados',0)} | sucesso={hs.get('sucesso',0)} | "
+                                f"ja_atuados={hs.get('ja_atuados',0)} | aguardando={hs.get('aguardando',0)} | erros={hs.get('erros',0)}",
+                                flush=True,
+                            )
                 except Exception as hist_exc:
                     print(f'[EDNNA] Histórico automático | falha | {type(hist_exc).__name__}: {hist_exc}', flush=True)
                 frame_auto = enriquecer_dataframe_com_classificacoes(pd.DataFrame(snapshot_auto))
@@ -978,11 +983,16 @@ def executar_monitoramento_respostas() -> dict:
                         # é executada nesta fase. Assim chamados como #47543
                         # deixam de ser apenas "continuidade" e passam a ter
                         # evidência suficiente para a próxima decisão.
-                        from ednna.motor_inclusoes_operacional import reconstruir_continuidades_orfas
-                        limite_retomada = max(1, int(os.getenv("EDNNA_CONTINUITY_REBUILD_MAX_PER_CYCLE", "12") or 12))
-                        resumo["retomada_continuidade"] = reconstruir_continuidades_orfas(
-                            pd.DataFrame(snapshot_auto), limite=limite_retomada
-                        )
+                        from painel_cache import circuit_breaker_ativo as _redmine_breaker_ativo
+                        if _redmine_breaker_ativo():
+                            resumo["retomada_continuidade"] = {"suspenso": True, "motivo": "CIRCUIT_BREAKER"}
+                            print("[EDDY] Retomada histórica suspensa | motivo=CIRCUIT_BREAKER | classificação=LOCAL_FIRST", flush=True)
+                        else:
+                            from ednna.motor_inclusoes_operacional import reconstruir_continuidades_orfas
+                            limite_retomada = max(0, int(os.getenv("EDNNA_CONTINUITY_REBUILD_MAX_PER_CYCLE", "12") or 12))
+                            resumo["retomada_continuidade"] = reconstruir_continuidades_orfas(
+                                pd.DataFrame(snapshot_auto), limite=limite_retomada
+                            ) if limite_retomada else {}
                         # Depois de reconstruir evidências, classifica quem possui
                         # a próxima responsabilidade. Ainda é decisão read-only:
                         # handoff automático entra somente após observarmos os logs.
@@ -999,6 +1009,21 @@ def executar_monitoramento_respostas() -> dict:
                                     + " | ".join(f"{k}={v}" for k,v in (responsabilidade.get("decisoes") or {}).items()),
                                     flush=True,
                                 )
+                                # Decisão individual auditável: permite validar casos reais
+                                # antes de habilitar qualquer handoff automático.
+                                for x in responsabilidade.get("itens",[])[:30]:
+                                    atual=x.get("responsavel_atual") or {}
+                                    origem=x.get("responsavel_origem") or {}
+                                    print(
+                                        "[EDDY] Responsabilidade item | "
+                                        f"#{x.get('chamado_id')} | decisao={x.get('decisao')} | "
+                                        f"atual={atual.get('nome') or atual.get('id') or '-'} | "
+                                        f"atual_id={atual.get('id','-')} | "
+                                        f"origem={origem.get('nome') or origem.get('id') or '-'} | "
+                                        f"origem_id={origem.get('id','-')} | "
+                                        f"confianca={x.get('confianca','-')} | motivo={x.get('motivo','')}",
+                                        flush=True,
+                                    )
                                 pendentes=[x for x in responsabilidade.get("itens",[]) if x.get("decisao") in {"DEVOLVER_ORIGEM","DECISAO_HUMANA","ACAO_EDDY_DUE"}]
                                 if pendentes:
                                     print("[EDDY] Próximas responsabilidades | " + " | ".join(
