@@ -304,7 +304,9 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
         + " | ".join(f"{k}={v}" for k, v in contadores.items()),
         flush=True,
     )
-    # EDDY 4.3 — explica por que conhecimento homologado ainda pode não estar\n    # executável. O diagnóstico não altera autorização nem executa ação externa.\n    try:
+    # EDDY 4.3 — explica por que conhecimento homologado ainda pode não estar
+    # executável. O diagnóstico não altera autorização nem executa ação externa.
+    try:
         from ednna.prontidao_operacional import resumir_prontidao
         players_fila = [str(x.get("player") or "") for x in itens if x.get("player")]
         prontidao = resumir_prontidao(players_fila)
