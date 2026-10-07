@@ -47,6 +47,30 @@ else:
         with st.expander(f"🎓 {m.get('player') or m['regra_id']} · {prazo}"):
             a,b,c,d=st.columns(4); a.metric('Matrícula',m['matriculada_em']); b.metric('Última revisão',m.get('ultima_revisao_em') or 'Ainda não revisada'); c.metric('Aderência atual','—' if m.get('aderencia_atual') is None else f"{float(m['aderencia_atual']):.0f}%"); d.metric('Novas evidências',m.get('evidencias_desde_revisao',0))
 
+st.divider()
+st.subheader('🧩 Ocorrências operacionais · aprendizado contínuo')
+st.caption('Aprendo primeiro com o snapshot local, sem sobrecarregar o Redmine. Falta de arquivo, falta de registro e outras ocorrências passam a formar matéria própria antes de qualquer automação.')
+try:
+    from ednna.aprendizado_ocorrencias import resumo_aprendizado, exemplos_tipo
+    ocorrencias=resumo_aprendizado()
+    if not ocorrencias:
+        st.info('Ainda não encontrei ocorrências compatíveis no snapshot local.')
+    else:
+        cols=st.columns(min(4,len(ocorrencias)))
+        for i,o in enumerate(ocorrencias[:4]):
+            with cols[i % len(cols)]:
+                st.metric(str(o.get('tipo') or '').replace('_',' ').title(), int(o.get('evidencias') or 0), help=f"{int(o.get('players') or 0)} player(s)")
+        with st.expander('📚 Ver matérias de ocorrências e evidências'):
+            for o in ocorrencias:
+                tipo=str(o.get('tipo') or '')
+                exemplos=exemplos_tipo(tipo,5)
+                ids=', '.join('#'+str(x.get('chamado_id')) for x in exemplos)
+                st.write(f"**{tipo.replace('_',' ').title()}** — {int(o.get('evidencias') or 0)} evidência(s) · {int(o.get('players') or 0)} player(s)")
+                if ids: st.caption('Exemplos locais: '+ids)
+        st.info('Nesta etapa o EDDY está formando evidência. A ocorrência só vira regra executável depois de estudo detalhado, prova e homologação.')
+except Exception as exc:
+    st.warning(f'Não foi possível carregar o aprendizado de ocorrências: {type(exc).__name__}: {exc}')
+
 st.divider(); st.subheader('⛏️ Biblioteca histórica · Aberturas de Relacionamento'); st.caption('Aprendo com bons cadernos e faço prova surpresa com históricos inéditos. A nota final considera também idade da evidência e criticidade do que mudou.')
 try:
     from ednna.minerador_aberturas import descobrir_no_redmine,listar_propostas,simular_proposta,simular_prova_surpresa
