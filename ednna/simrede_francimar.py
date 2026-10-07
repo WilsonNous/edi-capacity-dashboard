@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 from ednna.armazenamento import carregar_snapshot_chamados
 from ednna.email_sender import GRAPH_BASE_URL, _graph_get, baixar_mensagem_eml
-from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome\nfrom ednna.regras_ocorrencias import obter_regra_ocorrencia
+from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome
+from ednna.regras_ocorrencias import obter_regra_ocorrencia
 
 FRANCIMAR="francimar.tondello@grupoargenta.com.br"
 PLAYERS=("SENFF","POLICARD","STONE","CIELO","GREENCARD","ROTACARD")
@@ -60,10 +61,22 @@ def _criar_chamado(oc:dict,*,eml:bytes|None=None)->int:
     hoje=datetime.now(ZoneInfo("America/Sao_Paulo")).date(); prazo=_prazo_dias_uteis(hoje,int(os.getenv("EDDY_SIMREDE_PRAZO_DIAS_UTEIS","2") or 2))
     alvo=oc.get("cnpj") or oc.get("ec") or "LOTE"; periodos=", ".join(oc.get("periodos") or []) or "não informado"
     subject=f"SIM REDE - {oc['player']} - {oc['tipo'].replace('_',' ')} - {alvo}"
-    desc=(f"Solicitação SIM REDE recebida por e-mail de Francimar Tondello e registrada automaticamente pelo EDDY.\n\n"
-          f"Ocorrência: {oc['tipo'].replace('_',' ')}\nPlayer: {oc['player']}\nCNPJ: {oc.get('cnpj') or 'não informado'}\nEC: {oc.get('ec') or 'não informado'}\nPeríodo informado: {periodos}\n\n"
-          f"Assunto original: {oc.get('assunto_origem') or ''}\nSolicitação do cliente: validar a ocorrência informada por Francimar e atuar conforme o procedimento EDI homologado para {oc['player']}.\n"
-          f"Origem: EMAIL_FRANCIMAR_SIM_REDE\nChave de correlação: {oc['chave']}\nInternet-Message-ID: {oc.get('internet_message_id','')}")
+    desc=(f"Solicitação SIM REDE recebida por e-mail de Francimar Tondello e registrada automaticamente pelo EDDY.
+
+"
+          f"Ocorrência: {oc['tipo'].replace('_',' ')}
+Player: {oc['player']}
+CNPJ: {oc.get('cnpj') or 'não informado'}
+EC: {oc.get('ec') or 'não informado'}
+Período informado: {periodos}
+
+"
+          f"Assunto original: {oc.get('assunto_origem') or ''}
+Solicitação do cliente: validar a ocorrência informada por Francimar e atuar conforme o procedimento EDI homologado para {oc['player']}.
+"
+          f"Origem: EMAIL_FRANCIMAR_SIM_REDE
+Chave de correlação: {oc['chave']}
+Internet-Message-ID: {oc.get('internet_message_id','')}")
     uploads=[]
     if eml:
         up=upload_arquivo_redmine(conteudo=eml,filename=f"SIMREDE_{oc['chave']}.eml"); uploads=[{"token":up["token"],"filename":up["filename"],"content_type":up["content_type"],"description":"E-mail original de Francimar / SIM REDE"}]
@@ -92,7 +105,8 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                 if existente: resumo["existentes"]+=1; continue
                 try:
                     if eml is None: eml=baixar_mensagem_eml(caixa_postal=caixa,message_id=str(msg.get("id") or ""))
-                    regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])\n                    cid=_criar_chamado(oc,eml=eml); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
+                    regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
+                    cid=_criar_chamado(oc,eml=eml); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
                     print(f"[EDDY] SIM REDE | chamado aberto #{cid} | player={oc['player']} | tipo={oc['tipo']} | responsavel=EDNNA | origem=Francimar",flush=True)
                 except Exception as exc: resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
