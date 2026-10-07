@@ -53,11 +53,11 @@ def _criar_chamado(oc:dict,*,eml:bytes|None=None)->int:
 
 def processar_entrada_francimar(*,limite:int=100)->dict:
     caixas=[x.strip() for x in str(os.getenv("EDDY_SIMREDE_MAILBOXES","wilson.martins@netunna.com.br,edi@netunna.com.br")).split(",") if x.strip()]
-    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[]}
+    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[]}; vistos=set()
     for caixa in caixas:
-        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,internetMessageId,receivedDateTime,from,body,bodyPreview","$filter":f"from/emailAddress/address eq '{FRANCIMAR}'","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
+        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
         for msg in dados.get("value",[]) or []:
-            resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
+            \n            if _remetente(msg)!=FRANCIMAR: continue\n            resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
             if not ocorrencias: continue
             eml=None
             for oc in ocorrencias:
