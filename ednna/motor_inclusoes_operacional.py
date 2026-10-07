@@ -158,12 +158,12 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         pendentes_redmine_ids = {int(x.get("chamado_id") or 0) for x in listar_redmine_pendentes()}
     except Exception as exc:
         pendentes_redmine_ids = set()
-        print(f"[EDNNA] Motor inclusões | aviso ao ler Redmine pendente | {type(exc).__name__}: {exc}", flush=True)
+        print(f"[EDDY] Motor inclusões | aviso ao ler Redmine pendente | {type(exc).__name__}: {exc}", flush=True)
     try:
         aguardando_resposta_ids = {int(x.get("chamado_id") or 0) for x in listar_acoes_aguardando_resposta()}
     except Exception as exc:
         aguardando_resposta_ids = set()
-        print(f"[EDNNA] Motor inclusões | aviso ao ler acompanhamentos | {type(exc).__name__}: {exc}", flush=True)
+        print(f"[EDDY] Motor inclusões | aviso ao ler acompanhamentos | {type(exc).__name__}: {exc}", flush=True)
 
     for candidato in inventario.get("candidatos", []) or []:
         cid_candidato = int(candidato["id"])
@@ -300,11 +300,33 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame) -> dict:
         })
 
     print(
-        "[EDNNA] Motor inclusões | "
+        "[EDDY] Motor inclusões | "
         + " | ".join(f"{k}={v}" for k, v in contadores.items()),
         flush=True,
     )
-    return {"resumo": contadores, "itens": itens}
+    # EDDY 4.3 — explica por que conhecimento homologado ainda pode não estar
+    # executável. O diagnóstico não altera autorização nem executa ação externa.
+    try:
+        from ednna.prontidao_operacional import resumir_prontidao
+        players_fila = [str(x.get("player") or "") for x in itens if x.get("player")]
+        prontidao = resumir_prontidao(players_fila)
+        estados = prontidao.get("estados") or {}
+        if estados:
+            print("[EDDY] Prontidão regras | " + " | ".join(f"{k}={v}" for k,v in sorted(estados.items())), flush=True)
+        for p in prontidao.get("itens") or []:
+            if p.get("conhecimento") == "HOMOLOGADA" and not p.get("pronta"):
+                print(
+                    "[EDDY] Regra homologada não executável | "
+                    f"player={p.get('player')} | regra={p.get('regra_id') or '-'} | "
+                    f"workflow={p.get('workflow')} | executor={p.get('executor')} | "
+                    f"motor={p.get('modo_motor')} | bloqueios={','.join(p.get('bloqueios') or []) or '-'} | "
+                    f"proxima_acao={p.get('proxima_acao')}",
+                    flush=True,
+                )
+    except Exception as exc:
+        prontidao = {"erro": f"{type(exc).__name__}: {exc}"}
+        print(f"[EDDY] Prontidão regras | falha={type(exc).__name__}: {exc}", flush=True)
+    return {"resumo": contadores, "itens": itens, "prontidao_regras": prontidao}
 
 
 
@@ -326,7 +348,7 @@ def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
         }
     except Exception as exc:
         followup_por_id = {}
-        print(f"[EDNNA] Continuidade diagnóstico | follow-up indisponível | {type(exc).__name__}: {exc}", flush=True)
+        print(f"[EDDY] Continuidade diagnóstico | follow-up indisponível | {type(exc).__name__}: {exc}", flush=True)
 
     itens = []
     contadores = {
@@ -413,7 +435,7 @@ def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
         itens.append(diagnostico)
 
     print(
-        "[EDNNA] Continuidade diagnóstico | "
+        "[EDDY] Continuidade diagnóstico | "
         + " | ".join(f"{k}={v}" for k, v in contadores.items()),
         flush=True,
     )
@@ -590,7 +612,7 @@ def preparar_atuacao_assistida(item: dict) -> dict:
         "confirmacao_obrigatoria": True,
         "executou_acao_externa": False,
     }
-    print(f"[EDNNA] Operação assistida preparada | chamado={pacote['chamado_id']} | player={pacote['player']} | regra={pacote['regra_id']} | estado=AGUARDANDO_CONFIRMACAO_HUMANA", flush=True)
+    print(f"[EDDY] Operação assistida preparada | chamado={pacote['chamado_id']} | player={pacote['player']} | regra={pacote['regra_id']} | estado=AGUARDANDO_CONFIRMACAO_HUMANA", flush=True)
     return pacote
 
 
@@ -811,23 +833,23 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
     if preflight.get("bloquear"):
         if preflight.get("motivo") == "ESTADO_TERMINAL":
             encerrar_acompanhamento_terminal(cid, preflight.get("estado") or "")
-        print(f"[EDNNA] Execução BLOQUEADA pre-flight | chamado={cid} | regra={rid} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
+        print(f"[EDDY] Execução BLOQUEADA pre-flight | chamado={cid} | regra={rid} | motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}", flush=True)
         return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo")=="ESTADO_TERMINAL" else "PREFLIGHT_INDISPONIVEL",
                 "motivo":f"Envio bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}.",
                 "preflight":preflight}
-    print(f"[EDNNA] Execução solicitada | chamado={cid} | player={pacote.get('player')} | regra={rid}", flush=True)
+    print(f"[EDDY] Execução solicitada | chamado={cid} | player={pacote.get('player')} | regra={rid}", flush=True)
     adquirido, estado=adquirir_envio(cid,rid)
     if not adquirido:
         estado_atual = str((estado or {}).get("estado") or "DESCONHECIDO")
         enviado = bool(str((estado or {}).get("enviado_em") or "").strip())
         motivo = "E-mail já enviado; chamado está em acompanhamento." if enviado else "Execução já está em andamento. Aguarde alguns instantes e atualize a tela."
-        print(f"[EDNNA] Execução não adquirida | chamado={cid} | regra={rid} | estado={estado_atual} | enviado={enviado}", flush=True)
+        print(f"[EDDY] Execução não adquirida | chamado={cid} | regra={rid} | estado={estado_atual} | enviado={enviado}", flush=True)
         return {"ok":False,"motivo":motivo,"estado":estado_atual,"acompanhamento":estado}
-    print(f"[EDNNA] Executor adquirido | chamado={cid} | regra={rid} | estado=EXECUTANDO", flush=True)
+    print(f"[EDDY] Executor adquirido | chamado={cid} | regra={rid} | estado=EXECUTANDO", flush=True)
     try:
-        print(f"[EDNNA] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
+        print(f"[EDDY] Graph | iniciando envio | chamado={cid} | para={','.join(r.get('para') or [])}", flush=True)
         mail=enviar_email_graph(remetente=r["remetente"],para=r["para"],cc=r["cc"],assunto=r["assunto"],corpo=r["corpo"],anexos=r.get("anexos") or [],chamado_id=cid)
-        print(f"[EDNNA] Graph | HTTP 202 aceito | chamado={cid}", flush=True)
+        print(f"[EDDY] Graph | HTTP 202 aceito | chamado={cid}", flush=True)
         # v3.28.53: além do HTTP 202, procurar a cópia real em Sent Items.
         # Falha desta leitura NÃO reenvia o e-mail: o HTTP 202 continua sendo prova de aceitação.
         try:
@@ -839,14 +861,14 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
                 mail["internet_message_id"]=evidencia.get("internet_message_id","") or mail.get("internet_message_id","")
                 mail["sent_datetime"]=evidencia.get("sent_datetime","")
                 mail["sent_items_confirmed"]=True
-                print(f"[EDNNA] Graph | SENT_ITEMS_CONFIRMED | chamado={cid} | message_id={mail.get('message_id') or 'n/d'} | enviado_em={mail.get('sent_datetime') or 'n/d'}", flush=True)
+                print(f"[EDDY] Graph | SENT_ITEMS_CONFIRMED | chamado={cid} | message_id={mail.get('message_id') or 'n/d'} | enviado_em={mail.get('sent_datetime') or 'n/d'}", flush=True)
             else:
                 mail["sent_items_confirmed"]=False
-                print(f"[EDNNA] Graph | SENT_ITEMS_PENDING | chamado={cid} | HTTP202=confirmado", flush=True)
+                print(f"[EDDY] Graph | SENT_ITEMS_PENDING | chamado={cid} | HTTP202=confirmado", flush=True)
         except Exception as sent_exc:
             mail["sent_items_confirmed"]=False
             mail["sent_items_warning"]=f"{type(sent_exc).__name__}: {sent_exc}"
-            print(f"[EDNNA] Graph | SENT_ITEMS_CHECK_ERROR | chamado={cid} | {type(sent_exc).__name__}: {sent_exc}", flush=True)
+            print(f"[EDDY] Graph | SENT_ITEMS_CHECK_ERROR | chamado={cid} | {type(sent_exc).__name__}: {sent_exc}", flush=True)
         acomp=confirmar_envio_real(cid,rid,prazo_dias_uteis=r["prazo_resposta_dias_uteis"],email_assunto=r["assunto"],graph_message_id=mail.get("message_id",""),graph_conversation_id=mail.get("conversation_id",""),graph_internet_message_id=mail.get("internet_message_id",""),enviado_em_real=mail.get("sent_datetime",""))
         print(f"[EDNNA] Acompanhamento | chamado={cid} | estado=AGUARDANDO_RESPOSTA", flush=True)
         if pacote.get("player") in {"GREENCARD", "ROTACARD"}:
