@@ -420,6 +420,68 @@ def diagnosticar_continuidade_operacional(snapshot: pd.DataFrame) -> dict:
     return {"resumo": contadores, "itens": itens}
 
 
+def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) -> dict:
+    """Reconstrói histórico dos chamados de continuidade que ficaram fora da máquina transacional.
+
+    Esta etapa é deliberadamente conservadora: sincroniza journals e classifica a
+    responsabilidade, mas NÃO envia e-mail nem altera o Redmine. Depois da
+    reconstrução, o ciclo seguinte pode decidir follow-up, execução homologada,
+    decisão humana ou devolução ao responsável de origem.
+    """
+    diagnostico = diagnosticar_continuidade_operacional(snapshot)
+    orfaos = [
+        x for x in diagnostico.get("itens", [])
+        if x.get("estado_motor") in {"CONTINUIDADE_ATUACAO_PREVIA", "CONTINUIDADE_ESTADO_REDMINE"}
+    ]
+    if not orfaos:
+        return {"candidatos": 0, "processados": 0, "sucesso": 0, "erros": 0, "itens": []}
+
+    from ednna.sincronizador_journals import processar_chamado
+    from ednna.primeiro_combate import autores_edi_do_dataframe
+    autores_edi = autores_edi_do_dataframe(snapshot)
+    resultados = []
+    sucesso = erros = 0
+
+    # Priorizamos os mais antigos/estagnados quando a coluna existir.
+    ids = {int(x.get("chamado_id") or 0) for x in orfaos}
+    frame = snapshot.copy()
+    if "#" in frame.columns:
+        frame["_eddy_id"] = pd.to_numeric(frame["#"], errors="coerce")
+        frame = frame[frame["_eddy_id"].isin(ids)]
+    if "Alterado" in frame.columns:
+        frame["_eddy_alterado"] = pd.to_datetime(frame["Alterado"], errors="coerce", utc=True)
+        frame = frame.sort_values("_eddy_alterado", ascending=True, na_position="first")
+
+    for _, row in frame.head(max(1, int(limite))).iterrows():
+        cid = int(float(row.get("#", 0)))
+        try:
+            item = processar_chamado(row, autores_edi)
+            ok = bool(item.get("ok"))
+            sucesso += int(ok)
+            erros += int(not ok)
+            resultados.append({
+                "chamado_id": cid,
+                "ok": ok,
+                "situacao": item.get("situacao"),
+                "teve_atuacao": bool(item.get("teve_atuacao")),
+                "autor_primeira_atuacao": item.get("autor") or "",
+                "data_primeira_atuacao": item.get("data") or "",
+                "journals": int(item.get("journals") or 0),
+                "erro": item.get("erro") or "",
+            })
+        except Exception as exc:
+            erros += 1
+            resultados.append({"chamado_id": cid, "ok": False, "situacao": "ERRO_RECONSTRUCAO", "erro": f"{type(exc).__name__}: {exc}"})
+
+    print(
+        f"[EDNNA] Retomada continuidade | candidatos={len(orfaos)} | "
+        f"processados={len(resultados)} | sucesso={sucesso} | erros={erros} | "
+        f"ids={[x.get('chamado_id') for x in resultados]}",
+        flush=True,
+    )
+    return {"candidatos": len(orfaos), "processados": len(resultados), "sucesso": sucesso, "erros": erros, "itens": resultados}
+
+
 def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
     """Traduz o estado técnico do motor para uma visão operacional por regra.
 

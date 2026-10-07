@@ -953,6 +953,16 @@ def executar_monitoramento_respostas() -> dict:
                             ),
                             flush=True,
                         )
+                        # Retoma gradualmente o estoque legado. O primeiro passo
+                        # é reconstruir journals/histórico; nenhuma ação externa
+                        # é executada nesta fase. Assim chamados como #47543
+                        # deixam de ser apenas "continuidade" e passam a ter
+                        # evidência suficiente para a próxima decisão.
+                        from ednna.motor_inclusoes_operacional import reconstruir_continuidades_orfas
+                        limite_retomada = max(1, int(os.getenv("EDNNA_CONTINUITY_REBUILD_MAX_PER_CYCLE", "12") or 12))
+                        resumo["retomada_continuidade"] = reconstruir_continuidades_orfas(
+                            pd.DataFrame(snapshot_auto), limite=limite_retomada
+                        )
                 if int(resumo_auto.get("enviados",0) or 0) or int(resumo_auto.get("redmine_pendente",0) or 0):
                     print(
                         "[EDNNA] Executor background | "
