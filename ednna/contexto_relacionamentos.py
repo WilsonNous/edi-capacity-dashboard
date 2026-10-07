@@ -123,13 +123,22 @@ def listar_enriquecimentos_pendentes(limite: int = 20) -> list[int]:
 
 
 def processar_enriquecimentos_pendentes(limite: int = 5) -> dict:
+    # Trabalho de background nunca fura o circuit breaker. O bypass
+    # consulta_pontual é reservado a ação humana explícita.
+    try:
+        from painel_cache import circuit_breaker_ativo
+        if circuit_breaker_ativo():
+            print("[EDDY] Enriquecimento remoto suspenso | motivo=CIRCUIT_BREAKER | prioridade=OPERACAO", flush=True)
+            return {"consultados": 0, "atualizados": [], "pendentes": listar_enriquecimentos_pendentes(limite), "suspenso": True}
+    except Exception:
+        pass
     ids = listar_enriquecimentos_pendentes(limite)
     ok, erros = [], []
     for chamado_id in ids:
         try:
             issue = buscar_detalhes_chamado(
                 chamado_id, incluir_journals=True, incluir_relacoes=True,
-                consulta_pontual=True, timeout=(8, 20), tentativas=2,
+                consulta_pontual=False, timeout=(4, 8), tentativas=1,
             )
             _cache_salvar(chamado_id, issue)
             with conectar() as conn:

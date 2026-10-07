@@ -941,18 +941,20 @@ def executar_monitoramento_respostas() -> dict:
                             )
                 except Exception as hist_exc:
                     print(f'[EDNNA] Histórico automático | falha | {type(hist_exc).__name__}: {hist_exc}', flush=True)
-                frame_auto = enriquecer_dataframe_com_classificacoes(pd.DataFrame(snapshot_auto))
-                resumo_auto = executar_acoes_automaticas(frame_auto)
-                resumo["execucao_automatica"] = resumo_auto
-                from ednna.motor_inclusoes_operacional import executar_inclusoes_automaticas
-                resumo["inclusoes_automaticas"] = executar_inclusoes_automaticas(pd.DataFrame(snapshot_auto))
-                # EDDY 4.3.2 — materializa a fila de trabalho em todo ciclo.
-                # É observacional: nenhuma ação externa adicional é disparada aqui.
+                # P0: materializa primeiro a fila local do EDDY. Assim, mesmo com
+                # Redmine lento/indisponível, o operador recebe as demandas em segundos.
                 from ednna.motor_inclusoes_operacional import gerar_demandas_operacionais
                 limite_demandas = max(1, int(os.getenv("EDDY_DEMAND_MAX_PER_CYCLE", "50") or 50))
                 resumo["demandas_operacionais"] = gerar_demandas_operacionais(
                     pd.DataFrame(snapshot_auto), limite=limite_demandas
                 )
+
+                # Só depois da fila local partimos para ações que exigem pre-flight remoto.
+                frame_auto = enriquecer_dataframe_com_classificacoes(pd.DataFrame(snapshot_auto))
+                resumo_auto = executar_acoes_automaticas(frame_auto)
+                resumo["execucao_automatica"] = resumo_auto
+                from ednna.motor_inclusoes_operacional import executar_inclusoes_automaticas
+                resumo["inclusoes_automaticas"] = executar_inclusoes_automaticas(pd.DataFrame(snapshot_auto))
 
                 # A fila de inclusão chama muitos chamados de "continuidade", mas isso
                 # não significa que todos estejam efetivamente sendo acompanhados.
