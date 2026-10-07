@@ -1047,6 +1047,19 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
     if not habilitado or snapshot is None or not isinstance(snapshot,pd.DataFrame) or snapshot.empty:
         return resumo
     fila=avaliar_fila_inclusoes(snapshot)
+
+    # Defesa em profundidade: o consumidor automático só considera itens que a
+    # fila operacional atual também publica como executáveis. Isso impede que um
+    # caminho legado/cache reative chamado terminal, rejeitado ou inválido.
+    demandas_publicadas = gerar_demandas_operacionais(
+        snapshot,
+        limite=max(1, int(os.getenv("EDDY_DEMAND_MAX_PER_CYCLE", "50") or 50)),
+    )
+    executaveis_publicados = {
+        int(d.get("chamado_id") or 0)
+        for d in (demandas_publicadas.get("demandas") or [])
+        if bool(d.get("executavel_agora"))
+    }
     # v3.29.2 — worker pode enriquecer a Base de Conhecimento em background.
     # A UI continua rápida; somente o worker consulta relações/anexos quando um
     # cliente ainda não possui contatos locais e a regra pode precisar deles.
@@ -1081,6 +1094,14 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         resumo["avaliados"] += 1
         if str(item.get("estado_motor") or "") != "PRONTO_OPERACAO_ASSISTIDA":
             resumo["ignorados"] += 1; continue
+        cid_item = int(item.get("id") or 0)
+        if cid_item not in executaveis_publicados:
+            resumo["ignorados"] += 1
+            print(
+                f"[EDDY] Consumidor ignorou | chamado={cid_item} | motivo=NAO_EXECUTAVEL_NA_FILA_PUBLICADA",
+                flush=True,
+            )
+            continue
         rid=str(item.get("regra_id") or "")
         aut = obter_autorizacao_motor(rid)
         modo_motor = str(aut.get("modo") or "BLOQUEADA").upper()
