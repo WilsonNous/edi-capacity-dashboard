@@ -333,14 +333,14 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
         "pode_homologar": pronto, "pode_executar": False, "aprendido_em": agora_brasil_iso(),
     }
     salvar_aprendizado(resultado)
-    print(f"[EDNNA] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
-    print(f"[EDNNA] Linha do tempo operacional | historicos={anteriores} | solicitacoes={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='SOLICITACAO_EXTERNA')} | retornos={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='RETORNO_PLAYER')} | acoes_internas={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='ACAO_INTERNA')}", flush=True)
-    print(f"[EDNNA] Thread operacional | chamado={atual_id} | estados={thread_atual.get('estados', [])} | protocolos={thread_atual.get('protocolos', [])} | prazo_horas={thread_atual.get('prazos_horas', [])} | destinatarios={confirmados_thread} | ciclo_completo={bool(thread_atual.get('ciclo_completo'))}", flush=True)
-    print(f"[EDNNA] Corpus operacional | casos={len(corpus.get('casos', []))} | historicos={corpus.get('evidencia_historica', {}).get('casos', 0)} | ancora={corpus.get('evidencia_caso_ancora', {}).get('casos', 0)} | externos={len(corpus.get('participantes_externos', []))} | internos={len(corpus.get('participantes_internos', []))}", flush=True)
-    print(f"[EDNNA] Evidência separada | historico_ciclos={corpus.get('evidencia_historica', {}).get('ciclos_completos', 0)} | ancora_ciclos={corpus.get('evidencia_caso_ancora', {}).get('ciclos_completos', 0)} | destinatarios_hist={corpus.get('destinatarios_player_historico', [])} | destinatarios_ancora={corpus.get('destinatarios_player_ancora', [])}", flush=True)
-    print(f"[EDNNA] Extrator operacional | destinatarios_recorrentes={len(recorrentes)} | destinatarios_ancora={len(confirmados_thread)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
-    print(f"[EDNNA] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
-    print(f"[EDNNA] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
+    print(f"[EDDY] Aprendizado | regra={regra_id} | fontes={ids}", flush=True)
+    print(f"[EDDY] Linha do tempo operacional | historicos={anteriores} | solicitacoes={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='SOLICITACAO_EXTERNA')} | retornos={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='RETORNO_PLAYER')} | acoes_internas={sum(1 for xs in extracao['linha_tempo'].values() for x in xs if x['tipo']=='ACAO_INTERNA')}", flush=True)
+    print(f"[EDDY] Thread operacional | chamado={atual_id} | estados={thread_atual.get('estados', [])} | protocolos={thread_atual.get('protocolos', [])} | prazo_horas={thread_atual.get('prazos_horas', [])} | destinatarios={confirmados_thread} | ciclo_completo={bool(thread_atual.get('ciclo_completo'))}", flush=True)
+    print(f"[EDDY] Corpus operacional | casos={len(corpus.get('casos', []))} | historicos={corpus.get('evidencia_historica', {}).get('casos', 0)} | ancora={corpus.get('evidencia_caso_ancora', {}).get('casos', 0)} | externos={len(corpus.get('participantes_externos', []))} | internos={len(corpus.get('participantes_internos', []))}", flush=True)
+    print(f"[EDDY] Evidência separada | historico_ciclos={corpus.get('evidencia_historica', {}).get('ciclos_completos', 0)} | ancora_ciclos={corpus.get('evidencia_caso_ancora', {}).get('ciclos_completos', 0)} | destinatarios_hist={corpus.get('destinatarios_player_historico', [])} | destinatarios_ancora={corpus.get('destinatarios_player_ancora', [])}", flush=True)
+    print(f"[EDDY] Extrator operacional | destinatarios_recorrentes={len(recorrentes)} | destinatarios_ancora={len(confirmados_thread)} | acoes_recorrentes={len(extracao['acoes_recorrentes'])} | evidencias_sucesso={len(extracao['evidencias_sucesso'])}", flush=True)
+    print(f"[EDDY] Procedimento semântico | constantes={len(constantes)} | sinais={sum(sinais.values())}/{len(sinais)} | completude={resultado['completude']}% | parciais={fontes_parciais}", flush=True)
+    print(f"[EDDY] Regra | {regra_id} | {estado} | bloqueios={bloqueios}", flush=True)
     return resultado
 
 
@@ -389,7 +389,7 @@ def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = Non
         except Exception as exc:
             erros.append(str(exc))
     if reprocessadas:
-        print(f"[EDNNA] Aprendizado automático | reprocessadas={reprocessadas}", flush=True)
+        print(f"[EDDY] Aprendizado automático | reprocessadas={reprocessadas}", flush=True)
     return {"reprocessadas": reprocessadas, "erros": erros}
 
 
@@ -484,7 +484,7 @@ def homologar_regra_assistida(regra_id: str, *, revisado_por: str = "OPERADOR") 
         conn.execute("""UPDATE revisoes_regras_operacionais
             SET estado='HOMOLOGADA', revisado_por=?, homologado_em=?, atualizado_em=?
             WHERE regra_id=?""", (revisado_por, agora, agora, regra_id))
-    print(f"[EDNNA] Homologação humana | regra={regra_id} | workflow={workflow.get('workflow')} | canal={workflow.get('canal')} | prontidao={workflow.get('prontidao')} | execução_automatica=False", flush=True)
+    print(f"[EDDY] Homologação humana | regra={regra_id} | workflow={workflow.get('workflow')} | canal={workflow.get('canal')} | prontidao={workflow.get('prontidao')} | execução_automatica=False", flush=True)
     return obter_revisao(regra_id)
 
 
@@ -579,7 +579,7 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
               autorizado_por=excluded.autorizado_por, autorizado_em=excluded.autorizado_em,
               observacoes=excluded.observacoes, atualizado_em=excluded.atualizado_em""",
             (regra_id, modo, autorizado_por, agora, str(observacoes or ''), agora))
-    print(f"[EDNNA] Motor | regra={regra_id} | autorização={modo} | workflow={workflow.get('workflow')}", flush=True)
+    print(f"[EDDY] Motor | regra={regra_id} | autorização={modo} | workflow={workflow.get('workflow')}", flush=True)
     return obter_autorizacao_motor(regra_id)
 
 
