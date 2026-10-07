@@ -3,13 +3,13 @@ import html
 import streamlit as st
 from version import APP_VERSION, APP_RELEASE
 from ui.operational_data import resumo, resumo_trabalho_ednna, chamados_ativos_df
-from ednna.aprendizado_operacional import garantir_greencard_pronta, garantir_safrapay_pronta
+from ednna.aprendizado_operacional import garantir_greencard_pronta, garantir_safrapay_pronta, garantir_itau_pronto
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
 from ednna.security import current_user, role_label, audit, display_name
 
 # O package ednna.* permanece por compatibilidade técnica. A identidade de produto 4.x é EDDY.
 iniciar_monitor_respostas_background()
-for nome, bootstrap in [('Greencard', garantir_greencard_pronta), ('Safrapay', garantir_safrapay_pronta)]:
+for nome, bootstrap in [('Greencard', garantir_greencard_pronta), ('Safrapay', garantir_safrapay_pronta), ('Itau', garantir_itau_pronto)]:
     try:
         bootstrap()
     except Exception as exc:

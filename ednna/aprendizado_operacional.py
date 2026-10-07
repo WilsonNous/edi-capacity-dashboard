@@ -677,3 +677,37 @@ def garantir_safrapay_pronta() -> dict:
         with conectar() as conn:
             conn.execute("INSERT OR IGNORE INTO migracoes_ednna(migracao_id,aplicada_em) VALUES(?,?)", (migracao_id, agora_brasil_iso()))
     return {"regra_id": regra_id, "revisao": obter_revisao(regra_id), "autorizacao": obter_autorizacao_motor(regra_id)}
+
+
+def garantir_itau_pronto() -> dict:
+    """Promove para AUTOMATICA somente regras ITAU que já estejam homologadas.
+
+    Não cria conhecimento novo e não inventa destinatários/modelos. A migração
+    apenas remove o bloqueio técnico do workflow e autoriza as regras existentes
+    de ABERTURA e INCLUSAO, preservando a aprendizagem homologada como fonte.
+    """
+    resultados = {}
+    migracao_id = "4.4-ITAU-ABERTURA-INCLUSAO-AUTOMATICA"
+    with conectar() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS migracoes_ednna (migracao_id TEXT PRIMARY KEY, aplicada_em TEXT NOT NULL)")
+        aplicada = conn.execute("SELECT 1 FROM migracoes_ednna WHERE migracao_id=?", (migracao_id,)).fetchone()
+    for operacao in ("ABERTURA", "INCLUSAO"):
+        regra = obter_regra_homologada("ITAU", operacao) or {}
+        rid = str(regra.get("regra_id") or "")
+        if not rid:
+            resultados[operacao] = {"estado": "NAO_ENCONTRADA_HOMOLOGADA"}
+            continue
+        aut = obter_autorizacao_motor(rid)
+        if not aplicada and str(aut.get("modo") or "BLOQUEADA").upper() != "AUTOMATICA":
+            autorizar_regra_motor(
+                rid,
+                modo="AUTOMATICA",
+                autorizado_por="MIGRACAO_EDDY_4_4",
+                observacoes=f"Regra ITAU {operacao} já homologada pela aprendizagem; promovida para operação automática usando exclusivamente procedimento/modelo homologado.",
+            )
+            aut = obter_autorizacao_motor(rid)
+        resultados[operacao] = {"regra_id": rid, "estado": "HOMOLOGADA", "autorizacao": aut}
+    if not aplicada:
+        with conectar() as conn:
+            conn.execute("INSERT OR IGNORE INTO migracoes_ednna(migracao_id,aplicada_em) VALUES(?,?)", (migracao_id, agora_brasil_iso()))
+    return resultados
