@@ -361,7 +361,7 @@ def localizar_resposta_por_chamado(*, caixa_postal: str, chamado_id: int, recebi
     alvo = f"#{int(chamado_id)}"
     for item in dados.get("value", []) or []:
         assunto = str(item.get("subject", "") or "")
-        if alvo not in assunto:
+        if alvo not in assunto and not _assunto_referencia_chamado(assunto, int(chamado_id)):
             continue
         if recebidas_apos and str(item.get("receivedDateTime", "") or "") < str(recebidas_apos):
             continue
