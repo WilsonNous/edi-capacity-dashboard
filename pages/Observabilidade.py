@@ -15,7 +15,7 @@ st.markdown('<a href="/Observabilidade" target="_blank" rel="noopener noreferrer
 
 barra1, barra2, barra3 = st.columns([1.5, 1.2, 2.5])
 with barra1:
-    atualizar = st.button('🔄 Atualizar agora', type='primary', use_container_width=True)
+    st.button('🔄 Atualizar agora', type='primary', use_container_width=True)
 with barra2:
     auto = st.toggle('Atualização automática', value=True, key='obs_auto_refresh')
 with barra3:
@@ -35,10 +35,6 @@ with st.expander('🔎 Filtros da Observabilidade', expanded=True):
         busca = st.text_input('Buscar', placeholder='regra, player, evento ou detalhe')
     limite = st.slider('Quantidade de eventos', 50, 1000, 300, 50)
 
-aba_mov, aba_diag = st.tabs(['🧭 Movimentações', '🔧 Diagnóstico técnico'])
-with aba_mov:
-    st.caption('Movimentações confirmadas, recebidas, bloqueadas ou pendentes. Os dados são somente leitura.')
-
 try:
     chamado = int(chamado_txt.strip()) if chamado_txt.strip() else None
 except ValueError:
@@ -47,6 +43,9 @@ except ValueError:
 
 @st.fragment(run_every=f'{intervalo}s' if auto else None)
 def exibir_eventos():
+    aba_mov, aba_diag = st.tabs(['🧭 Movimentações', '🔧 Diagnóstico técnico'])
+    with aba_mov:
+        st.caption('Movimentações confirmadas, recebidas, bloqueadas ou pendentes. Os dados são somente leitura.')
     eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
                              categoria='' if categoria=='Todas' else categoria,
                              chamado_id=chamado, busca=busca.strip())
