@@ -178,6 +178,27 @@ def executar_followup(item:dict) -> dict:
         return {"ok": False, "estado": "FOLLOWUP_EM_EXECUCAO_OU_RECONCILIACAO",
                 "motivo": "Outra tentativa ou reconciliação já reservou este follow-up.",
                 "chamado_id": chamado_id, "regra_id": regra_id}
+    from painel_cache import obter_metadado, salvar_metadado
+    from ednna.acompanhamento_acoes import _conectar
+    # O marcador persistente permanece após expiração do lease ou reinício.
+    # Falhas incertas jamais são liberadas automaticamente.
+    marcador = f"followup_guard:{chave}"
+    if obter_metadado(marcador):
+        liberar_lock(chave, dono, detalhes="QUARENTENA_PERSISTENTE")
+        return {"ok": False, "estado": "ENVIO_INCERTO_RECONCILIAR",
+                "motivo": "Tentativa anterior exige reconciliação manual com evidência Graph."}
+    with _conectar() as conn:
+        atual = conn.execute(
+            "SELECT followup_count, estado, resposta_recebida_em FROM acoes_operacionais WHERE chamado_id=? AND regra_id=?",
+            (chamado_id, regra_id),
+        ).fetchone()
+    if (atual is None or int(atual["followup_count"] or 0) != numero - 1
+            or str(atual["estado"] or "") not in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO"}
+            or atual["resposta_recebida_em"]):
+        liberar_lock(chave, dono, detalhes="ITEM_DESATUALIZADO")
+        return {"ok": False, "estado": "FOLLOWUP_ITEM_DESATUALIZADO",
+                "motivo": "Registro alterado desde a avaliação; atualizar fila antes de agir."}
+    salvar_metadado(marcador, "TENTATIVA_INICIADA_RECONCILIAR_SE_FALHAR")
     texto=str(item.get("texto_followup") or "")
     try:
         resultado=responder_todos_email_graph(
@@ -230,5 +251,6 @@ def executar_followup(item:dict) -> dict:
     )
     from ednna.observabilidade import log_event
     log_event("FOLLOWUP", "Follow-up enviado", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}")
+    salvar_metadado(marcador, "")
     liberar_lock(chave, dono, detalhes="FOLLOWUP_PERSISTIDO")
     return {**resultado,"chamado_id":chamado_id,"regra_id":regra_id,"numero":numero,"redmine":redmine}
