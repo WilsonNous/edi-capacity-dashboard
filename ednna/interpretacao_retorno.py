@@ -16,11 +16,11 @@ TZ = ZoneInfo("America/Sao_Paulo")
 def _texto_novo(corpo: str) -> str:
     texto = html.unescape(re.sub(r"<[^>]+>", " ", str(corpo or "")))
     cortes = [
-        r"(?im)^\\s*(?:em|on)\\s+.+(?:escreveu|wrote):",
-        r"(?im)^\\s*de:\\s+.+",
-        r"(?im)^\\s*from:\\s+.+",
-        r"(?im)^\\s*[-]{2,}\\s*(?:original message|mensagem original)",
-        r"(?im)^\\s*ativado\\s+.+escreveu:",
+        r"(?im)^\s*(?:em|on)\s+.+(?:escreveu|wrote):",
+        r"(?im)^\s*de:\s+.+",
+        r"(?im)^\s*from:\s+.+",
+        r"(?im)^\s*[-]{2,}\s*(?:original message|mensagem original)",
+        r"(?im)^\s*ativado\s+.+escreveu:",
     ]
     for padrao in cortes:
         match = re.search(padrao, texto)
@@ -33,7 +33,7 @@ def interpretar_retorno(corpo: str, *, assunto: str = "", recebido_em: str = "")
     """Retorna evidência, protocolo, pendência e sugestão de prazo sem executar efeitos."""
     texto = _texto_novo(corpo)
     normalizado = texto.casefold()
-    protocolo = re.search(r"protocolo(?:\\s+de\\s+atendimento)?\\s*[:#-]?\\s*(\\d{4,})", texto, re.I)
+    protocolo = re.search(r"protocolo(?:\s+de\s+atendimento)?\s*[:#-]?\s*(\d{4,})", texto, re.I)
     greencard = "greencard" in (assunto + " " + texto).casefold()
     exige_termo = bool(re.search(r"termo.{0,100}(?:preenchid|assinad|formalizad)", normalizado))
     condiciona = any(t in normalizado for t in ("somente serão realizadas", "não serão aceitas", "mediante o envio"))
