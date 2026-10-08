@@ -73,7 +73,7 @@ for a in aguardando:
     prazo=str(a.get('prazo_resposta_em') or '')
     if prazo:
         try:
-            if pd.Timestamp(prazo) <= agora and int(a.get('chamado_id') or 0) not in fup_assistidos_ids: atrasados.append(a)
+            if pd.Timestamp(prazo) <= agora and followup_automatico(a) and int(a.get('chamado_id') or 0) not in fup_assistidos_ids: atrasados.append(a)
         except Exception: pass
 
 aguardando_ednna=[a for a in aguardando if int(a.get('chamado_id') or 0) not in fup_assistidos_ids]
@@ -242,7 +242,7 @@ with tab_ednna:
                 'Próxima ação': proxima, 'Última atuação': str(ultima),
             })
             por_chamado[cid] = item
-        registros.sort(key=lambda x: (0 if x['Situação'] == 'Atrasado' else 1, x['Prazo'] == 'Não informado', x['Prazo'], x['Chamado']))
+        registros.sort(key=lambda x: (0 if x['Situação'] == 'Atrasado' else 1, x['Chamado']))
         grade = pd.DataFrame(registros)
         st.caption(f'{len(grade)} registros · Ordene clicando no cabeçalho e selecione uma linha para consultar os detalhes. A grade é somente leitura.')
         selecao = st.dataframe(
