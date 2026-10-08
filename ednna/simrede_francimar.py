@@ -26,6 +26,7 @@ def classificar_ocorrencias_simrede(msg:dict[str,Any])->list[dict]:
     texto=re.split(r"(?i)\bEm\s+(?:seg|ter|qua|qui|sex|s[aá]b|dom)\.?[, ]|\bFrom:\s|\bDe:\s",texto,maxsplit=1)[0].strip()
     up=texto.upper()
     players=[p for p in PLAYERS if p in up]
+    if ("UP BRASIL" in up or "UPBRASIL" in up) and "POLICARD" not in players: players.append("POLICARD")
     tipos=[n for n,rx in TIPOS if re.search(rx,texto,re.I)]
     cnpjs=sorted(set(CNPJ_RE.findall(texto)))
     ecs=sorted(set(EC_RE.findall(texto)))
@@ -36,7 +37,9 @@ def classificar_ocorrencias_simrede(msg:dict[str,Any])->list[dict]:
     # agrupados no mesmo chamado, nunca chamados separados por estabelecimento.
     for player in players:
         for tipo in tipos:
-            raw=f"SIM_REDE|{player}|{tipo}|{','.join(cnpjs)}|{','.join(ecs)}|{','.join(datas)}"
+            # Thread de e-mail identifica a demanda; CNPJs/períodos variam em follow-ups.
+            thread=str(msg.get("conversationId") or msg.get("internetMessageId") or msg.get("id") or "")
+            raw=f"SIM_REDE|{player}|{tipo}|{thread}"
             out.append({"cliente":"SIM REDE","player":player,"tipo":tipo,"cnpjs":cnpjs,"ecs":ecs,"periodos":datas,"chave":hashlib.sha256(raw.encode()).hexdigest()[:24],"assunto_origem":str(msg.get("subject") or ""),"message_id":str(msg.get("id") or ""),"internet_message_id":str(msg.get("internetMessageId") or ""),"recebida_em":str(msg.get("receivedDateTime") or "")})
     return out
 
@@ -101,7 +104,7 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
     caixas=[x.strip() for x in str(os.getenv("EDDY_SIMREDE_MAILBOXES","wilson.martins@netunna.com.br,edi@netunna.com.br")).split(",") if x.strip()]
     resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[]}; vistos=set()
     for caixa in caixas:
-        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
+        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
         for msg in dados.get("value",[]) or []:
             if _remetente(msg)!=FRANCIMAR: continue
             resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
