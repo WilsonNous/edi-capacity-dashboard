@@ -22,7 +22,7 @@ c1,c2,c3,c4 = st.columns([1.2,1.3,1.1,2.4])
 with c1:
     nivel = st.selectbox('Nível', ['Todos','INFO','WARNING','ERROR','BLOCKED'])
 with c2:
-    categoria = st.selectbox('Categoria', ['Todas','EMAIL','REDMINE','FOLLOWUP','EXECUCAO','REGRA','SEGURANCA'])
+    categoria = st.selectbox('Categoria', ['Todas','EMAIL','REDMINE','FOLLOWUP','EXECUCAO','REGRA','SEGURANCA','CHECKPOINT'])
 with c3:
     chamado_txt = st.text_input('Chamado', placeholder='48256')
 with c4:
@@ -41,7 +41,10 @@ eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
                          chamado_id=chamado, busca=busca.strip())
 
 if not eventos:
-    st.info('Ainda não há eventos estruturados para este filtro. Os eventos são persistidos a partir das atuações executadas pelo EDDY.')
+    with aba_mov:
+        st.info('Ainda não há movimentações registradas para este filtro.')
+    with aba_diag:
+        st.info('Sem eventos técnicos para os filtros selecionados.')
 else:
     df = pd.DataFrame(eventos)
     df['Status'] = df.apply(lambda x: status_evento(x.to_dict()), axis=1)
