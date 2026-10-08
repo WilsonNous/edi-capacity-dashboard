@@ -332,12 +332,29 @@ with tab_ednna:
         except Exception:
             return {}
 
+    try:
+        from ednna.continuidade_decisoes import obter_decisao
+    except Exception:
+        obter_decisao = None
+
+    def _continuidade_local(cid):
+        if not obter_decisao:
+            return {}
+        try:
+            return obter_decisao(cid)
+        except Exception:
+            return {}
+
     linhas=[]
     for a in aguardando_ednna:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{}); prazo=str(a.get('prazo_resposta_em') or ''); vencido=False
         if prazo:
             try: vencido=pd.Timestamp(prazo)<=agora
             except Exception: pass
+        continuidade_local=_continuidade_local(cid)
+        if continuidade_local:
+            a={**a,'estado':continuidade_local.get('estado') or a.get('estado'),
+               'prazo_resposta_em':continuidade_local.get('prazo_revisao_em') or a.get('prazo_resposta_em')}
         decisao=_decisao_item(cid,a)
         if decisao.get('classificacao') == 'PENDENCIA_DOCUMENTAL':
             prazo=str(decisao.get('prazo_revisao_em') or prazo)
@@ -350,7 +367,7 @@ with tab_ednna:
         if filtro in ('Redmine','Histórico'): continue
         cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
-        ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); proxima=decisao.get('proxima_acao') or proxima; linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
+        ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); proxima=decisao.get('proxima_acao') or continuidade_local.get('proxima_acao') or proxima; linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
     # Mostrar também demandas que o motor assumiu, ainda sem ação persistida.
     if filtro in ('Todos','No prazo'):
         for item in executando_motor:
@@ -361,6 +378,11 @@ with tab_ednna:
             if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
             estado=str(item.get('estado_motor') or 'EM_ANALISE')
             proxima=str(item.get('acao_sugerida') or estado.replace('_',' ').capitalize())
+            continuidade_local=_continuidade_local(cid)
+            if continuidade_local:
+                estado=continuidade_local.get('estado') or estado
+                proxima=continuidade_local.get('proxima_acao') or proxima
+                item={**item,'prazo_resposta_em':continuidade_local.get('prazo_revisao_em') or ''}
             decisao=_decisao_item(cid,item)
             if decisao.get('classificacao') == 'PENDENCIA_DOCUMENTAL':
                 estado='AGUARDANDO_DOCUMENTACAO'
@@ -427,6 +449,15 @@ with tab_ednna:
             c3.write(f"**Regra:** {item.get('regra_id') or '—'}")
             st.write(f"**Última atuação:** {registro['Última atuação']}")
             st.write(f"**Próxima ação:** {registro['Próxima ação']}")
+            continuidade_local = _continuidade_local(cid)
+            if continuidade_local:
+                st.markdown('**Decisão operacional persistida**')
+                st.write(f"**Responsável:** {continuidade_local.get('responsavel_nome') or continuidade_local.get('responsavel_id') or 'A definir'}")
+                st.write(f"**Motivo:** {continuidade_local.get('motivo') or 'Não informado'}")
+                st.write(f"**Próxima providência:** {continuidade_local.get('proxima_acao') or 'Revisar'}")
+                st.write(f"**Prazo de revisão interna:** {continuidade_local.get('prazo_revisao_em') or 'A definir'}")
+                st.caption('Decisão local auditável. Não representa envio, alteração no Redmine ou autorização externa.')
+
             decisao = _decisao_item(cid, item)
             if decisao:
                 st.markdown('**Interpretação do retorno (somente leitura)**')

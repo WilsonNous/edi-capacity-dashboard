@@ -1058,6 +1058,16 @@ def executar_monitoramento_respostas() -> dict:
                                 limite=max(1, int(os.getenv("EDDY_CONTINUITY_CLASSIFY_MAX_PER_CYCLE", "30") or 30)),
                             )
                             resumo["responsabilidade_continuidade"] = responsabilidade
+                            # Materializar somente a decisão local; sem alterar Redmine ou enviar mensagens.
+                            try:
+                                from ednna.continuidade_decisoes import materializar_decisoes
+                                persistencia = materializar_decisoes(responsabilidade.get("itens") or [])
+                                resumo["decisoes_continuidade_persistidas"] = persistencia
+                                print("[EDDY] Continuidade persistida | " + " | ".join(
+                                    f"{k}={v}" for k, v in persistencia.items()
+                                ), flush=True)
+                            except Exception as persist_exc:
+                                print(f"[EDDY] Continuidade persistida | falha={type(persist_exc).__name__}: {persist_exc}", flush=True)
                             if responsabilidade.get("total"):
                                 print(
                                     "[EDDY] Responsabilidade continuidade | "
