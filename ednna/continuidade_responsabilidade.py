@@ -124,6 +124,9 @@ def classificar_lote(snapshot, diagnostico:dict, limite:int=30) -> dict:
         except Exception as contexto_exc:
             d["contexto_continuidade"] = {"estado": "RECONCILIACAO_INDISPONIVEL", "erro": type(contexto_exc).__name__,
                                          "primeiro_envio_automatico_permitido": False}
+        if d.get("contexto_continuidade", {}).get("reconciliacao_graph_necessaria"):
+            d["contexto_graph"] = {"estado": "AGUARDANDO_RECONCILIACAO_GRAPH",
+                                  "primeiro_envio_automatico_permitido": False}
         d["regra_id"]=regra; d["estado_motor"]=itens[cid].get("estado_motor","")
         saida.append(d); cont[d["decisao"]]=cont.get(d["decisao"],0)+1
         if len(saida)>=max(1,int(limite)): break
