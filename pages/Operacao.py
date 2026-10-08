@@ -317,18 +317,40 @@ with tab_ednna:
     filtro=st.segmented_control('Mostrar',['Todos','No prazo','Atrasados','Redmine','Histórico'],default='Todos',key='filtro_cuidando_3325'); busca=st.text_input('🔎 Buscar acompanhamento',key='busca_cuidando_3325',placeholder='Chamado, cliente ou player')
     if redmine_auto and filtro in ('Todos','Redmine'): st.info(f"🔄 **{quantidade(len(redmine_auto), 'atualização', 'atualizações')}** {verbo(len(redmine_auto), 'está', 'estão')} em reconciliação automática.")
     if historico_auto and filtro in ('Todos','Histórico'): st.info(f"🧠 **{quantidade(len(historico_auto), 'chamado')}** {verbo(len(historico_auto), 'está', 'estão')} com histórico sendo sincronizado automaticamente.")
+    # Decisões locais, somente leitura: sem consultas adicionais ao Graph/Redmine.
+    try:
+        from ednna.acompanhamento_acoes import ultima_interpretacao_retorno
+    except Exception:
+        ultima_interpretacao_retorno = None
+
+    def _decisao_item(cid, item):
+        if not ultima_interpretacao_retorno:
+            return {}
+        regra = str(item.get('regra_id') or '')
+        try:
+            return ultima_interpretacao_retorno(cid, regra)
+        except Exception:
+            return {}
+
     linhas=[]
     for a in aguardando_ednna:
         cid=int(a.get('chamado_id') or 0); row=mapa_df.get(cid,{}); prazo=str(a.get('prazo_resposta_em') or ''); vencido=False
         if prazo:
             try: vencido=pd.Timestamp(prazo)<=agora
             except Exception: pass
+        decisao=_decisao_item(cid,a)
+        if decisao.get('classificacao') == 'PENDENCIA_DOCUMENTAL':
+            prazo=str(decisao.get('prazo_revisao_em') or prazo)
+            if prazo:
+                try: vencido=pd.Timestamp(prazo)<=agora
+                except Exception: pass
+            a={**a,'prazo_resposta_em':prazo,'estado':'AGUARDANDO_DOCUMENTACAO'}
         if filtro=='No prazo' and vencido: continue
         if filtro=='Atrasados' and not vencido: continue
         if filtro in ('Redmine','Histórico'): continue
         cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
-        ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
+        ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); proxima=decisao.get('proxima_acao') or proxima; linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
     # Mostrar também demandas que o motor assumiu, ainda sem ação persistida.
     if filtro in ('Todos','No prazo'):
         for item in executando_motor:
@@ -339,6 +361,11 @@ with tab_ednna:
             if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
             estado=str(item.get('estado_motor') or 'EM_ANALISE')
             proxima=str(item.get('acao_sugerida') or estado.replace('_',' ').capitalize())
+            decisao=_decisao_item(cid,item)
+            if decisao.get('classificacao') == 'PENDENCIA_DOCUMENTAL':
+                estado='AGUARDANDO_DOCUMENTACAO'
+                proxima=decisao.get('proxima_acao') or proxima
+                item={**item,'prazo_resposta_em':decisao.get('prazo_revisao_em') or ''}
             linhas.append((cid,cliente,player,estado,'Fila operacional',proxima,False,item))
     if filtro in ('Todos','Redmine'):
         for item in redmine_auto:
@@ -400,6 +427,16 @@ with tab_ednna:
             c3.write(f"**Regra:** {item.get('regra_id') or '—'}")
             st.write(f"**Última atuação:** {registro['Última atuação']}")
             st.write(f"**Próxima ação:** {registro['Próxima ação']}")
+            decisao = _decisao_item(cid, item)
+            if decisao:
+                st.markdown('**Interpretação do retorno (somente leitura)**')
+                st.write(f"**Classificação:** {decisao.get('classificacao') or 'Revisão humana'}")
+                st.write(f"**Protocolo:** {decisao.get('protocolo') or 'Não identificado'}")
+                st.write(f"**Evidência:** {decisao.get('evidencia') or 'Não disponível'}")
+                st.write(f"**Próxima providência:** {decisao.get('proxima_acao') or 'Revisão humana'}")
+                st.write(f"**Prazo sugerido para revisão:** {decisao.get('prazo_revisao_em') or 'A definir pelo operador'}")
+                st.caption('Interpretação assistida: não comprova habilitação nem autoriza envio externo.')
+
             st.caption('Classificação de acompanhamento não comprova execução externa. Consulte as evidências antes de atuar.')
             if item.get('graph_message_id') and item.get('regra_id'):
                 if st.button('🔎 Conferir tentativa incerta no Graph (somente leitura)', key=f'eddy_reconciliar_{cid}_{item.get("regra_id")}'):

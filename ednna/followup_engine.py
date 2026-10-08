@@ -106,7 +106,19 @@ def avaliar_followups() -> dict:
         n=int(a.get("followup_count") or 0)
         ultimo=_parse(a.get("followup_ultimo_em"))
         maximo=int(os.getenv("EDNNA_FOLLOWUP_MAX", "2") or 2)
-        if n >= maximo:
+        # Uma resposta com exigência documental suspende cobrança externa.
+        # A ação passa à fila humana, independentemente do vencimento de 48h.
+        try:
+            from ednna.acompanhamento_acoes import ultima_interpretacao_retorno
+            decisao = ultima_interpretacao_retorno(
+                int(a.get("chamado_id") or 0), str(a.get("regra_id") or ""))
+        except Exception:
+            decisao = {"classificacao": "REVISAO_HUMANA", "followup_externo_permitido": False}
+        if decisao.get("classificacao") == "PENDENCIA_DOCUMENTAL":
+            estado = "AGUARDANDO_DOCUMENTACAO"
+        elif decisao and not decisao.get("followup_externo_permitido", False):
+            estado = "REVISAO_HUMANA_RETORNO"
+        elif n >= maximo:
             estado="LIMITE_FOLLOWUP"
         elif not prazo or agora <= prazo:
             estado="AGUARDANDO_PRAZO"
