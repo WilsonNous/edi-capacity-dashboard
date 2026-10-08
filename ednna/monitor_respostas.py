@@ -847,6 +847,24 @@ def executar_monitoramento_respostas() -> dict:
                 extra, assigned_to_retorno, status_efetivo = _processar_retorno_sicredi(chamado_id, corpo)
                 nota += extra
 
+            # Interpretação persistida localmente antes de qualquer chamada ao Redmine.
+            # Não autoriza envio externo nem muda status por inferência.
+            try:
+                from ednna.acompanhamento_acoes import registrar_interpretacao_retorno
+                interpretacao = registrar_interpretacao_retorno(
+                    chamado_id, regra_id, corpo=corpo, assunto=assunto,
+                    recebido_em=recebida_em,
+                    graph_message_id=str(resposta.get("id", "") or ""),
+                )
+                resumo["detalhes"].append({
+                    "chamado": chamado_id,
+                    "interpretacao": interpretacao.get("classificacao"),
+                    "proxima_acao": interpretacao.get("proxima_acao"),
+                    "protocolo": interpretacao.get("protocolo"),
+                })
+            except Exception as exc:
+                print(f"[EDDY] Interpretação pendente | chamado={chamado_id} | erro={type(exc).__name__}: {exc}", flush=True)
+
             # v3.28.7.2: o e-mail é persistido ANTES do Redmine. Se o Redmine
             # estiver indisponível, a resposta não se perde e será sincronizada
             # em ciclo posterior.
