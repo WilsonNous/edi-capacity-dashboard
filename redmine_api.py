@@ -564,9 +564,9 @@ def buscar_detalhes_chamado(
 ) -> dict:
     """Busca um chamado individual.
 
-    consulta_pontual=True é usada por ações humanas explícitas (ex.: Investigar
-    inclusão). Essa leitura não fica bloqueada pelo breaker da listagem massiva e
-    também não abre/fecha o breaker global se a consulta individual falhar.
+    consulta_pontual=True identifica a origem humana da consulta, mas não
+    ignora o circuit breaker global: durante indisponibilidade, a leitura falha
+    rapidamente e pode ser repetida após o cooldown/probe exclusivo.
     """
     includes = []
     if incluir_journals:
@@ -597,8 +597,11 @@ def buscar_detalhes_chamado(
         params,
         timeout=timeout if timeout is not None else (12, 45),
         tentativas=tentativas if tentativas is not None else 2,
-        ignorar_circuit_breaker_global=consulta_pontual,
-        alterar_circuit_breaker_global=not consulta_pontual,
+        # Consultas pontuais também respeitam a indisponibilidade global.
+        # O parâmetro consulta_pontual continua controlando a intenção do caller,
+        # mas não pode furar o cooldown e causar dezenas de timeouts em cascata.
+        ignorar_circuit_breaker_global=False,
+        alterar_circuit_breaker_global=True,
     ).get("issue", {})
 
     if issue:
