@@ -272,6 +272,14 @@ def executar_followup(item:dict) -> dict:
         log_event("FOLLOWUP", "Follow-up bloqueado pelo pre-flight", nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}")
         return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo") in {"ESTADO_TERMINAL", "ESTADO_TERMINAL_QUARENTENA"} else "PREFLIGHT_INDISPONIVEL",
                 "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
+    # Não reservar/quarentenar uma tentativa que apenas aguarda dia útil.
+    from ednna.central_envios import exigir_janela_externa, JanelaExternaFechada
+    try:
+        exigir_janela_externa()
+    except JanelaExternaFechada as exc:
+        return {"ok": False, "estado": "AGUARDANDO_JANELA_EXTERNA",
+                "motivo": exc.motivo, "proxima_janela": exc.proxima_janela,
+                "chamado_id": chamado_id, "regra_id": regra_id}
     # O pre-flight não substitui a idempotência: duas instâncias podem ler o
     # mesmo item elegível. O lock evita concorrência; falha ambígua é retida.
     from painel_cache import liberar_lock
