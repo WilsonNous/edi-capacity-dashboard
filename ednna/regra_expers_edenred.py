@@ -13,6 +13,7 @@ CAIXA_POSTAL = "conciliaticket@edenred.com"
 CONCILIACAO = "conciliacaoeletronica-br@edenred.com"
 ASSUNTOS_CONCILIACAO = {
     "AUSENCIA_ARQUIVO": "Ausência de arquivo",
+    "ERRO_ARQUIVO": "Divergência de registros no arquivo de conciliação",
     "INCLUSAO_CONTRATO": "Inclusão de contrato na caixa postal",
     "ALERTAS": "Alertas",
     "AUSENCIA_VENDAS": "Ausência de vendas no arquivo",
@@ -33,6 +34,7 @@ def classificar_demanda(texto: str) -> dict:
         ("CANCELAMENTO_CAIXA", r"cancel(?:amento|ar|acao).{0,45}caixa postal"),
         ("INCLUSAO_CONTRATO", r"(?:inclusao|incluir|adicionar).{0,45}contrato.{0,60}caixa postal"),
         ("AUSENCIA_VENDAS", r"(?:ausencia|falta|sem|nao ha).{0,35}vendas?.{0,45}arquivo"),
+        ("ERRO_ARQUIVO", r"(?:arquivo corrompido|erro de arquivo|trailer de lote|total de registros|registros c1|quantidade de registros|arquivo inconsistente)"),
         ("AUSENCIA_ARQUIVO", r"(?:ausencia|falta|sem|nao receb|nao chegou).{0,45}arquiv"),
         ("ALERTAS", r"\balertas?\b"),
         ("ABERTURA_CAIXA", r"(?:abertura|abrir|criar|habilitar).{0,35}caixa postal"),
@@ -104,3 +106,51 @@ def preparar_despacho(chamado_id: int, *, cliente: str, descricao_demanda: str,
         "preflight_obrigatorio": True, "verificar_duplicidade": True,
         "fonte": FONTE,
     }
+
+
+def diagnosticar_trailer_c1(*, total_trailer: int, quantidade_c1: int,
+                            arquivo_original_disponivel: bool = False) -> dict:
+    """Diagnóstico numérico, não reparação de dados financeiros."""
+    informado, encontrado = int(total_trailer), int(quantidade_c1)
+    if informado < 0 or encontrado < 0:
+        raise ValueError("Contagens negativas não são válidas")
+    divergencia = informado - encontrado
+    return {
+        "tipo": "ERRO_ARQUIVO", "total_trailer": informado, "quantidade_c1": encontrado,
+        "diferenca": divergencia, "consistente": divergencia == 0,
+        "causa": "INDETERMINADA" if divergencia else "CONTAGEM_COMPATIVEL",
+        "arquivo_validado": bool(arquivo_original_disponivel),
+        "correcao_automatica_permitida": False,
+        "acao": ("Solicitar conferência da origem, verificar registros ausentes e pedir reprocessamento/reenvio "
+                 "ou confirmação de erro de geração do trailer") if divergencia else
+                 "Validar demais campos do layout antes de liberar importação",
+    }
+
+
+def preparar_despacho_49446() -> dict:
+    """Despacho específico, com contexto confirmado no Redmine; não envia."""
+    d = diagnosticar_trailer_c1(total_trailer=420, quantidade_c1=393)
+    descricao = (
+        "Arquivo de conciliação EDENRED_SIMREDEDEPOSTOEXPERS_20260917.txt "
+        "(cópia anexada ao Redmine #49446): trailer do lote informa 420 registros, "
+        "mas a conferência registrada no chamado identificou 393 registros C1 "
+        "(diferença de 27). Solicitamos verificar se faltam registros C1 ou se "
+        "o trailer foi gerado incorretamente, informar a causa e, se aplicável, "
+        "reprocessar e reenviar o arquivo íntegro. Não autorizamos ajuste manual "
+        "do trailer nem descarte de registros."
+    )
+    r = preparar_despacho(49446, cliente="SIM REDE", descricao_demanda=descricao)
+    if not r.get("ok"):
+        return r
+    r["assunto"] = "[EXPERS - Divergência trailer/C1 - SIM REDE - CN: 49446]"
+    r["corpo"] += (
+        "\\n\\nReferência de validação: arquivo de 20/09/2026 apresentou 129 "
+        "registros C1 e trailer com 129, conforme histórico do chamado. "
+        "Solicitamos confirmação de recebimento, protocolo, causa raiz e "
+        "previsão de correção/reenvio. O arquivo e capturas constam no Redmine #49446; "
+        "anexá-los somente após revisão e autorização."
+    )
+    r["diagnostico"] = d
+    r["anexos_requerem_revisao"] = True
+    r["referencia_chamado_pai"] = 49304
+    return r
