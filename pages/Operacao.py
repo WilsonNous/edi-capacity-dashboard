@@ -226,11 +226,45 @@ with tab_ednna:
     if not linhas: st.info('Nenhum acompanhamento neste filtro.')
     if executando_motor and filtro in ('Todos','No prazo'):
         st.caption('Demandas em análise pelo motor: classificadas para continuidade, sem envio ou atualização externa confirmados. O EDDY só registra como realizado após evidência.')
-    for cid,cliente,player,estado,ultima,proxima,vencido,a in linhas[:80]:
-        cols=st.columns([1.0,2.3,1.5,1.7,2.1]); cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**'); cols[1].write(cliente); cols[2].write(player or '—'); cols[3].write('🔴 Atrasado' if vencido else '🟢 No prazo'); cols[4].write(proxima)
-        with st.expander(f'Detalhes #{cid}',expanded=False):
-            st.write(f'**Estado:** {estado}'); st.write(f'**Última atuação:** {ultima}'); st.write(f"**Regra:** {a.get('regra_id') or '—'}"); st.write('**Responsável pelo monitoramento:** EDDY' if a in aguardando_ednna else '**Situação:** demanda classificada; ação externa ainda não confirmada')
-        st.divider()
+    # Grade de leitura, com ordenação nativa e seleção de uma linha para detalhes.
+    # A grade nunca grava estados, prazos ou evidências diretamente.
+    if linhas:
+        registros = []
+        por_chamado = {}
+        for cid, cliente, player, estado, ultima, proxima, vencido, item in linhas:
+            prazo_bruto = str(item.get('prazo_resposta_em') or '')
+            prazo_dt = pd.to_datetime(prazo_bruto, errors='coerce', utc=True)
+            prazo_local = prazo_dt.tz_convert('America/Sao_Paulo').strftime('%d/%m/%Y %H:%M') if pd.notna(prazo_dt) else 'Não informado'
+            registros.append({
+                'Chamado': cid, 'Cliente': cliente, 'Player': player or '—',
+                'Situação': 'Atrasado' if vencido else ('Sem prazo informado' if not prazo_bruto else 'No prazo'),
+                'Prazo': prazo_local, 'Estado': estado.replace('_', ' '),
+                'Próxima ação': proxima, 'Última atuação': str(ultima),
+            })
+            por_chamado[cid] = item
+        registros.sort(key=lambda x: (0 if x['Situação'] == 'Atrasado' else 1, x['Prazo'] == 'Não informado', x['Prazo'], x['Chamado']))
+        grade = pd.DataFrame(registros)
+        st.caption(f'{len(grade)} registros · Ordene clicando no cabeçalho e selecione uma linha para consultar os detalhes. A grade é somente leitura.')
+        selecao = st.dataframe(
+            grade, hide_index=True, width='stretch', height=min(650, 110 + 35 * len(grade)),
+            on_select='rerun', selection_mode='single-row', key='grade_eddy_cuidando_01',
+            column_config={'Chamado': st.column_config.NumberColumn('Chamado', format='#%d', width='small'),
+                           'Cliente': st.column_config.TextColumn('Cliente', width='medium'),
+                           'Próxima ação': st.column_config.TextColumn('Próxima ação', width='large')},
+        )
+        selecionadas = selecao.selection.rows if selecao is not None else []
+        if selecionadas:
+            registro = grade.iloc[selecionadas[0]]
+            cid = int(registro['Chamado'])
+            item = por_chamado.get(cid, {})
+            st.markdown(f"#### Chamado [#{cid}]({redmine_link(cid)})")
+            c1, c2, c3 = st.columns(3)
+            c1.write(f"**Estado:** {registro['Estado']}")
+            c2.write(f"**Prazo:** {registro['Prazo']}")
+            c3.write(f"**Regra:** {item.get('regra_id') or '—'}")
+            st.write(f"**Última atuação:** {registro['Última atuação']}")
+            st.write(f"**Próxima ação:** {registro['Próxima ação']}")
+            st.caption('Classificação de acompanhamento não comprova execução externa. Consulte as evidências antes de atuar.')
 
 with tab_feito:
     st.caption('Trilha operacional recente. Chamados que deixaram a carteira ativa permanecem apenas como auditoria histórica.'); busca=st.text_input('🔎 Buscar no realizado',key='busca_feito_3325'); mostrados=0
