@@ -54,9 +54,47 @@ with st.expander('🎓 Escola do EDDY · conhecimento e evolução das regras', 
                 'Executor': str(workflow.get('prontidao') or 'NÃO IDENTIFICADO'),
                 'Atualizado': str(r.get('atualizado_em') or ''),
             })
-        st.caption('Grade estilo Excel: ordene por coluna e filtre por etapa. Somente leitura; nenhuma regra é homologada ou executada aqui.')
-        st.dataframe(pd.DataFrame(registros_escola), hide_index=True, width='stretch',
-                     height=min(580, 100 + 34 * len(registros_escola)))
+        st.caption('Grade estilo Excel: ordene por coluna, filtre por etapa e selecione uma regra para conferir suas evidências. Somente leitura.')
+        grade_escola = pd.DataFrame(registros_escola)
+        selecao_escola = st.dataframe(
+            grade_escola, hide_index=True, width='stretch',
+            height=min(580, 100 + 34 * len(registros_escola)),
+            on_select='rerun', selection_mode='single-row', key='eddy_escola_grade_01',
+        )
+        linhas_escola = selecao_escola.selection.rows if selecao_escola is not None else []
+        if linhas_escola:
+            selecionada = grade_escola.iloc[linhas_escola[0]]
+            regra_escolhida = next((r for r in regras_escola if str(r.get('regra_id') or '') == selecionada['Regra']), None)
+            if regra_escolhida:
+                evidencia = regra_escolhida.get('payload') or {}
+                fontes = evidencia.get('fontes') or {}
+                st.markdown(f"#### 📚 Evidências da regra {selecionada['Regra']}")
+                st.write(f"**Etapa:** {selecionada['Etapa']} · **Completude:** {selecionada['Completude (%)']}%")
+                st.write(f"**Bloqueios de aprendizagem:** {', '.join(evidencia.get('bloqueios') or []) or 'Nenhum registrado'}")
+                st.write(f"**Fontes pendentes:** {', '.join(str(x) for x in (evidencia.get('fontes_parciais') or [])) or 'Nenhuma registrada'}")
+                referencias = []
+                for tipo, valor in fontes.items():
+                    valores = valor if isinstance(valor, list) else ([valor] if valor else [])
+                    for identificador in valores:
+                        if isinstance(identificador, (int, str)) and str(identificador).isdigit():
+                            referencias.append({'Tipo': str(tipo), 'Chamado': int(identificador)})
+                if referencias:
+                    st.dataframe(pd.DataFrame(referencias).drop_duplicates(), hide_index=True,
+                                 width='stretch', key='eddy_escola_evidencias_grade')
+                    st.caption('Referências persistidas na aprendizagem; selecione o chamado no Redmine para conferir o histórico original.')
+                    for ref in referencias[:12]:
+                        st.markdown(f"- [{ref['Tipo']} · chamado #{ref['Chamado']}]({redmine_link(ref['Chamado'])})")
+                else:
+                    st.info('Esta regra ainda não possui chamados de origem identificados no registro de aprendizagem.')
+                with st.expander('Sinais e procedimento aprendido', expanded=False):
+                    st.json({
+                        'sinais_semanticos': evidencia.get('sinais_semanticos') or {},
+                        'constantes': evidencia.get('constantes') or [],
+                        'variaveis': evidencia.get('variaveis') or [],
+                        'pode_homologar': bool(evidencia.get('pode_homologar')),
+                        'pode_executar': bool(evidencia.get('pode_executar')),
+                    })
+                st.caption('Evidências não equivalem a homologação. Nenhuma permissão ou execução é alterada nesta consulta.')
     else:
         st.info('Ainda não encontrei regras de inclusão no inventário persistente. A Escola continuará aprendendo com as evidências disponíveis.')
 
