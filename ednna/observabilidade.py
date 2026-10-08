@@ -62,3 +62,25 @@ def listar_eventos(*, limite: int = 300, nivel: str = "", categoria: str = "", c
     with sqlite3.connect(DB, timeout=5) as con:
         con.row_factory = sqlite3.Row
         return [dict(r) for r in con.execute(sql,args).fetchall()]
+
+
+def url_chamado(chamado_id) -> str:
+    """URL canônica para qualquer evento vinculado a chamado."""
+    try:
+        cid = int(chamado_id)
+        return f"https://chamados.nteia.com/issues/{cid}" if cid > 0 else ""
+    except (TypeError, ValueError):
+        return ""
+
+
+def status_evento(evento: dict) -> str:
+    """Resultado visível conservador: tentativa não equivale a sucesso."""
+    nivel = str(evento.get("nivel") or "").upper()
+    texto = " ".join(str(evento.get(k) or "") for k in ("evento", "detalhe")).upper()
+    if nivel == "ERROR" or any(x in texto for x in ("FALHA", "ERRO ", "TIMEOUT")):
+        return "Falha"
+    if nivel == "BLOCKED" or any(x in texto for x in ("BLOQUEADO", "BLOQUEADA")):
+        return "Bloqueada"
+    if any(x in texto for x in ("CONFIRMADO", "CONFIRMADA", "CONCLUÍDO", "CONCLUIDO", "SUCESSO", "HTTP 202", "ATUALIZADO")):
+        return "Concluída"
+    return "Registrada / verificar resultado"
