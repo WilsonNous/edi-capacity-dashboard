@@ -374,7 +374,7 @@ with tab_ednna:
         registros.sort(key=lambda x: (
             0 if x['Situação'] == 'Atrasado' else 1,
             pd.to_datetime(x['_item'].get('prazo_resposta_em'), errors='coerce', utc=True)
-            if pd.notna(pd.to_datetime(por_chamado[x['Chamado']].get('prazo_resposta_em'), errors='coerce', utc=True))
+            if pd.notna(pd.to_datetime(x['_item'].get('prazo_resposta_em'), errors='coerce', utc=True))
             else pd.Timestamp.max.tz_localize('UTC'),
             x['Chamado'],
         ))
