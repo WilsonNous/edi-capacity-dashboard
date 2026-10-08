@@ -32,6 +32,12 @@ def _texto_novo(corpo: str) -> str:
 def interpretar_retorno(corpo: str, *, assunto: str = "", recebido_em: str = "") -> dict:
     """Retorna evidência, protocolo, pendência e sugestão de prazo sem executar efeitos."""
     texto = _texto_novo(corpo)
+    # Prioriza a regra de redirecionamento explícito Edenred/EXPERS.
+    # Não classifica o aviso como habilitação ou resolução.
+    from ednna.regra_expers_edenred import interpretar_orientacao_retorno
+    orientacao = interpretar_orientacao_retorno(texto, assunto=assunto)
+    if orientacao:
+        return orientacao
     normalizado = texto.casefold()
     protocolo = re.search(r"protocolo(?:\s+de\s+atendimento)?\s*[:#-]?\s*(\d{4,})", texto, re.I)
     greencard = "greencard" in (assunto + " " + texto).casefold()
