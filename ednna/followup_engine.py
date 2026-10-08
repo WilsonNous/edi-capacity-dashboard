@@ -374,6 +374,12 @@ def executar_followup(item:dict) -> dict:
     )
     from ednna.observabilidade import log_event
     log_event("FOLLOWUP", "Follow-up enviado", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}")
+    if redmine.get("ok"):
+        log_event("REDMINE", "Follow-up registrado no Redmine", chamado_id=chamado_id,
+                  regra_id=regra_id, detalhe=f"followup_numero={numero} | atualização confirmada")
+    else:
+        log_event("REDMINE", "Registro do follow-up pendente no Redmine", nivel="WARNING",
+                  chamado_id=chamado_id, regra_id=regra_id, detalhe=f"followup_numero={numero}")
     salvar_metadado(marcador, "")
     liberar_lock(chave, dono, detalhes="FOLLOWUP_PERSISTIDO")
     return {**resultado,"chamado_id":chamado_id,"regra_id":regra_id,"numero":numero,"redmine":redmine}
