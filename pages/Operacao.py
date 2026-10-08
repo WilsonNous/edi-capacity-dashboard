@@ -457,19 +457,24 @@ with tab_ednna:
                     tipo_expers = st.selectbox('Tipo confirmado pelo operador', [
                         'Selecione o tipo de demanda', 'Ausência de arquivo',
                         'Inclusão de contrato na caixa postal', 'Alertas',
-                        'Ausência de vendas no arquivo', 'Cancelamento de caixa postal',
+                        'Ausência de vendas no arquivo', 'Divergência de registros no arquivo de conciliação', 'Cancelamento de caixa postal',
                         'Abertura de caixa postal',
                     ], key='expers_49446_tipo')
                     descricao_expers = st.text_area('Descrição factual da pendência', key='expers_49446_descricao',
                         placeholder='Descreva o que foi efetivamente solicitado no chamado; não presuma ausência de arquivo.')
                     cliente_expers = st.text_input('Cliente', value=str(registro.get('Cliente') or 'SIM REDE'), key='expers_49446_cliente')
+                    st.caption('Para #49446, selecione divergência de registros: trailer 420 x 393 C1. Não corrigir trailer sem comprovação de origem.')
                     if st.button('Preparar despacho EXPERS (sem enviar)', key='expers_49446_preparar'):
                         texto = tipo_expers + '. ' + descricao_expers.strip()
                         if tipo_expers == 'Selecione o tipo de demanda' or not descricao_expers.strip():
                             st.warning('Confirme o tipo e a descrição antes de preparar o despacho.')
                         else:
-                            st.session_state['expers_49446_rascunho'] = preparar_despacho(
-                                49446, cliente=cliente_expers, descricao_demanda=texto)
+                            if tipo_expers == 'Divergência de registros no arquivo de conciliação':
+                                from ednna.regra_expers_edenred import preparar_despacho_49446
+                                st.session_state['expers_49446_rascunho'] = preparar_despacho_49446()
+                            else:
+                                st.session_state['expers_49446_rascunho'] = preparar_despacho(
+                                    49446, cliente=cliente_expers, descricao_demanda=texto)
                     rascunho_expers = st.session_state.get('expers_49446_rascunho') or {}
                     if rascunho_expers:
                         if rascunho_expers.get('ok'):
