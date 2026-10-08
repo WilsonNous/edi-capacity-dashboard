@@ -9,7 +9,7 @@ from ednna.linguagem import quantidade, verbo
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email, reconstruir_continuidades_orfas
-from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
+from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico, diagnosticar_envio_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
 from ednna.checkpoints_humanos import garantir_checkpoint, registrar_resultado_checkpoint
@@ -271,6 +271,12 @@ with tab_ednna:
             st.write(f"**Última atuação:** {registro['Última atuação']}")
             st.write(f"**Próxima ação:** {registro['Próxima ação']}")
             st.caption('Classificação de acompanhamento não comprova execução externa. Consulte as evidências antes de atuar.')
+            if item.get('graph_message_id') and item.get('regra_id'):
+                if st.button('🔎 Conferir tentativa incerta no Graph (somente leitura)', key=f'eddy_reconciliar_{cid}_{item.get("regra_id")}'):
+                    with st.spinner('Consultando Itens Enviados sem alterar o acompanhamento...'):
+                        st.session_state[f'eddy_reconciliacao_{cid}'] = diagnosticar_envio_followup(item)
+                if f'eddy_reconciliacao_{cid}' in st.session_state:
+                    st.json(st.session_state[f'eddy_reconciliacao_{cid}'])
 
 with tab_feito:
     st.caption('Trilha operacional recente. Chamados que deixaram a carteira ativa permanecem apenas como auditoria histórica.'); busca=st.text_input('🔎 Buscar no realizado',key='busca_feito_3325'); mostrados=0
