@@ -151,6 +151,16 @@ def executar_followup(item:dict) -> dict:
     resultado=responder_todos_email_graph(
         remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto, chamado_id=chamado_id
     )
+    # Nunca contabilizar um follow-up como enviado quando o Graph não confirmou
+    # o resultado. Falhas ambíguas exigem reconciliação da thread antes de retry.
+    if not isinstance(resultado, dict) or resultado.get("ok") is not True:
+        from ednna.observabilidade import log_event
+        log_event("FOLLOWUP", "Envio sem confirmação; reconciliar antes de tentar novamente",
+                  nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id,
+                  detalhe=f"numero={numero} | resultado={str(resultado)[:300]}")
+        return {"ok": False, "estado": "ENVIO_NAO_CONFIRMADO",
+                "motivo": "Graph não confirmou o envio; verificar a thread antes de repetir.",
+                "chamado_id": chamado_id, "regra_id": regra_id, "resultado": resultado}
     registrar_followup(chamado_id,regra_id)
 
     # Follow-up também é atuação operacional: sempre gera journal no Redmine e
