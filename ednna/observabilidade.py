@@ -84,3 +84,22 @@ def status_evento(evento: dict) -> str:
     if any(x in texto for x in ("CONFIRMADO", "CONFIRMADA", "CONCLUÍDO", "CONCLUIDO", "SUCESSO", "HTTP 202", "ATUALIZADO")):
         return "Concluída"
     return "Registrada / verificar resultado"
+
+
+def detalhe_publico(evento: dict) -> str:
+    """Resumo operacional seguro para usuários de consulta.
+
+    Detalhes livres podem conter e-mail, cabeçalhos ou dados técnicos:
+    não são expostos no painel de acesso geral.
+    """
+    categoria = str(evento.get("categoria") or "").upper()
+    nivel = str(evento.get("nivel") or "").upper()
+    if nivel in {"ERROR", "BLOCKED"}:
+        return "Ocorrência registrada; equipe EDI pode consultar o diagnóstico."
+    if categoria == "FOLLOWUP":
+        return "Movimentação de acompanhamento registrada."
+    if categoria == "REDMINE":
+        return "Movimentação no Redmine registrada."
+    if categoria == "EMAIL":
+        return "Movimentação de e-mail registrada."
+    return "Movimentação operacional registrada."
