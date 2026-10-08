@@ -144,7 +144,7 @@ def preparar_despacho_49446() -> dict:
         return r
     r["assunto"] = "[EXPERS - Divergência trailer/C1 - SIM REDE - CN: 49446]"
     r["corpo"] += (
-        "\\n\\nReferência de validação: arquivo de 20/09/2026 apresentou 129 "
+        "\n\nReferência de validação: arquivo de 20/09/2026 apresentou 129 "
         "registros C1 e trailer com 129, conforme histórico do chamado. "
         "Solicitamos confirmação de recebimento, protocolo, causa raiz e "
         "previsão de correção/reenvio. O arquivo e capturas constam no Redmine #49446; "
