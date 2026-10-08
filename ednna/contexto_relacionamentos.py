@@ -136,6 +136,12 @@ def processar_enriquecimentos_pendentes(limite: int = 5) -> dict:
     ok, erros = [], []
     for chamado_id in ids:
         try:
+            # Se a cópia local é terminal, remover o job sem consultar Redmine.
+            if _cache_obter(chamado_id) and _norm(((_cache_obter(chamado_id) or {}).get("status") or {}).get("name")) in {"CONCLUIDO", "REJEITADA", "REJEITADO", "CANCELADO", "CANCELADA", "FECHADO", "RESOLVIDO"}:
+                with conectar() as conn:
+                    conn.execute("DELETE FROM contexto_enriquecimento_pendente WHERE chamado_id = ?", (chamado_id,))
+                ok.append(chamado_id)
+                continue
             issue = buscar_detalhes_chamado(
                 chamado_id, incluir_journals=True, incluir_relacoes=True,
                 consulta_pontual=False, timeout=(4, 8), tentativas=1,
@@ -176,7 +182,9 @@ def _cache_obter(chamado_id: int) -> dict | None:
             if estado not in {"CONCLUIDO", "REJEITADA", "FECHADO", "RESOLVIDO"}
             else CACHE_HORAS_HISTORICO * 60
         )
-        if _agora_utc() - atualizado > ttl:
+        # Estado terminal confirmado e já indexado: conhecimento imutável.
+        # force=True continua permitindo reindexação humana explícita.
+        if estado not in {"CONCLUIDO", "REJEITADA", "REJEITADO", "CANCELADO", "CANCELADA", "FECHADO", "RESOLVIDO"} and _agora_utc() - atualizado > ttl:
             return None
         return _meta_contexto(json.loads(row["payload_json"]), fonte="CACHE", atualizado_em=str(row["atualizado_em"]), parcial=False)
     except Exception:
