@@ -43,6 +43,23 @@ def classificar_ocorrencias_simrede(msg:dict[str,Any])->list[dict]:
             out.append({"cliente":"SIM REDE","player":player,"tipo":tipo,"cnpjs":cnpjs,"ecs":ecs,"periodos":datas,"chave":hashlib.sha256(raw.encode()).hexdigest()[:24],"assunto_origem":str(msg.get("subject") or ""),"message_id":str(msg.get("id") or ""),"internet_message_id":str(msg.get("internetMessageId") or ""),"recebida_em":str(msg.get("receivedDateTime") or "")})
     return out
 
+def _reservar(chave:str)->bool:
+    """Uma única tentativa de criação por chave, inclusive após timeout."""
+    from ednna.armazenamento import conectar, agora_brasil_iso
+    with conectar() as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS simrede_correlacoes (
+            chave TEXT PRIMARY KEY, chamado_id INTEGER, estado TEXT NOT NULL,
+            atualizado_em TEXT NOT NULL)""")
+        cur=db.execute("INSERT OR IGNORE INTO simrede_correlacoes(chave,estado,atualizado_em) VALUES(?,?,?)",
+                       (chave,"EM_PROCESSAMENTO",agora_brasil_iso()))
+        return cur.rowcount==1
+
+def _concluir_reserva(chave:str,chamado_id:int|None,estado:str)->None:
+    from ednna.armazenamento import conectar, agora_brasil_iso
+    with conectar() as db:
+        db.execute("UPDATE simrede_correlacoes SET chamado_id=?,estado=?,atualizado_em=? WHERE chave=?",
+                   (chamado_id,estado,agora_brasil_iso(),chave))
+
 def _ja_existe(oc:dict)->int|None:
     for row in carregar_snapshot_chamados() or []:
         blob=" ".join(str(row.get(k) or "") for k in ("Assunto","Descrição","Cliente","Origem","Adquirente","Player")).upper()
@@ -113,13 +130,26 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
             for oc in ocorrencias:
                 resumo["ocorrencias"]+=1
                 if oc["chave"] in vistos: resumo["existentes"]+=1; continue
-                vistos.add(oc["chave"]); existente=_ja_existe(oc)
-                if existente: resumo["existentes"]+=1; continue
+                vistos.add(oc["chave"])
+                try:
+                    if not _reservar(oc["chave"]):
+                        resumo["existentes"]+=1
+                        continue
+                    existente=_ja_existe(oc)
+                    if existente:
+                        _concluir_reserva(oc["chave"],existente,"CRIADO")
+                        resumo["existentes"]+=1
+                        continue
+                except Exception as exc:
+                    resumo["erros"].append(f"{oc['chave']}: reserva/correlação: {exc}")
+                    continue
                 try:
                     if eml is None: eml=baixar_mensagem_eml(caixa_postal=caixa,message_id=str(msg.get("id") or ""))
                     regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
-                    cid=_criar_chamado(oc,eml=eml); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
+                    cid=_criar_chamado(oc,eml=eml); _concluir_reserva(oc["chave"],cid,"CRIADO"); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
                     print(f"[EDDY] SIM REDE | chamado aberto #{cid} | player={oc['player']} | tipo={oc['tipo']} | responsavel=EDNNA | origem=Francimar",flush=True)
-                except Exception as exc: resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+                except Exception as exc:
+                    _concluir_reserva(oc["chave"],None,"RECONCILIAR")
+                    resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
     return resumo
