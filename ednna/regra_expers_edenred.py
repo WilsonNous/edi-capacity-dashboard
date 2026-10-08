@@ -142,7 +142,35 @@ def preparar_despacho_49446() -> dict:
     r = preparar_despacho(49446, cliente="SIM REDE", descricao_demanda=descricao)
     if not r.get("ok"):
         return r
-    r["assunto"] = "[EXPERS - Divergência trailer/C1 - SIM REDE - CN: 49446]"
+    # Continuidade de uma solicitação já enviada em 05/10; não é primeiro contato.
+    r["assunto"] = "RE: [EXPERS - Arquivos - SIM REDE - CN: 49446]"
+    r["corpo"] = (
+        "Prezados da equipe de Conciliação Eletrônica, bom dia.\\n\\n"
+        "Dando continuidade à solicitação encaminhada em 05/10/2026 ao canal "
+        "Concilia Ticket (conciliaticket@edenred.com), recebemos em 08/10/2026 "
+        "a orientação de direcionar a análise de arquivos de conciliação eletrônica "
+        "a esta equipe.\\n\\n"
+        "Reiteramos o problema técnico do chamado Netunna #49446 (SIM REDE / EXPERS): "
+        "o trailer de lote informa 420 registros, enquanto a conferência do arquivo "
+        "identificou 393 registros C1, diferença de 27. Precisamos confirmar se "
+        "faltam registros ou se houve erro na geração do trailer.\\n\\n"
+        "Solicitamos análise da origem, confirmação de protocolo e, conforme a "
+        "causa identificada, reprocessamento ou reenvio de arquivo íntegro. "
+        "O arquivo original e as evidências estão registrados no chamado #49446, "
+        "vinculado ao centralizador #49304.\\n\\n"
+        "Atenciosamente,\\nEquipe EDI Netunna"
+    )
+    r["historico_continuidade"] = {
+        "primeiro_envio_em": "2026-10-05T09:57:00-03:00",
+        "destinatario_original": CAIXA_POSTAL,
+        "resposta_orientacao_em": "2026-10-08T09:14:00-03:00",
+        "tipo": "REDIRECIONAMENTO_APOS_RESPOSTA",
+        "primeira_atuacao_realizada": True,
+        "reutilizar_thread_se_confirmada": True,
+    }
+    r["nao_reenviar_primeira_solicitacao"] = True
+    r["requer_verificacao_historico_graph"] = True
+    r["exige_nova_autorizacao_de_redirecionamento"] = True
     r["corpo"] += (
         "\n\nReferência de validação: arquivo de 20/09/2026 apresentou 129 "
         "registros C1 e trailer com 129, conforme histórico do chamado. "
