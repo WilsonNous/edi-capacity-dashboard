@@ -15,7 +15,7 @@ def garantir_regra_policard_falta_vendas()->dict:
     agora=agora_brasil_iso()
     payload={
         "regra_id":REGRA_ID,"player":"POLICARD","alias":["UPBRASIL","UP BRASIL"],
-        "ocorrencia":"FALTA_VENDAS","estado":"HOMOLOGADA","modo_motor":"AUTOMATICA",
+        "ocorrencia":"FALTA_VENDAS","estado":"HOMOLOGADA","modo_motor":"ASSISTIDA",
         "executor":"EMAIL_GRAPH","para":[DESTINATARIO],"cc":[],
         "remover_destinatarios":["grandesredesup@upbrasil.com","atendimento.granderede@upbrasil.com"],
         "agrupamento":"UM_CHAMADO_POR_PLAYER_OCORRENCIA","multiplos_cnpjs":True,"multiplos_periodos":True,
@@ -29,10 +29,16 @@ def garantir_regra_policard_falta_vendas()->dict:
           regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, ocorrencia TEXT NOT NULL,
           estado TEXT NOT NULL, modo_motor TEXT NOT NULL, executor TEXT NOT NULL,
           payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
-        c.execute("""INSERT INTO regras_ocorrencias_operacionais(regra_id,player,ocorrencia,estado,modo_motor,executor,payload_json,atualizado_em)
-          VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(regra_id) DO UPDATE SET player=excluded.player,ocorrencia=excluded.ocorrencia,
-          estado=excluded.estado,modo_motor=excluded.modo_motor,executor=excluded.executor,payload_json=excluded.payload_json,atualizado_em=excluded.atualizado_em""",
-          (REGRA_ID,"POLICARD","FALTA_VENDAS","HOMOLOGADA","AUTOMATICA","EMAIL_GRAPH",json.dumps(payload,ensure_ascii=False),agora))
+        # Nunca reativar automaticamente uma regra desabilitada pelo operador.
+        c.execute("""INSERT OR IGNORE INTO regras_ocorrencias_operacionais
+          (regra_id,player,ocorrencia,estado,modo_motor,executor,payload_json,atualizado_em)
+          VALUES(?,?,?,?,?,?,?,?)""",
+          (REGRA_ID,"POLICARD","FALTA_VENDAS","HOMOLOGADA","ASSISTIDA","EMAIL_GRAPH",json.dumps(payload,ensure_ascii=False),agora))
+        row=c.execute("SELECT payload_json,estado,modo_motor FROM regras_ocorrencias_operacionais WHERE regra_id=?",(REGRA_ID,)).fetchone()
+        if row:
+            payload=json.loads(row["payload_json"])
+            payload["estado"]=row["estado"]
+            payload["modo_motor"]=row["modo_motor"]
     return payload
 
 def obter_regra_ocorrencia(player:str,tipo:str)->dict|None:
