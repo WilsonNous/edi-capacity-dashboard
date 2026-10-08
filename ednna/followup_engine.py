@@ -140,6 +140,20 @@ def registrar_followup(chamado_id:int, regra_id:str) -> None:
             (_iso(_agora()),_iso(_agora()),int(chamado_id),str(regra_id)))
 
 
+def _chave_followup(chamado_id: int, regra_id: str, numero: int) -> str:
+    import hashlib
+    digest = hashlib.sha256(str(regra_id).encode("utf-8")).hexdigest()[:16]
+    return f"eddy_followup:{int(chamado_id)}:{digest}:{int(numero)}"
+
+
+def _reservar_followup(chave: str) -> str | None:
+    """Uma tentativa por etapa; em falha ambígua, preservar bloqueio para revisão."""
+    import uuid
+    from painel_cache import adquirir_lock
+    dono = uuid.uuid4().hex
+    return dono if adquirir_lock(chave, dono, ttl_seconds=86400) else None
+
+
 def executar_followup(item:dict) -> dict:
     if item.get("estado_followup") != "FOLLOWUP_PRONTO":
         return {"ok":False,"estado":item.get("estado_followup"),"motivo":"Follow-up ainda não está elegível."}
@@ -155,10 +169,33 @@ def executar_followup(item:dict) -> dict:
         log_event("FOLLOWUP", "Follow-up bloqueado pelo pre-flight", nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"motivo={preflight.get('motivo')} | estado={preflight.get('estado') or '-'}")
         return {"ok":False,"estado":"IGNORADO_ESTADO_TERMINAL" if preflight.get("motivo") in {"ESTADO_TERMINAL", "ESTADO_TERMINAL_QUARENTENA"} else "PREFLIGHT_INDISPONIVEL",
                 "motivo":"Follow-up bloqueado pelo estado atual do Redmine.","preflight":preflight}
+    # O pre-flight não substitui a idempotência: duas instâncias podem ler o
+    # mesmo item elegível. O lock evita concorrência; falha ambígua é retida.
+    from painel_cache import liberar_lock
+    chave = _chave_followup(chamado_id, regra_id, numero)
+    dono = _reservar_followup(chave)
+    if dono is None:
+        return {"ok": False, "estado": "FOLLOWUP_EM_EXECUCAO_OU_RECONCILIACAO",
+                "motivo": "Outra tentativa ou reconciliação já reservou este follow-up.",
+                "chamado_id": chamado_id, "regra_id": regra_id}
     texto=str(item.get("texto_followup") or "")
-    resultado=responder_todos_email_graph(
-        remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto, chamado_id=chamado_id
-    )
+    try:
+        resultado=responder_todos_email_graph(
+            remetente=remetente, message_id=str(item.get("graph_message_id") or ""), comentario=texto, chamado_id=chamado_id
+        )
+    except Exception as exc:
+        from ednna.observabilidade import log_event
+        log_event("FOLLOWUP", "Envio de resultado ambíguo; reconciliação necessária",
+                  nivel="BLOCKED", chamado_id=chamado_id, regra_id=regra_id,
+                  detalhe=f"numero={numero} | tipo={type(exc).__name__}")
+        # Não liberar o lease após erro: um timeout pode ocorrer após o Graph
+        # aceitar o envio. A reconciliação deve ocorrer antes de qualquer retry.
+        return {"ok": False, "estado": "ENVIO_INCERTO_RECONCILIAR",
+                "motivo": "Falha ou timeout Graph; verificar Sent Items/thread antes de repetir.",
+                "chamado_id": chamado_id, "regra_id": regra_id}
+    if isinstance(resultado, dict) and resultado.get("ok") is True:
+        liberar_lock(chave, dono, detalhes="GRAPH_ACEITO")
+    # Resultado não confirmado permanece reservado para reconciliação.
     # Nunca contabilizar um follow-up como enviado quando o Graph não confirmou
     # o resultado. Falhas ambíguas exigem reconciliação da thread antes de retry.
     if not isinstance(resultado, dict) or resultado.get("ok") is not True:
