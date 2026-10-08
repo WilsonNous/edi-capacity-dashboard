@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from ednna.armazenamento import conectar, agora_brasil_iso
 
 PADROES = {
+    "FALTA_VENDAS": [r"(?i)falta\\s+(?:de\\s+)?vendas?", r"(?i)n[aã]o\\s+(?:localizamos|localizei|encontramos|encontrei).{0,60}vendas?", r"(?i)sem\\s+vendas?"],
     "FALTA_ARQUIVO": [
         r"(?i)falta\s+(?:de\s+)?arquivo", r"(?i)arquivo\s+(?:n[aã]o\s+)?(?:recebid|cheg|dispon)",
         r"(?i)n[aã]o\s+(?:recebemos|recebi).{0,50}arquivo", r"(?i)arquivo.{0,50}n[aã]o\s+cheg",

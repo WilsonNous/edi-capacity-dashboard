@@ -8,7 +8,7 @@ from ednna.security import current_user, display_name
 from ednna.linguagem import quantidade, verbo
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
-from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
+from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email, reconstruir_continuidades_orfas
 from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
@@ -78,6 +78,11 @@ for a in aguardando:
 
 aguardando_ednna=[a for a in aguardando if int(a.get('chamado_id') or 0) not in fup_assistidos_ids]
 cuidando_total=len(aguardando_ednna)+len(historico_auto)+len(redmine_auto)
+# A carteira real também inclui demandas do motor ainda não absorvidas por acoes_operacionais.
+executando_motor=[x for x in itens if x.get('estado_motor') in {'PRONTO_OPERACAO_ASSISTIDA','AGUARDANDO_RESPOSTA','CONTINUIDADE_ATUACAO_PREVIA','CONTINUIDADE_ESTADO_REDMINE'} and int(x.get('id') or 0) in active_ids]
+ids_cuidando={int(a.get('chamado_id') or 0) for a in aguardando_ednna}|{int(x.get('id') or 0) for x in historico_auto+redmine_auto}
+executando_motor=[x for x in executando_motor if int(x.get('id') or 0) not in ids_cuidando]
+cuidando_total += len(executando_motor)
 usuario=current_user(); nome_usuario=display_name(usuario) or 'você'
 st.markdown(f"### {'Bom dia' if agora.hour<12 else 'Boa tarde' if agora.hour<18 else 'Boa noite'}, {nome_usuario}. Preciso de você em **{quantidade(len(preciso), 'situação', 'situações')}**. Estou cuidando de **{quantidade(cuidando_total, 'chamado')}**.")
 
@@ -86,6 +91,25 @@ c1.metric('🔴 Você',len(preciso),help='Somente decisões ou ações que o EDD
 c2.metric('🟢 EDDY',cuidando_total,help='Acompanhamentos, histórico e reconciliações automáticas.')
 c3.metric('🤖 Realizado',len(recentes),help='Atuações persistidas recentemente.')
 c4.metric('⚠️ Exceções',len(falhas),help='Situações em que a automação realmente travou.')
+
+# Retomada operacional segura: sincroniza evidências dos chamados órfãos.
+# Não envia mensagens nem altera o Redmine; permite ao motor decidir o próximo passo.
+orfaos_continuidade=[x for x in itens if x.get('estado_motor') in {'CONTINUIDADE_ATUACAO_PREVIA','CONTINUIDADE_ESTADO_REDMINE'} and int(x.get('id') or 0) in active_ids]
+if orfaos_continuidade:
+    st.warning(f"🧠 **{len(orfaos_continuidade)} chamados** precisam de reconstrução de histórico para que o EDDY identifique a próxima ação.")
+    if st.button('🧠 EDDY: retomar 12 acompanhamentos', key='eddy_retomar_orfaos_33', help='Sincroniza histórico e evidências; não envia e-mails nem modifica chamados no Redmine.'):
+        with st.spinner('EDDY reconstruindo os históricos...'):
+            try:
+                resultado_retomada=reconstruir_continuidades_orfas(snapshot, limite=12)
+                st.session_state['eddy_retomada_33']=resultado_retomada
+                st.cache_data.clear()
+            except Exception as exc:
+                st.error(f'Falha ao reconstruir históricos: {type(exc).__name__}: {exc}')
+    if st.session_state.get('eddy_retomada_33'):
+        r=st.session_state['eddy_retomada_33']
+        st.info(f"Retomada: {r.get('sucesso',0)} históricos sincronizados; {r.get('erros',0)} falhas. Reavalie a fila após atualizar.")
+        with st.expander('Detalhes da retomada'):
+            st.json(r.get('itens') or [])
 
 if atrasados:
     st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com execução automática atrasada. O EDDY tentará executá-los no próximo ciclo; acompanhe em **Estou cuidando → Atrasados**.")
@@ -176,11 +200,36 @@ with tab_ednna:
         cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
         ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
-    if not linhas and filtro not in ('Redmine','Histórico'): st.info('Nenhum acompanhamento neste filtro.')
+    # Mostrar também demandas que o motor assumiu, ainda sem ação persistida.
+    if filtro in ('Todos','No prazo'):
+        for item in executando_motor:
+            cid=int(item.get('id') or 0)
+            if not cid: continue
+            cliente=str(item.get('cliente') or 'Cliente não informado')
+            player=str(item.get('player') or '')
+            if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
+            estado=str(item.get('estado_motor') or 'EM_ANALISE')
+            proxima=str(item.get('acao_sugerida') or estado.replace('_',' ').capitalize())
+            linhas.append((cid,cliente,player,estado,'Fila operacional',proxima,False,item))
+    if filtro in ('Todos','Redmine'):
+        for item in redmine_auto:
+            cid=int(item.get('id') or 0)
+            if not cid or (busca.strip() and busca.casefold() not in f'{cid} REDMINE'.casefold()): continue
+            linhas.append((cid,'Reconciliação','REDMINE','REDMINE_PENDENTE','Fila Redmine','Reconciliar atualização pendente',False,item))
+    if filtro in ('Todos','Histórico'):
+        for item in historico_auto:
+            cid=int(item.get('id') or 0)
+            cliente=str(item.get('cliente') or '')
+            player=str(item.get('player') or '')
+            if not cid or (busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold()): continue
+            linhas.append((cid,cliente,player,'AGUARDANDO_VERIFICACAO_HISTORICO','Fila operacional','Verificar histórico e evidências',False,item))
+    if not linhas: st.info('Nenhum acompanhamento neste filtro.')
+    if executando_motor and filtro in ('Todos','No prazo'):
+        st.caption('Demandas em análise pelo motor: classificadas para continuidade, sem envio ou atualização externa confirmados. O EDDY só registra como realizado após evidência.')
     for cid,cliente,player,estado,ultima,proxima,vencido,a in linhas[:80]:
         cols=st.columns([1.0,2.3,1.5,1.7,2.1]); cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**'); cols[1].write(cliente); cols[2].write(player or '—'); cols[3].write('🔴 Atrasado' if vencido else '🟢 No prazo'); cols[4].write(proxima)
         with st.expander(f'Detalhes #{cid}',expanded=False):
-            st.write(f'**Estado:** {estado}'); st.write(f'**Última atuação:** {ultima}'); st.write(f"**Regra:** {a.get('regra_id') or '—'}"); st.write('**Responsável:** EDDY')
+            st.write(f'**Estado:** {estado}'); st.write(f'**Última atuação:** {ultima}'); st.write(f"**Regra:** {a.get('regra_id') or '—'}"); st.write('**Responsável pelo monitoramento:** EDDY' if a in aguardando_ednna else '**Situação:** demanda classificada; ação externa ainda não confirmada')
         st.divider()
 
 with tab_feito:
@@ -195,7 +244,7 @@ with tab_exc:
     st.caption('Somente falhas reais de automação aparecem aqui. Trabalho técnico recuperável continua com o EDDY.')
     if not falhas: st.success('Nenhuma exceção operacional neste momento.')
     for x in falhas[:50]:
-        cid=int(x.get('id') or 0); st.error(f"#{cid} · {x.get('cliente') or ''} · {x.get('player') or ''} — {x.get('acao_sugerida') or x.get('estado_motor')}")
+        cid=int(x.get('id') or 0); st.error(f"Chamado com exceção · {x.get('cliente') or ''} · {x.get('player') or ''} — {x.get('acao_sugerida') or x.get('estado_motor')}"); st.markdown(f'**[#{cid}]({redmine_link(cid)})** · abrir chamado no Redmine')
         if x.get('redmine_erro'): st.caption(str(x.get('redmine_erro')))
 
 with st.expander('🔎 Rastrear um chamado'):

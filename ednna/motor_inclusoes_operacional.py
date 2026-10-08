@@ -405,6 +405,10 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
         if invalido or terminal:
             estado = "IGNORADO_INVALIDO" if invalido else "IGNORADO_ESTADO_TERMINAL"
 
+        # Nunca publicar itens terminais/inválidos como demanda operacional.
+        if invalido or terminal:
+            continue
+
         demandas.append({
             "chamado_id": chamado_id,
             "player": str(item.get("player") or ""),
