@@ -37,3 +37,11 @@ Toda evolução da NETUNNA (EDDY, EDNNA, Escola, endpoints, integrações, pain�
 5. **Operação contínua:** o EDDY permanece operante e observável durante a evolução da Escola e do endpoint EDNNA?
 
 Documentar exceções e compromissos técnicos; CI bem-sucedido não substitui validação operacional no Azure.
+
+## Central de Envios — janela operacional obrigatória
+- **Comunicações externas:** permitir envio somente de segunda a sexta-feira, entre **07:00 (inclusive) e 19:00 (exclusive)**, no fuso **America/Sao_Paulo**. Inclui e-mails e follow-ups para clientes, adquirentes, bancos, benefícios, fornecedores e parceiros.
+- **Atividades internas:** executar **24×7**, incluindo aprendizagem, classificação, leitura de respostas, reconciliação, observabilidade, filas, auditoria e atualizações internas sem comunicação externa.
+- **Fora da janela:** manter a comunicação externa pendente na fila durável até a próxima abertura, sem perder prazo original, prioridade, rastreabilidade ou autorização; não marcar como enviada.
+- **Controle central:** verificar o horário imediatamente antes de cada ação externa, inclusive em execuções assistidas, automáticas e retentativas. Não confiar apenas no horário do agendador.
+- **Falhas e reinício:** respeitar idempotência, bloqueios de envios incertos e auditoria; janela aberta não é autorização para duplicar envio.
+- **Limites:** a janela semanal não presume feriados; calendário de feriados e exceções exigem definição e aprovação explícitas antes de serem aplicados.
