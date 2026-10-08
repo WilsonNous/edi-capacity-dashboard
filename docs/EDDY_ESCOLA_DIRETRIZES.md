@@ -20,3 +20,20 @@ Preservar frases humanas curtas e orientadas à ação, como “Tenho X decisõe
 
 ## Aplicação
 Consultar estas diretrizes em mudanças de interface, motor, regras, Escola, automações, follow-ups e integrações. A Escola é uma capacidade permanente do produto, não uma tela isolada.
+
+## Quatro pilares NETUNNA — critérios transversais obrigatórios
+Toda evolução da NETUNNA (EDDY, EDNNA, Escola, endpoints, integrações, painéis, workers e automações) deve ser revisada sob **Flexibilidade, Escalabilidade, Segurança e Performance**. Nenhum pilar substitui os demais.
+
+- **Flexibilidade:** regras parametrizáveis por cliente, player, operação e canal; componentes desacoplados e extensíveis; novas integrações sem duplicar lógica de negócio.
+- **Escalabilidade:** processamento incremental e paginado, filas e workers controlados, persistência adequada, concorrência segura e capacidade de crescer sem bloquear a interface.
+- **Segurança:** menor privilégio, autorização humana explícita, proteção de segredos e dados, idempotência, preflight, quarentena de resultados ambíguos e trilha auditável.
+- **Performance:** cache com validade conhecida, consultas eficientes, índices quando necessários, atualização seletiva, observabilidade de tempos e grades responsivas.
+
+### Checklist para toda PR
+1. **Flexibilidade:** a mudança suporta variações de cliente/player sem remendos específicos?
+2. **Escalabilidade:** o custo de consultas, dados e execução continua controlado com aumento de volume?
+3. **Segurança:** quais permissões, validações, controles de duplicidade e evidências protegem o fluxo?
+4. **Performance:** quais são os impactos em latência, cache, renderização e recursos?
+5. **Operação contínua:** o EDDY permanece operante e observável durante a evolução da Escola e do endpoint EDNNA?
+
+Documentar exceções e compromissos técnicos; CI bem-sucedido não substitui validação operacional no Azure.
