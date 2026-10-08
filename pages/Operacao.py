@@ -204,11 +204,13 @@ with tab_ednna:
             player=str(item.get('player') or '')
             if not cid or (busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold()): continue
             linhas.append((cid,cliente,player,'AGUARDANDO_VERIFICACAO_HISTORICO','Fila operacional','Verificar histórico e evidências',False,item))
-    if not linhas and filtro not in ('Redmine','Histórico'): st.info('Nenhum acompanhamento neste filtro.')
+    if not linhas: st.info('Nenhum acompanhamento neste filtro.')
+    if executando_motor and filtro in ('Todos','No prazo'):
+        st.caption('Demandas em análise pelo motor: classificadas para continuidade, sem envio ou atualização externa confirmados. O EDDY só registra como realizado após evidência.')
     for cid,cliente,player,estado,ultima,proxima,vencido,a in linhas[:80]:
         cols=st.columns([1.0,2.3,1.5,1.7,2.1]); cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**'); cols[1].write(cliente); cols[2].write(player or '—'); cols[3].write('🔴 Atrasado' if vencido else '🟢 No prazo'); cols[4].write(proxima)
         with st.expander(f'Detalhes #{cid}',expanded=False):
-            st.write(f'**Estado:** {estado}'); st.write(f'**Última atuação:** {ultima}'); st.write(f"**Regra:** {a.get('regra_id') or '—'}"); st.write('**Responsável:** EDDY')
+            st.write(f'**Estado:** {estado}'); st.write(f'**Última atuação:** {ultima}'); st.write(f"**Regra:** {a.get('regra_id') or '—'}"); st.write('**Responsável pelo monitoramento:** EDDY' if a in aguardando_ednna else '**Situação:** demanda classificada; ação externa ainda não confirmada')
         st.divider()
 
 with tab_feito:
