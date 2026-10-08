@@ -18,6 +18,49 @@ setup('🦾 Operação')
 require_edi()
 st.caption('Sua central de interação com o EDDY. Aqui aparece o que precisa de você; o restante fica sob responsabilidade dele.')
 
+# Escola: inventário persistente, leitura e triagem. A homologação e a
+# autorização continuam exclusivamente nos fluxos humanos existentes.
+with st.expander('🎓 Escola do EDDY · conhecimento e evolução das regras', expanded=False):
+    try:
+        from ednna.aprendizado_operacional import listar_regras_operacionais
+        regras_escola = listar_regras_operacionais()
+    except Exception as exc:
+        st.warning(f'Escola indisponível; nenhuma regra foi alterada: {type(exc).__name__}: {exc}')
+        regras_escola = []
+    if regras_escola:
+        def etapa_escola(r):
+            if r.get('estado_revisao') == 'HOMOLOGADA':
+                return 'AUTOMÁTICA' if r.get('modo_motor') == 'AUTOMATICA' else ('ASSISTIDA' if r.get('modo_motor') == 'ASSISTIDA' else 'HOMOLOGADA')
+            if r.get('estado_revisao') == 'REVISADA':
+                return 'AGUARDA HOMOLOGAÇÃO'
+            return 'EM APRENDIZAGEM'
+        etapas = [etapa_escola(r) for r in regras_escola]
+        c1, c2, c3 = st.columns(3)
+        c1.metric('Conhecimentos', len(regras_escola))
+        c2.metric('Aguardando homologação', etapas.count('AGUARDA HOMOLOGAÇÃO'))
+        c3.metric('Automáticas autorizadas', etapas.count('AUTOMÁTICA'))
+        filtro_escola = st.selectbox('Filtrar etapa da Escola', ['Todas'] + sorted(set(etapas)), key='eddy_escola_etapa')
+        registros_escola = []
+        for r, etapa in zip(regras_escola, etapas):
+            if filtro_escola != 'Todas' and filtro_escola != etapa:
+                continue
+            workflow = r.get('workflow') or {}
+            registros_escola.append({
+                'Regra': str(r.get('regra_id') or ''),
+                'Player': str(r.get('player') or ''),
+                'Operação': str(r.get('operacao') or ''),
+                'Etapa': etapa,
+                'Completude (%)': int(r.get('completude') or 0),
+                'Executor': str(workflow.get('prontidao') or 'NÃO IDENTIFICADO'),
+                'Atualizado': str(r.get('atualizado_em') or ''),
+            })
+        st.caption('Grade estilo Excel: ordene por coluna e filtre por etapa. Somente leitura; nenhuma regra é homologada ou executada aqui.')
+        st.dataframe(pd.DataFrame(registros_escola), hide_index=True, width='stretch',
+                     height=min(580, 100 + 34 * len(registros_escola)))
+    else:
+        st.info('Ainda não encontrei regras de inclusão no inventário persistente. A Escola continuará aprendendo com as evidências disponíveis.')
+
+
 if st.button('🔄 Sincronizar agora', type='primary', width='content', key='op_refresh_3325'):
     try:
         from redmine_api import buscar_chamados_projetos
