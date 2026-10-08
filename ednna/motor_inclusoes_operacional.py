@@ -21,7 +21,7 @@ from ednna.workflows_inclusao import obter_workflow
 from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
 from ednna.sincronizador import normalizar_marca_alteracao
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta
-from ednna.status_guard import estado_terminal_nome
+from ednna.status_guard import estado_terminal_nome, chamado_em_quarentena
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -180,11 +180,11 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
         # mas não pode ser reativado por cache, regra homologada ou aprendizado.
         estado_snapshot = str(row.get("Estado", "") or "").strip()
         invalido_snapshot = not bool(row) or cid_candidato <= 0
-        if invalido_snapshot or estado_terminal_nome(estado_snapshot):
+        if invalido_snapshot or estado_terminal_nome(estado_snapshot) or chamado_em_quarentena(cid_candidato):
             itens.append({
                 **candidato,
                 "player": player,
-                "estado_motor": "IGNORADO_ESTADO_TERMINAL" if not invalido_snapshot else "IGNORADO_INVALIDO",
+                "estado_motor": "IGNORADO_INVALIDO" if invalido_snapshot else "IGNORADO_ESTADO_TERMINAL",
                 "acao_sugerida": "Somente histórico / auditoria",
                 "executavel": False,
                 "estado_redmine": estado_snapshot,
@@ -401,7 +401,7 @@ def gerar_demandas_operacionais(snapshot: pd.DataFrame, limite: int = 50) -> dic
         row_demanda = _row_por_id(snapshot, chamado_id) if chamado_id > 0 else {}
         estado_redmine = str(row_demanda.get("Estado", "") or item.get("estado_redmine") or "").strip()
         invalido = chamado_id <= 0 or not bool(row_demanda)
-        terminal = bool(estado_terminal_nome(estado_redmine))
+        terminal = bool(estado_terminal_nome(estado_redmine) or chamado_em_quarentena(chamado_id))
         if invalido or terminal:
             estado = "IGNORADO_INVALIDO" if invalido else "IGNORADO_ESTADO_TERMINAL"
 

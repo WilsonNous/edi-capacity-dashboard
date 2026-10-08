@@ -18,6 +18,19 @@ setup('🦾 Operação')
 require_edi()
 st.caption('Sua central de interação com o EDDY. Aqui aparece o que precisa de você; o restante fica sob responsabilidade dele.')
 
+with st.expander('🧭 Prontidão do colaborador digital · evidências de execução', expanded=False):
+    st.caption('Ciclo reportado não comprova envio. Sem telemetria, o estado permanece desconhecido.')
+    try:
+        from ednna.diagnostico_workers import diagnosticar_workers, indicadores_impacto
+        st.dataframe(pd.DataFrame(diagnosticar_workers()), hide_index=True, width='stretch')
+        st.caption('O heartbeat precisa ser emitido pelos workers em armazenamento compartilhado; sem isso, não presumimos operação.')
+        impacto = indicadores_impacto()
+        st.dataframe(pd.DataFrame([{'Indicador': k, 'Valor': 'Não medido' if v is None else v}
+                                   for k, v in impacto.items()]), hide_index=True, width='stretch')
+        st.caption('Redução de trabalho humano exige eventos de execução confirmada, não apenas regras prontas.')
+    except Exception as exc:
+        st.error(f'Diagnóstico indisponível: {type(exc).__name__}: {exc}')
+
 # Escola: inventário persistente, leitura e triagem. A homologação e a
 # autorização continuam exclusivamente nos fluxos humanos existentes.
 with st.expander('🎓 Escola do EDDY · conhecimento e evolução das regras', expanded=False):
@@ -361,7 +374,7 @@ with tab_ednna:
         registros.sort(key=lambda x: (
             0 if x['Situação'] == 'Atrasado' else 1,
             pd.to_datetime(x['_item'].get('prazo_resposta_em'), errors='coerce', utc=True)
-            if pd.notna(pd.to_datetime(por_chamado[x['Chamado']].get('prazo_resposta_em'), errors='coerce', utc=True))
+            if pd.notna(pd.to_datetime(x['_item'].get('prazo_resposta_em'), errors='coerce', utc=True))
             else pd.Timestamp.max.tz_localize('UTC'),
             x['Chamado'],
         ))

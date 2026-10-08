@@ -128,6 +128,10 @@ def enviar_email_graph(
             f"Envio bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}."
         )
 
+    # Portão final, imediatamente antes da comunicação externa.
+    from ednna.central_envios import exigir_janela_externa
+    exigir_janela_externa()
+
     token = obter_token_graph()
 
     resposta = requests.post(
@@ -421,6 +425,9 @@ def responder_todos_email_graph(*, remetente: str, message_id: str, comentario: 
         raise EmailSendError(
             f"Follow-up bloqueado pelo pre-flight Redmine: {preflight.get('estado') or preflight.get('motivo')}."
         )
+
+    from ednna.central_envios import exigir_janela_externa
+    exigir_janela_externa()
 
     token = obter_token_graph()
     resposta = requests.post(
