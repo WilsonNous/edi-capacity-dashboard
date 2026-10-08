@@ -10,6 +10,19 @@ ESTADOS_TERMINAIS = {
     "FECHADO", "FECHADA",
 }
 
+# Exceção de segurança documentada: o #47173 foi rejeitado e reapareceu
+# como EXECUTAR por snapshot desatualizado. Manter em quarentena até
+# reconciliação explícita com o estado atual e aprovação humana.
+CHAMADOS_QUARENTENA_CONFIRMADA = {47173}
+
+
+def chamado_em_quarentena(chamado_id: int) -> bool:
+    try:
+        return int(chamado_id) in CHAMADOS_QUARENTENA_CONFIRMADA
+    except (TypeError, ValueError):
+        return True
+
+
 def _norm(valor) -> str:
     txt=str(valor or "").strip().upper()
     return "".join(c for c in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(c))
@@ -25,6 +38,9 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     """Consulta pontual imediatamente antes de uma atuação externa.
     Falha de consulta é bloqueio seguro: não enviar com estado desconhecido.
     """
+    if chamado_em_quarentena(chamado_id):
+        return {"ok": True, "bloquear": True, "motivo": "QUARENTENA_REJEITADO_CONFIRMADO",
+                "estado": "REJEITADO", "quarentena": True}
     from redmine_api import buscar_detalhes_chamado
     from painel_cache import circuit_breaker_ativo
     from ednna.observabilidade import log_event
