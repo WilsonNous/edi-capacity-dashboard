@@ -797,6 +797,10 @@ def executar_monitoramento_respostas() -> dict:
                     recebidas_apos=str(acao.get("enviado_em", "") or ""),
                 )
                 if not resposta_fallback:
+                    from ednna.observabilidade import log_event
+                    log_event("EMAIL", "Resposta ainda não correlacionada", chamado_id=chamado_id,
+                              regra_id=regra_id, detalhe="Monitoramento realizado; conversa não localizada",
+                              dedup_seconds=3600)
                     resumo["sem_resposta"] += 1
                     resumo["detalhes"].append({
                         "chamado": chamado_id, "regra": regra_id,
@@ -828,6 +832,10 @@ def executar_monitoramento_respostas() -> dict:
                         break
 
             if not resposta:
+                from ednna.observabilidade import log_event
+                log_event("EMAIL", "Resposta ainda não recebida", chamado_id=chamado_id,
+                          regra_id=regra_id, detalhe="Thread consultada sem novo retorno",
+                          dedup_seconds=3600)
                 resumo["sem_resposta"] += 1
                 continue
 
