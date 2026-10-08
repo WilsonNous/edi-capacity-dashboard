@@ -10,9 +10,13 @@ from ui.operational_shell import setup, footer
 
 setup('📡 Observabilidade')
 require_admin()
-st.caption('Linha do tempo das ações registradas pelo EDDY: envios, respostas, follow-ups, atualizações no Redmine, bloqueios e falhas.')
+st.caption('Acompanhe cada movimentação registrada pelo EDDY, com horário, resultado e acesso ao chamado no Redmine.')
+aba_mov, aba_diag = st.tabs(['🧭 Movimentações', '🔧 Diagnóstico técnico'])
 
 st.markdown('<a href="/Observabilidade" target="_blank" rel="noopener noreferrer">↗ Abrir Observabilidade em nova aba</a>', unsafe_allow_html=True)
+
+with aba_mov:
+    st.caption('Movimentações confirmadas, recebidas, bloqueadas ou pendentes. Atualize para consultar os registros mais recentes.')
 
 c1,c2,c3,c4 = st.columns([1.2,1.3,1.1,2.4])
 with c1:
@@ -47,9 +51,15 @@ else:
     df.insert(0, 'Horário', dt.dt.strftime('%d/%m/%Y %H:%M:%S'))
     df = df.rename(columns={'nivel':'Nível','categoria':'Categoria','evento':'Evento','chamado_id':'Chamado','regra_id':'Regra','player':'Player','detalhe':'Detalhe'})
     cols = ['Horário','Chamado','Abrir chamado','Categoria','Evento','Status','Detalhe','Nível','Player','Regra']
-    st.dataframe(df[cols], hide_index=True, width='stretch', height=600,
-                 column_config={'Abrir chamado': st.column_config.LinkColumn('Redmine', display_text='Abrir ↗'),
-                                'Detalhe': st.column_config.TextColumn('Detalhe', width='large')})
+    with aba_mov:
+        st.dataframe(df[['Horário','Chamado','Abrir chamado','Evento','Status','Detalhe']],
+                     hide_index=True, width='stretch', height=600,
+                     column_config={'Abrir chamado': st.column_config.LinkColumn('Redmine', display_text='Abrir ↗'),
+                                    'Detalhe': st.column_config.TextColumn('Detalhe', width='large')})
+    with aba_diag:
+        st.dataframe(df[cols], hide_index=True, width='stretch', height=600,
+                     column_config={'Abrir chamado': st.column_config.LinkColumn('Redmine', display_text='Abrir ↗'),
+                                    'Detalhe': st.column_config.TextColumn('Detalhe', width='large')})
     st.caption('Clique em Abrir ↗ para acessar o chamado. Eventos sem número de chamado não têm vínculo direto.')
 
 st.caption('O Log Stream do Azure continua sendo a fonte técnica de infraestrutura. Esta tela registra eventos operacionais estruturados do EDDY para diagnóstico e auditoria diária.')
