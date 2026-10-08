@@ -131,6 +131,43 @@ def avaliar_followups() -> dict:
     return {"total":len(itens),"prontos":prontos,"automaticos_prontos":automaticos,"assistidos_prontos":assistidos,"itens":itens}
 
 
+
+def diagnosticar_pendencias_followup(itens: list[dict]) -> list[dict]:
+    """Triagem local somente leitura; não consulta Graph nem dispara follow-ups.
+
+    Identifica marcadores persistentes de tentativas ambíguas por chamado,
+    regra e etapa. Checa a etapa atual e a anterior porque o contador pode
+    ter sido persistido antes da falha de journal/outbox.
+    """
+    from painel_cache import obter_metadado
+    resultado = []
+    for item in itens:
+        cid = int(item.get("chamado_id") or 0)
+        rid = str(item.get("regra_id") or "")
+        contagem = int(item.get("followup_count") or 0)
+        numeros = sorted({n for n in (contagem, contagem + 1) if n > 0})
+        incertas = []
+        for numero in numeros:
+            chave = _chave_followup(cid, rid, numero)
+            if obter_metadado(f"followup_guard:{chave}"):
+                incertas.append(numero)
+        prazo = _parse(item.get("prazo_resposta_em"))
+        vencido = bool(prazo and _agora() > prazo)
+        if incertas:
+            situacao = "ENVIO_INCERTO_RECONCILIAR"
+        elif item.get("estado_followup") == "FOLLOWUP_PRONTO":
+            situacao = "PRONTO_AUTOMATICO" if followup_automatico(item) else "PRONTO_ASSISTIDO"
+        else:
+            situacao = str(item.get("estado_followup") or "AGUARDANDO_AVALIACAO")
+        resultado.append({
+            "chamado_id": cid, "regra_id": rid, "situacao": situacao,
+            "vencido": vencido, "etapas_incertas": incertas,
+            "prazo_resposta_em": item.get("prazo_resposta_em"),
+            "modo_followup": item.get("modo_followup"),
+        })
+    return resultado
+
+
 def registrar_followup(chamado_id:int, regra_id:str) -> None:
     # import local evita acoplamento circular
     from ednna.acompanhamento_acoes import _conectar, _iso, _agora
