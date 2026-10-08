@@ -107,7 +107,7 @@ if orfaos_continuidade:
                 st.error(f'Falha ao reconstruir históricos: {type(exc).__name__}: {exc}')
     if st.session_state.get('eddy_retomada_33'):
         r=st.session_state['eddy_retomada_33']
-        st.info(f"Retomada: {r.get('sucesso',0)} históricos sincronizados; {r.get('erros',0)} falhas. Reavalie a fila após atualizar.")
+        st.info(f"Retomada: {r.get('sucesso',0)} históricos sincronizados; {r.get('pendentes',0)} pendentes de Redmine; {r.get('ignorados_cooldown',0)} em cooldown; {r.get('erros',0)} falhas. Pendência não é sucesso nem envio confirmado.")
         with st.expander('Detalhes da retomada'):
             st.json(r.get('itens') or [])
 

@@ -569,13 +569,13 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
         if x.get("estado_motor") in {"CONTINUIDADE_ATUACAO_PREVIA", "CONTINUIDADE_ESTADO_REDMINE"}
     ]
     if not orfaos:
-        return {"candidatos": 0, "processados": 0, "sucesso": 0, "erros": 0, "itens": []}
+        return {"candidatos": 0, "processados": 0, "sucesso": 0, "pendentes": 0, "ignorados_cooldown": 0, "erros": 0, "itens": []}
 
     from ednna.sincronizador_journals import processar_chamado
     from ednna.primeiro_combate import autores_edi_do_dataframe
     autores_edi = autores_edi_do_dataframe(snapshot)
     resultados = []
-    sucesso = erros = 0
+    sucesso = erros = pendentes = ignorados_cooldown = 0
 
     # Priorizamos os mais antigos/estagnados quando a coluna existir.
     ids = {int(x.get("chamado_id") or 0) for x in orfaos}
@@ -591,12 +591,20 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
         cid = int(float(row.get("#", 0)))
         try:
             item = processar_chamado(row, autores_edi)
-            ok = bool(item.get("ok"))
+            # 'ok' significa que o sincronizador tratou a ocorrência, não que
+            # o Redmine confirmou o enriquecimento. Não anunciar pendências como sucesso.
+            pendente = bool(item.get("infraestrutura_indisponivel")) or item.get("situacao") == "PENDENTE_ENRIQUECIMENTO"
+            cooldown = bool(item.get("ignorado_cooldown")) or item.get("situacao") == "COOLDOWN"
+            ok = bool(item.get("ok")) and not pendente and not cooldown
             sucesso += int(ok)
-            erros += int(not ok)
+            pendentes += int(pendente)
+            ignorados_cooldown += int(cooldown)
+            erros += int(not ok and not pendente and not cooldown)
             resultados.append({
                 "chamado_id": cid,
                 "ok": ok,
+                "pendente": pendente,
+                "ignorado_cooldown": cooldown,
                 "situacao": item.get("situacao"),
                 "teve_atuacao": bool(item.get("teve_atuacao")),
                 "autor_primeira_atuacao": item.get("autor") or "",
@@ -610,11 +618,11 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
 
     print(
         f"[EDNNA] Retomada continuidade | candidatos={len(orfaos)} | "
-        f"processados={len(resultados)} | sucesso={sucesso} | erros={erros} | "
+        f"processados={len(resultados)} | sucesso={sucesso} | pendentes={pendentes} | cooldown={ignorados_cooldown} | erros={erros} | "
         f"ids={[x.get('chamado_id') for x in resultados]}",
         flush=True,
     )
-    return {"candidatos": len(orfaos), "processados": len(resultados), "sucesso": sucesso, "erros": erros, "itens": resultados}
+    return {"candidatos": len(orfaos), "processados": len(resultados), "sucesso": sucesso, "pendentes": pendentes, "ignorados_cooldown": ignorados_cooldown, "erros": erros, "itens": resultados}
 
 
 def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
