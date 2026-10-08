@@ -688,6 +688,9 @@ def _sincronizar_respostas_pendentes_redmine() -> int:
                 )
             marcar_status_redmine(chamado_id, regra_id, status)
             marcar_resposta_sincronizada_redmine(chamado_id, regra_id)
+            from ednna.observabilidade import log_event
+            log_event("REDMINE", "Retorno de e-mail atualizado no Redmine", chamado_id=chamado_id,
+                      regra_id=regra_id, detalhe="Sincronização pendente concluída")
             sincronizadas += 1
             print(f"[EDNNA] Redmine pendente | sincronizado | chamado={chamado_id}", flush=True)
         except Exception as exc:
@@ -881,6 +884,9 @@ def executar_monitoramento_respostas() -> dict:
                 )
                 marcar_status_redmine(chamado_id, regra_id, status_efetivo)
                 marcar_resposta_sincronizada_redmine(chamado_id, regra_id)
+                from ednna.observabilidade import log_event
+                log_event("REDMINE", "Retorno de e-mail atualizado no Redmine", chamado_id=chamado_id,
+                          regra_id=regra_id, detalhe="Evidência anexada e retorno sincronizado")
                 resumo["respostas"] += 1
             except Exception as redmine_exc:
                 registrar_falha_redmine(chamado_id, regra_id, f"Resposta preservada; Redmine pendente: {redmine_exc}")
