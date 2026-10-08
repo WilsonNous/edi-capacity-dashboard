@@ -181,6 +181,29 @@ with tab_ednna:
         cliente=str(row.get('cliente') or 'Cliente não informado'); player=str(row.get('origem') or '')
         if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
         ultima=a.get('followup_ultimo_em') or a.get('enviado_em') or 'registrada'; modo_auto=followup_automatico(a); proxima=('Execução automática atrasada' if vencido and modo_auto else 'Follow-up aguardando operador' if vencido else (f'Follow-up {prazo[:16].replace("T"," ")}' if prazo else 'Monitorar retorno')); linhas.append((cid,cliente,player,str(a.get('estado') or 'AGUARDANDO_RESPOSTA').replace('_',' '),ultima,proxima,vencido,a))
+    # Mostrar também demandas que o motor assumiu, ainda sem ação persistida.
+    if filtro in ('Todos','No prazo'):
+        for item in executando_motor:
+            cid=int(item.get('id') or 0)
+            if not cid: continue
+            cliente=str(item.get('cliente') or 'Cliente não informado')
+            player=str(item.get('player') or '')
+            if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
+            estado=str(item.get('estado_motor') or 'EM_ANALISE')
+            proxima=str(item.get('acao_sugerida') or estado.replace('_',' ').capitalize())
+            linhas.append((cid,cliente,player,estado,'Fila operacional',proxima,False,item))
+    if filtro in ('Todos','Redmine'):
+        for item in redmine_auto:
+            cid=int(item.get('id') or 0)
+            if not cid or (busca.strip() and busca.casefold() not in f'{cid} REDMINE'.casefold()): continue
+            linhas.append((cid,'Reconciliação','REDMINE','REDMINE_PENDENTE','Fila Redmine','Reconciliar atualização pendente',False,item))
+    if filtro in ('Todos','Histórico'):
+        for item in historico_auto:
+            cid=int(item.get('id') or 0)
+            cliente=str(item.get('cliente') or '')
+            player=str(item.get('player') or '')
+            if not cid or (busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold()): continue
+            linhas.append((cid,cliente,player,'AGUARDANDO_VERIFICACAO_HISTORICO','Fila operacional','Verificar histórico e evidências',False,item))
     if not linhas and filtro not in ('Redmine','Histórico'): st.info('Nenhum acompanhamento neste filtro.')
     for cid,cliente,player,estado,ultima,proxima,vencido,a in linhas[:80]:
         cols=st.columns([1.0,2.3,1.5,1.7,2.1]); cols[0].markdown(f'**[#{cid}]({redmine_link(cid)})**'); cols[1].write(cliente); cols[2].write(player or '—'); cols[3].write('🔴 Atrasado' if vencido else '🟢 No prazo'); cols[4].write(proxima)
