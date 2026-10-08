@@ -64,7 +64,8 @@ def _ja_existe(oc:dict)->int|None:
     for row in carregar_snapshot_chamados() or []:
         blob=" ".join(str(row.get(k) or "") for k in ("Assunto","Descrição","Cliente","Origem","Adquirente","Player")).upper()
         if oc["player"] not in blob: continue
-        if "SIM REDE" not in blob or oc["tipo"].replace("_", " ") not in blob: continue
+        tipo_normalizado=oc["tipo"].replace("_", " ")
+        if "SIM REDE" not in blob or not (tipo_normalizado in blob or oc["tipo"] in blob): continue
         if str(row.get("Estado") or "").strip().upper() in {"REJEITADO", "CONCLUÍDO", "CANCELADO", "FECHADO"}: continue
         alvos=[*oc.get("cnpjs", []), *oc.get("ecs", [])]
         if alvos and not any(str(alvo).upper() in blob for alvo in alvos): continue
