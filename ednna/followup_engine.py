@@ -154,6 +154,52 @@ def _reservar_followup(chave: str) -> str | None:
     return dono if adquirir_lock(chave, dono, ttl_seconds=2592000) else None
 
 
+def diagnosticar_envio_followup(item: dict) -> dict:
+    """Reconciliação SOMENTE LEITURA; nunca libera quarentena nem conta envio.
+
+    Exige correlação por conversationId e janela posterior ao envio inicial.
+    A ausência de resultado numa página Graph não prova ausência de envio.
+    """
+    from painel_cache import obter_metadado
+    from ednna.email_sender import listar_emails_enviados_por_chamado
+    chamado_id = int(item.get("chamado_id") or 0)
+    regra_id = str(item.get("regra_id") or "")
+    numero = int(item.get("proximo_followup") or (int(item.get("followup_count") or 0) + 1))
+    chave = _chave_followup(chamado_id, regra_id, numero)
+    guard = obter_metadado(f"followup_guard:{chave}")
+    if not guard:
+        return {"ok": False, "estado": "SEM_QUARENTENA", "chamado_id": chamado_id,
+                "motivo": "Nenhuma tentativa incerta persistida para esta etapa."}
+    conversa = str(item.get("graph_conversation_id") or "").strip()
+    inicio = _parse(item.get("followup_ultimo_em") or item.get("enviado_em"))
+    if not conversa or not inicio:
+        return {"ok": False, "estado": "EVIDENCIA_INSUFICIENTE",
+                "chamado_id": chamado_id,
+                "motivo": "Faltam conversationId ou data inicial; não é seguro reconciliar automaticamente."}
+    remetente = str(os.getenv("EDNNA_EMAIL_FROM", "edi@netunna.com.br") or "").strip()
+    try:
+        mensagens = listar_emails_enviados_por_chamado(
+            remetente=remetente, chamado_id=chamado_id, top=500
+        )
+    except Exception as exc:
+        return {"ok": False, "estado": "GRAPH_INDISPONIVEL",
+                "chamado_id": chamado_id, "motivo": f"{type(exc).__name__}: {str(exc)[:250]}"}
+    # Mensagens posteriores à referência são apenas candidatas: podem ser
+    # outras ações na mesma conversa. Exigir confirmação humana do conteúdo.
+    candidatas = [
+        {"id": str(m.get("id") or ""), "sent_datetime": str(m.get("sentDateTime") or ""),
+         "subject": str(m.get("subject") or ""), "conversation_id": conversa}
+        for m in mensagens
+        if str(m.get("conversationId") or "") == conversa
+        and _parse(m.get("sentDateTime")) is not None
+        and _parse(m.get("sentDateTime")) > inicio
+    ]
+    return {"ok": True, "estado": "CANDIDATAS_PARA_REVISAO" if candidatas else "SEM_EVIDENCIA_CONCLUSIVA",
+            "chamado_id": chamado_id, "regra_id": regra_id, "numero": numero,
+            "candidatas": candidatas[:20], "quantidade": len(candidatas),
+            "motivo": "Revisar assunto, corpo e horário; nenhum bloqueio foi liberado."}
+
+
 def executar_followup(item:dict) -> dict:
     if item.get("estado_followup") != "FOLLOWUP_PRONTO":
         return {"ok":False,"estado":item.get("estado_followup"),"motivo":"Follow-up ainda não está elegível."}
