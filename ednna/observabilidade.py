@@ -19,8 +19,15 @@ LEGACY_DB = ROOT / "data" / "ednna_observabilidade.db"
 
 def _preparar_db() -> None:
     """Migra eventos legados para o volume persistente quando possível."""
-    if DB.exists() or DB == LEGACY_DB or not LEGACY_DB.is_file():
+    if DB == LEGACY_DB or not LEGACY_DB.is_file():
         return
+    if DB.exists():
+        try:
+            with sqlite3.connect(DB, timeout=5) as con:
+                if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='eventos'").fetchone():
+                    return
+        except sqlite3.Error:
+            return
     DB.parent.mkdir(parents=True, exist_ok=True)
     try:
         with sqlite3.connect(LEGACY_DB, timeout=5) as origem:
@@ -33,7 +40,11 @@ def _preparar_db() -> None:
 
 def _db_leitura() -> Path:
     _preparar_db()
-    return DB if DB.exists() else LEGACY_DB
+    if DB.exists():
+        with sqlite3.connect(DB, timeout=5) as con:
+            if con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='eventos'").fetchone():
+                return DB
+    return LEGACY_DB
 
 
 
