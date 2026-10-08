@@ -151,7 +151,7 @@ def _reservar_followup(chave: str) -> str | None:
     import uuid
     from painel_cache import adquirir_lock
     dono = uuid.uuid4().hex
-    return dono if adquirir_lock(chave, dono, ttl_seconds=86400) else None
+    return dono if adquirir_lock(chave, dono, ttl_seconds=2592000) else None
 
 
 def executar_followup(item:dict) -> dict:
@@ -193,8 +193,7 @@ def executar_followup(item:dict) -> dict:
         return {"ok": False, "estado": "ENVIO_INCERTO_RECONCILIAR",
                 "motivo": "Falha ou timeout Graph; verificar Sent Items/thread antes de repetir.",
                 "chamado_id": chamado_id, "regra_id": regra_id}
-    if isinstance(resultado, dict) and resultado.get("ok") is True:
-        liberar_lock(chave, dono, detalhes="GRAPH_ACEITO")
+    # Manter o lease até concluir a persistência local e a outbox Redmine.
     # Resultado não confirmado permanece reservado para reconciliação.
     # Nunca contabilizar um follow-up como enviado quando o Graph não confirmou
     # o resultado. Falhas ambíguas exigem reconciliação da thread antes de retry.
@@ -231,4 +230,5 @@ def executar_followup(item:dict) -> dict:
     )
     from ednna.observabilidade import log_event
     log_event("FOLLOWUP", "Follow-up enviado", chamado_id=chamado_id, regra_id=regra_id, detalhe=f"numero={numero} | redmine={'OK' if redmine.get('ok') else 'PENDENTE'}")
+    liberar_lock(chave, dono, detalhes="FOLLOWUP_PERSISTIDO")
     return {**resultado,"chamado_id":chamado_id,"regra_id":regra_id,"numero":numero,"redmine":redmine}
