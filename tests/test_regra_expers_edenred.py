@@ -1,7 +1,7 @@
 import unittest
 from ednna.regra_expers_edenred import (
     classificar_demanda, preparar_despacho, interpretar_orientacao_retorno,
-    CAIXA_POSTAL, CONCILIACAO,
+    CAIXA_POSTAL, CONCILIACAO, diagnosticar_trailer_c1, preparar_despacho_49446,
 )
 
 
@@ -12,6 +12,22 @@ class RegraExpersTest(unittest.TestCase):
             with self.subTest(texto=texto):
                 self.assertEqual(classificar_demanda(texto)["destinatario"], CONCILIACAO)
         self.assertEqual(classificar_demanda("abertura de caixa postal")["destinatario"], CAIXA_POSTAL)
+
+    def test_trailer_inconsistente_sem_correcao_automatica(self):
+        d = diagnosticar_trailer_c1(total_trailer=420, quantidade_c1=393)
+        self.assertEqual(d["diferenca"], 27)
+        self.assertEqual(d["causa"], "INDETERMINADA")
+        self.assertFalse(d["correcao_automatica_permitida"])
+        self.assertEqual(classificar_demanda("trailer de lote divergente")["destinatario"], CONCILIACAO)
+
+    def test_despacho_real_49446(self):
+        r = preparar_despacho_49446()
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["para"], [CONCILIACAO])
+        self.assertEqual(r["referencia_chamado_pai"], 49304)
+        self.assertFalse(r["envio_executado"])
+        self.assertIn("393", r["corpo"])
+        self.assertIn("420", r["corpo"])
 
     def test_ambiguidade_bloqueada(self):
         self.assertEqual(classificar_demanda("abrir e cancelar caixa postal")["tipo"], "REVISAO_HUMANA")
