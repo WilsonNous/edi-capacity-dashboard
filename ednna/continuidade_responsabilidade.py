@@ -110,6 +110,20 @@ def classificar_lote(snapshot, diagnostico:dict, limite:int=30) -> dict:
         regra=_txt(itens[cid].get("regra_id"))
         acomp=obter_acompanhamento(cid,regra) if regra else {}
         d=classificar_proxima_responsabilidade(r.to_dict(),itens[cid].get("estado_motor",""),acomp)
+        # O contexto é um diagnóstico conservador, não autorização de disparo.
+        try:
+            from ednna.contexto_continuidade_universal import avaliar_contexto
+            previa = itens[cid].get("estado_motor") == "CONTINUIDADE_ATUACAO_PREVIA"
+            tx = str(acomp.get("estado") or "").upper()
+            d["contexto_continuidade"] = avaliar_contexto(
+                cid,
+                houve_atuacao=previa,
+                envio_confirmado=bool(acomp.get("envio_confirmado") or acomp.get("graph_message_id") or acomp.get("enviado_em")),
+                retorno={"classificacao": "RESPOSTA_PENDENTE"} if tx in {"RESPOSTA_RECEBIDA", "RESPOSTA_PENDENTE_REDMINE"} else {},
+            )
+        except Exception as contexto_exc:
+            d["contexto_continuidade"] = {"estado": "RECONCILIACAO_INDISPONIVEL", "erro": type(contexto_exc).__name__,
+                                         "primeiro_envio_automatico_permitido": False}
         d["regra_id"]=regra; d["estado_motor"]=itens[cid].get("estado_motor","")
         saida.append(d); cont[d["decisao"]]=cont.get(d["decisao"],0)+1
         if len(saida)>=max(1,int(limite)): break
