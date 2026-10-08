@@ -327,8 +327,6 @@ with tab_ednna:
         if not ultima_interpretacao_retorno:
             return {}
         regra = str(item.get('regra_id') or '')
-        if not regra:
-            return {}
         try:
             return ultima_interpretacao_retorno(cid, regra)
         except Exception:
@@ -363,6 +361,11 @@ with tab_ednna:
             if busca.strip() and busca.casefold() not in f'{cid} {cliente} {player}'.casefold(): continue
             estado=str(item.get('estado_motor') or 'EM_ANALISE')
             proxima=str(item.get('acao_sugerida') or estado.replace('_',' ').capitalize())
+            decisao=_decisao_item(cid,item)
+            if decisao.get('classificacao') == 'PENDENCIA_DOCUMENTAL':
+                estado='AGUARDANDO_DOCUMENTACAO'
+                proxima=decisao.get('proxima_acao') or proxima
+                item={**item,'prazo_resposta_em':decisao.get('prazo_revisao_em') or ''}
             linhas.append((cid,cliente,player,estado,'Fila operacional',proxima,False,item))
     if filtro in ('Todos','Redmine'):
         for item in redmine_auto:
