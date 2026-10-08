@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
@@ -50,9 +51,13 @@ def exibir_eventos():
         aba_diag = None
     with aba_mov:
         st.caption('Movimentações confirmadas, recebidas, bloqueadas ou pendentes. Os dados são somente leitura.')
-    eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
-                             categoria='' if categoria=='Todas' else categoria,
-                             chamado_id=chamado, busca=busca.strip())
+    try:
+        eventos = listar_eventos(limite=limite, nivel='' if nivel=='Todos' else nivel,
+                                 categoria='' if categoria=='Todas' else categoria,
+                                 chamado_id=chamado, busca=busca.strip())
+    except Exception:
+        st.error('Não foi possível consultar os eventos agora. Tente novamente ou solicite à equipe EDI a verificação do armazenamento.')
+        return
     
     if not eventos:
         with aba_mov:
@@ -82,7 +87,7 @@ def exibir_eventos():
                                         'Detalhe': st.column_config.TextColumn('Detalhe', width='large')})
         st.caption('Clique em Abrir ↗ para acessar o chamado. Eventos sem número de chamado não têm vínculo direto.')
     
-    st.caption('Consulta realizada às ' + datetime.now(timezone.utc).astimezone().strftime('%H:%M:%S') + ' (horário do servidor).')
+    st.caption('Consulta realizada às ' + datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%H:%M:%S') + ' (horário de Brasília).')
 
 exibir_eventos()
 
