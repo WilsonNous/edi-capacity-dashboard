@@ -9,7 +9,7 @@ from ednna.linguagem import quantidade, verbo
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email, reconstruir_continuidades_orfas
-from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico, diagnosticar_envio_followup
+from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico, diagnosticar_envio_followup, diagnosticar_pendencias_followup
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
 from ednna.checkpoints_humanos import garantir_checkpoint, registrar_resultado_checkpoint
@@ -131,6 +131,14 @@ except Exception as exc:
 try: fups=avaliar_followups()
 except Exception: fups={'total':0,'prontos':0,'automaticos_prontos':0,'assistidos_prontos':0,'itens':[]}
 
+# Triagem operacional local: exibe bloqueios incertos antes de qualquer ação.
+try:
+    triagem_followup = diagnosticar_pendencias_followup(fups.get('itens') or [])
+    triagem_erro = None
+except Exception as exc:
+    triagem_followup = []
+    triagem_erro = f'{type(exc).__name__}: {exc}'
+
 fup_assistidos_prontos=[x for x in fups.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO' and not followup_automatico(x)]
 fup_auto_prontos=[x for x in fups.get('itens',[]) if x.get('estado_followup')=='FOLLOWUP_PRONTO' and followup_automatico(x)]
 fup_assistidos_ids={int(x.get('chamado_id') or 0) for x in fup_assistidos_prontos}
@@ -191,6 +199,33 @@ if orfaos_continuidade:
         st.info(f"Retomada: {r.get('sucesso',0)} históricos sincronizados; {r.get('pendentes',0)} pendentes de Redmine; {r.get('ignorados_cooldown',0)} em cooldown; {r.get('erros',0)} falhas. Pendência não é sucesso nem envio confirmado.")
         with st.expander('Detalhes da retomada'):
             st.json(r.get('itens') or [])
+
+with st.expander('🛡️ Saúde operacional dos follow-ups · triagem local', expanded=False):
+    st.caption('Leitura do acompanhamento e dos bloqueios persistentes. Não envia e-mails, não altera contadores nem libera quarentena.')
+    if triagem_erro:
+        st.error(f'Triagem indisponível: {triagem_erro}. Não interpretar como ausência de bloqueios.')
+    else:
+        incertos = [x for x in triagem_followup if x['situacao'] == 'ENVIO_INCERTO_RECONCILIAR']
+        prontos_auto = [x for x in triagem_followup if x['situacao'] == 'PRONTO_AUTOMATICO']
+        prontos_humanos = [x for x in triagem_followup if x['situacao'] == 'PRONTO_ASSISTIDO']
+        t1,t2,t3 = st.columns(3)
+        t1.metric('Envios incertos', len(incertos))
+        t2.metric('Automáticos elegíveis', len(prontos_auto))
+        t3.metric('Assistidos elegíveis', len(prontos_humanos))
+        st.caption('Elegível não significa executado; automático não significa que o worker está ativo.')
+        if triagem_followup:
+            linhas_triagem = [{
+                'Chamado': x['chamado_id'], 'Regra': x['regra_id'],
+                'Situação': x['situacao'], 'Vencido': x['vencido'],
+                'Prazo original': str(x['prazo_resposta_em'] or 'Não informado'),
+                'Etapas incertas': ', '.join(map(str, x['etapas_incertas'])) or '—',
+            } for x in triagem_followup]
+            linhas_triagem.sort(key=lambda x: (0 if x['Situação']=='ENVIO_INCERTO_RECONCILIAR' else 1,
+                                               0 if x['Vencido'] else 1, x['Prazo original'], x['Chamado']))
+            st.dataframe(pd.DataFrame(linhas_triagem), hide_index=True, width='stretch',
+                         height=min(560, 110 + 35 * len(linhas_triagem)))
+        else:
+            st.info('Nenhum acompanhamento retornado pela consulta local. Verifique o worker e a fonte de dados antes de concluir que não há pendências.')
 
 if atrasados:
     st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com execução automática atrasada. O EDDY tentará executá-los no próximo ciclo; acompanhe em **Estou cuidando → Atrasados**.")
