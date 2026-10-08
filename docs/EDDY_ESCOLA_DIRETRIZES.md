@@ -44,4 +44,8 @@ Documentar exceções e compromissos técnicos; CI bem-sucedido não substitui v
 - **Fora da janela:** manter a comunicação externa pendente na fila durável até a próxima abertura, sem perder prazo original, prioridade, rastreabilidade ou autorização; não marcar como enviada.
 - **Controle central:** verificar o horário imediatamente antes de cada ação externa, inclusive em execuções assistidas, automáticas e retentativas. Não confiar apenas no horário do agendador.
 - **Falhas e reinício:** respeitar idempotência, bloqueios de envios incertos e auditoria; janela aberta não é autorização para duplicar envio.
-- **Limites:** a janela semanal não presume feriados; calendário de feriados e exceções exigem definição e aprovação explícitas antes de serem aplicados.
+- **Feriados obrigatórios:** a Central deve considerar **feriados nacionais, estaduais e municipais** do contexto aplicável ao envio. Dia de segunda a sexta não é automaticamente dia útil.
+- **Calendário contextual:** identificar unidade federativa e município relevantes à operação; não presumir que o município da sede NETUNNA se aplica a todos os destinatários. A regra de escolha da localidade e a fonte oficial do calendário devem ser parametrizadas e auditáveis.
+- **Agendamento:** calcular a próxima janela de envio somente após validar dia da semana, horário local e feriados aplicáveis; não avançar por simples acréscimo de 24 horas.
+- **Falha de calendário:** na ausência de confirmação de feriados ou de localidade necessária, não presumir dia útil para um disparo externo automático; sinalizar pendência de configuração para revisão.
+- **Governança:** manter calendário versionado por ano/localidade, fontes e exceções aprovadas, com testes para feriados móveis, estaduais, municipais e virada de ano.
