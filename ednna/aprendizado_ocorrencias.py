@@ -52,7 +52,9 @@ def _id(row):
         except Exception: pass
     return 0
 
-def _texto(row):\n    return chr(10).join(str(row.get(k) or "") for k in ("Tipo","Assunto","Descrição","Origem","Clientes","Estado"))\n
+def _texto(row):
+    return "\n".join(str(row.get(k) or "") for k in ("Tipo","Assunto","Descrição","Origem","Clientes","Estado"))
+
 def classificar_ocorrencias(row: dict) -> list[str]:
     texto=_texto(row)
     return [tipo for tipo,padroes in PADROES.items() if any(re.search(p,texto) for p in padroes)]
