@@ -961,7 +961,7 @@ def registrar_interpretacao_retorno(chamado_id: int, regra_id: str, *, corpo: st
     return decisao
 
 
-def ultima_interpretacao_retorno(chamado_id: int, regra_id: str) -> dict:
+def ultima_interpretacao_retorno(chamado_id: int, regra_id: str = "") -> dict:
     import json
     with _conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS interpretacoes_retorno (
@@ -971,7 +971,12 @@ def ultima_interpretacao_retorno(chamado_id: int, regra_id: str) -> dict:
             criado_em TEXT NOT NULL,
             PRIMARY KEY (chamado_id, regra_id, digest)
         )""")
-        row = conn.execute("""SELECT decisao_json FROM interpretacoes_retorno
-            WHERE chamado_id=? AND regra_id=? ORDER BY criado_em DESC, rowid DESC LIMIT 1""",
-            (int(chamado_id), str(regra_id))).fetchone()
+        if regra_id:
+            row = conn.execute("""SELECT decisao_json FROM interpretacoes_retorno
+                WHERE chamado_id=? AND regra_id=? ORDER BY criado_em DESC, rowid DESC LIMIT 1""",
+                (int(chamado_id), str(regra_id))).fetchone()
+        else:
+            row = conn.execute("""SELECT decisao_json FROM interpretacoes_retorno
+                WHERE chamado_id=? ORDER BY criado_em DESC, rowid DESC LIMIT 1""",
+                (int(chamado_id),)).fetchone()
     return json.loads(row["decisao_json"]) if row else {}
