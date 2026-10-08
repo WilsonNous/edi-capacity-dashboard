@@ -930,3 +930,48 @@ def listar_acoes_recentes(limite: int = 50) -> list[dict]:
             """, (max(1,int(limite)),)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def registrar_interpretacao_retorno(chamado_id: int, regra_id: str, *, corpo: str,
+                                  assunto: str = "", recebido_em: str = "",
+                                  graph_message_id: str = "") -> dict:
+    """Persiste interpretação idempotente, sem alterar estado de envio ou Redmine.
+
+    Decisões incertas permanecem assistidas. A chave inclui a identidade Graph
+    e um hash do conteúdo, impedindo reprocessamento duplicado do mesmo retorno.
+    """
+    import hashlib
+    import json
+    from ednna.interpretacao_retorno import interpretar_retorno
+    decisao = interpretar_retorno(corpo, assunto=assunto, recebido_em=recebido_em)
+    digest = hashlib.sha256((str(graph_message_id) + "\\0" + str(corpo)).encode("utf-8")).hexdigest()
+    with _conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS interpretacoes_retorno (
+            chamado_id INTEGER NOT NULL, regra_id TEXT NOT NULL,
+            digest TEXT NOT NULL, graph_message_id TEXT,
+            classificacao TEXT NOT NULL, decisao_json TEXT NOT NULL,
+            criado_em TEXT NOT NULL,
+            PRIMARY KEY (chamado_id, regra_id, digest)
+        )""")
+        conn.execute("""INSERT OR IGNORE INTO interpretacoes_retorno
+            (chamado_id, regra_id, digest, graph_message_id, classificacao, decisao_json, criado_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (int(chamado_id), str(regra_id), digest, str(graph_message_id),
+             decisao["classificacao"], json.dumps(decisao, ensure_ascii=False), _iso(_agora())))
+    return decisao
+
+
+def ultima_interpretacao_retorno(chamado_id: int, regra_id: str) -> dict:
+    import json
+    with _conectar() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS interpretacoes_retorno (
+            chamado_id INTEGER NOT NULL, regra_id TEXT NOT NULL,
+            digest TEXT NOT NULL, graph_message_id TEXT,
+            classificacao TEXT NOT NULL, decisao_json TEXT NOT NULL,
+            criado_em TEXT NOT NULL,
+            PRIMARY KEY (chamado_id, regra_id, digest)
+        )""")
+        row = conn.execute("""SELECT decisao_json FROM interpretacoes_retorno
+            WHERE chamado_id=? AND regra_id=? ORDER BY criado_em DESC, rowid DESC LIMIT 1""",
+            (int(chamado_id), str(regra_id))).fetchone()
+    return json.loads(row["decisao_json"]) if row else {}
