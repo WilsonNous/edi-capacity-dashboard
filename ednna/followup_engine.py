@@ -117,6 +117,14 @@ def avaliar_followups() -> dict:
         else:
             estado="FOLLOWUP_PRONTO"
         itens.append({**a,"estado_followup":estado,"proximo_followup":n+1,"texto_followup":_texto_followup(a,n+1),"modo_followup":modo_followup_regra(str(a.get("regra_id") or ""))})
+    # Prioridade operacional: prazo original mais antigo primeiro. Sem prazo,
+    # a tarefa permanece visível, mas não recebe vencimento inventado.
+    itens.sort(key=lambda x: (
+        0 if x.get("estado_followup") == "FOLLOWUP_PRONTO" else 1,
+        0 if followup_automatico(x) else 1,
+        _parse(x.get("prazo_resposta_em")) or datetime.max.replace(tzinfo=TZ),
+        int(x.get("chamado_id") or 0),
+    ))
     prontos=sum(x["estado_followup"]=="FOLLOWUP_PRONTO" for x in itens)
     automaticos=sum(x["estado_followup"]=="FOLLOWUP_PRONTO" and followup_automatico(x) for x in itens)
     assistidos=prontos-automaticos
