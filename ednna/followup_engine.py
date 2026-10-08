@@ -184,20 +184,40 @@ def diagnosticar_envio_followup(item: dict) -> dict:
     except Exception as exc:
         return {"ok": False, "estado": "GRAPH_INDISPONIVEL",
                 "chamado_id": chamado_id, "motivo": f"{type(exc).__name__}: {str(exc)[:250]}"}
-    # Mensagens posteriores à referência são apenas candidatas: podem ser
-    # outras ações na mesma conversa. Exigir confirmação humana do conteúdo.
-    candidatas = [
-        {"id": str(m.get("id") or ""), "sent_datetime": str(m.get("sentDateTime") or ""),
-         "subject": str(m.get("subject") or ""), "conversation_id": conversa}
-        for m in mensagens
-        if str(m.get("conversationId") or "") == conversa
-        and _parse(m.get("sentDateTime")) is not None
-        and _parse(m.get("sentDateTime")) > inicio
-    ]
+    # Evidência da tentativa específica: mensagem posterior ao envio inicial
+    # na mesma conversa, com conteúdo correspondente ao follow-up esperado.
+    # Não basta assunto/chamado, pois a thread pode conter outras atuações.
+    import html
+    import re
+    from difflib import SequenceMatcher
+    esperado = str(item.get("texto_followup") or _texto_followup(item, numero))
+    def normalizar(texto: str) -> str:
+        sem_tags = re.sub(r"<[^>]+>", " ", html.unescape(str(texto or "")))
+        return " ".join(sem_tags.casefold().split())
+    texto_esperado = normalizar(esperado)
+    candidatas = []
+    for m in mensagens:
+        if str(m.get("conversationId") or "") != conversa:
+            continue
+        data = _parse(m.get("sentDateTime"))
+        if data is None or data <= inicio:
+            continue
+        corpo = m.get("body") or {}
+        conteudo = corpo.get("content") if isinstance(corpo, dict) else ""
+        corpo_normalizado = normalizar(conteudo or m.get("bodyPreview") or "")
+        similaridade = SequenceMatcher(None, texto_esperado[:1500], corpo_normalizado[:3000]).ratio() if texto_esperado else 0.0
+        candidatas.append({
+            "id": str(m.get("id") or ""),
+            "sent_datetime": str(m.get("sentDateTime") or ""),
+            "subject": str(m.get("subject") or ""),
+            "conversation_id": conversa,
+            "texto_compativel": bool(texto_esperado and texto_esperado in corpo_normalizado),
+            "similaridade_indicativa": round(similaridade, 3),
+        })
     return {"ok": True, "estado": "CANDIDATAS_PARA_REVISAO" if candidatas else "SEM_EVIDENCIA_CONCLUSIVA",
             "chamado_id": chamado_id, "regra_id": regra_id, "numero": numero,
             "candidatas": candidatas[:20], "quantidade": len(candidatas),
-            "motivo": "Revisar assunto, corpo e horário; nenhum bloqueio foi liberado."}
+            "motivo": "Texto compatível e similaridade são indícios, não confirmação de envio; nenhum bloqueio foi liberado."}
 
 
 def executar_followup(item:dict) -> dict:
