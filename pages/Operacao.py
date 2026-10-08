@@ -242,7 +242,13 @@ with tab_ednna:
                 'Próxima ação': proxima, 'Última atuação': str(ultima),
             })
             por_chamado[cid] = item
-        registros.sort(key=lambda x: (0 if x['Situação'] == 'Atrasado' else 1, x['Chamado']))
+        registros.sort(key=lambda x: (
+            0 if x['Situação'] == 'Atrasado' else 1,
+            pd.to_datetime(por_chamado[x['Chamado']].get('prazo_resposta_em'), errors='coerce', utc=True)
+            if pd.notna(pd.to_datetime(por_chamado[x['Chamado']].get('prazo_resposta_em'), errors='coerce', utc=True))
+            else pd.Timestamp.max.tz_localize('UTC'),
+            x['Chamado'],
+        ))
         grade = pd.DataFrame(registros)
         st.caption(f'{len(grade)} registros · Ordene clicando no cabeçalho e selecione uma linha para consultar os detalhes. A grade é somente leitura.')
         selecao = st.dataframe(
