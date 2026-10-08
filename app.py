@@ -73,8 +73,8 @@ st.markdown('<div class="section"><div class="section-title">Acesso rápido</div
 if user.is_admin:
     nav=[('🦾 Operação de hoje','pages/Operacao.py'),('🧠 Central de Regras','pages/Regras.py'),('🎓 Central de Aprendizagem','pages/Aprendizado.py'),('⚡ Automações','pages/Automacoes.py'),('📡 Observabilidade','pages/Observabilidade.py'),('📚 Conhecimento','pages/Conhecimento.py'),('📥 Atendimentos','pages/Atendimentos.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
 elif user.is_edi:
-    nav=[('🦾 Operação de hoje','pages/Operacao.py'),('⚡ Automações','pages/Automacoes.py'),('📚 Conhecimento','pages/Conhecimento.py'),('📥 Atendimentos','pages/Atendimentos.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
-else: nav=[('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
+    nav=[('🦾 Operação de hoje','pages/Operacao.py'),('📡 Observabilidade','pages/Observabilidade.py'),('⚡ Automações','pages/Automacoes.py'),('📚 Conhecimento','pages/Conhecimento.py'),('📥 Atendimentos','pages/Atendimentos.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
+else: nav=[('📡 Observabilidade','pages/Observabilidade.py'),('👥 Equipe','pages/Equipe.py'),('📊 Painel EDI','pages/Painel_EDI.py')]
 for i in range(0,len(nav),3):
     row=nav[i:i+3]; cols=st.columns(len(row))
     for col,(label,page) in zip(cols,row):
