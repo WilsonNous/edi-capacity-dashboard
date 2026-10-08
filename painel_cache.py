@@ -237,6 +237,35 @@ def circuit_breaker_ativo(chave: str = "redmine_global") -> bool:
     return fim is not None and fim > datetime.now(FUSO_BRASIL)
 
 
+
+def circuit_breaker_recuperacao_pendente(chave: str = "redmine_global") -> bool:
+    """Cooldown encerrado, mas nenhuma consulta de recuperação foi confirmada.
+
+    Impede que múltiplos workers interpretem a expiração como recuperação.
+    """
+    with conectar() as conn:
+        linha = conn.execute(
+            "SELECT estado, expira_em FROM coordenacao WHERE chave = ?", (f"cb:{chave}",)
+        ).fetchone()
+    if linha is None or str(linha["estado"] or "") != "ABERTO":
+        return False
+    fim = _parse_data(linha["expira_em"])
+    return fim is not None and fim <= datetime.now(FUSO_BRASIL)
+
+
+def reservar_probe_redmine(chave: str = "redmine_global", ttl_seconds: int = 45) -> str | None:
+    """Reserva um único teste após cooldown usando lock compartilhado SQLite."""
+    import uuid
+    dono = uuid.uuid4().hex
+    if adquirir_lock(f"cb_probe:{chave}", dono, ttl_seconds=ttl_seconds):
+        return dono
+    return None
+
+
+def liberar_probe_redmine(dono: str, chave: str = "redmine_global") -> None:
+    liberar_lock(f"cb_probe:{chave}", dono)
+
+
 def abrir_circuit_breaker(chave: str = "redmine_global", cooldown_seconds: int = 180, detalhes: str = "") -> None:
     agora = datetime.now(FUSO_BRASIL)
     expira = agora + timedelta(seconds=max(30, int(cooldown_seconds)))

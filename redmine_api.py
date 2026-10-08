@@ -134,97 +134,116 @@ def _get(
     if painel_circuit_breaker_ativo() and ignorar_circuit_breaker_global:
         print(f"[REDMINE] Consulta pontual autorizada apesar do circuit breaker | {path}", flush=True)
 
-    url = f"{REDMINE_URL}/{path.lstrip('/')}"
-    esperas = [0, 2, 5]
+    # HALF-OPEN: após cooldown, somente um worker pode testar a recuperação.
+    # Os demais aguardam o próximo ciclo sem saturar a origem.
+    probe_owner = None
+    if not ignorar_circuit_breaker_global:
+        from painel_cache import circuit_breaker_recuperacao_pendente, reservar_probe_redmine, liberar_probe_redmine
+        if circuit_breaker_recuperacao_pendente():
+            probe_owner = reservar_probe_redmine()
+            if probe_owner is None:
+                raise ConnectionError("Redmine em recuperação; probe exclusivo em andamento.")
+            # Dupla checagem: outro worker pode ter recuperado o serviço.
+            if not circuit_breaker_recuperacao_pendente():
+                liberar_probe_redmine(probe_owner)
+                probe_owner = None
 
-    for tentativa in range(1, tentativas + 1):
-        if tentativa > 1:
-            espera = esperas[min(tentativa - 1, len(esperas) - 1)]
-            print(
-                f"[REDMINE] Nova tentativa em {espera}s | "
-                f"{path} | tentativa {tentativa}/{tentativas}",
-                flush=True,
-            )
-            sleep(espera)
+    try:
+        url = f"{REDMINE_URL}/{path.lstrip('/')}"
+        esperas = [0, 2, 5]
 
-        try:
-            inicio = monotonic()
-            print(
-                f"[REDMINE] GET {path} | tentativa {tentativa}/{tentativas}",
-                flush=True,
-            )
-
-            espera_inicio = monotonic()
-            adquirido = _RED_GATEWAY.acquire(timeout=_RED_GATEWAY_WAIT_SECONDS)
-            espera_gateway = monotonic() - espera_inicio
-            if not adquirido:
-                raise requests.exceptions.ConnectTimeout(
-                    f"Gateway Redmine ocupado por mais de {_RED_GATEWAY_WAIT_SECONDS}s"
+        for tentativa in range(1, tentativas + 1):
+            if tentativa > 1:
+                espera = esperas[min(tentativa - 1, len(esperas) - 1)]
+                print(
+                    f"[REDMINE] Nova tentativa em {espera}s | "
+                    f"{path} | tentativa {tentativa}/{tentativas}",
+                    flush=True,
                 )
+                sleep(espera)
+
             try:
-                _GATEWAY_DIAGNOSTICO["requests"] += 1
-                _GATEWAY_DIAGNOSTICO["espera_gateway_s"] = round(espera_gateway, 3)
-                if espera_gateway >= 0.25:
-                    print(
-                        f"[REDMINE-GW] aguardou={espera_gateway:.2f}s | path={path} | "
-                        f"limite={_RED_GATEWAY_MAX_CONCURRENT}",
-                        flush=True,
-                    )
-                response = _SESSION.get(
-                    url,
-                    headers=_headers(),
-                    params=params,
-                    timeout=timeout,
+                inicio = monotonic()
+                print(
+                    f"[REDMINE] GET {path} | tentativa {tentativa}/{tentativas}",
+                    flush=True,
                 )
-                response.raise_for_status()
-            finally:
-                _RED_GATEWAY.release()
 
-            duracao = monotonic() - inicio
-            _GATEWAY_DIAGNOSTICO["ultima_duracao_s"] = round(duracao, 3)
-            print(
-                f"[REDMINE] OK {path} | tentativa {tentativa}/{tentativas} | "
-                f"{duracao:.2f}s",
-                flush=True,
-            )
-            if alterar_circuit_breaker_global:
-                painel_fechar_circuit_breaker()
-            return response.json()
-
-        except (
-            requests.exceptions.ConnectTimeout,
-            requests.exceptions.ReadTimeout,
-            requests.exceptions.ConnectionError,
-        ) as exc:
-            print(
-                f"[REDMINE] Falha transitória {type(exc).__name__} em {path} | "
-                f"tentativa {tentativa}/{tentativas}: {exc}",
-                flush=True,
-            )
-            if tentativa >= tentativas:
-                if alterar_circuit_breaker_global:
-                    painel_abrir_circuit_breaker(
-                        cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
-                        detalhes=f"{type(exc).__name__}: {exc}",
+                espera_inicio = monotonic()
+                adquirido = _RED_GATEWAY.acquire(timeout=_RED_GATEWAY_WAIT_SECONDS)
+                espera_gateway = monotonic() - espera_inicio
+                if not adquirido:
+                    raise requests.exceptions.ConnectTimeout(
+                        f"Gateway Redmine ocupado por mais de {_RED_GATEWAY_WAIT_SECONDS}s"
                     )
-                    try:
-                        from ednna.observabilidade import log_event
-                        log_event("REDMINE", "Redmine indisponível; circuit breaker aberto", nivel="ERROR",
-                                  detalhe=f"path={path} | {type(exc).__name__}: {exc}", dedup_seconds=120)
-                    except Exception:
-                        pass
+                try:
+                    _GATEWAY_DIAGNOSTICO["requests"] += 1
+                    _GATEWAY_DIAGNOSTICO["espera_gateway_s"] = round(espera_gateway, 3)
+                    if espera_gateway >= 0.25:
+                        print(
+                            f"[REDMINE-GW] aguardou={espera_gateway:.2f}s | path={path} | "
+                            f"limite={_RED_GATEWAY_MAX_CONCURRENT}",
+                            flush=True,
+                        )
+                    response = _SESSION.get(
+                        url,
+                        headers=_headers(),
+                        params=params,
+                        timeout=timeout,
+                    )
+                    response.raise_for_status()
+                finally:
+                    _RED_GATEWAY.release()
+
+                duracao = monotonic() - inicio
+                _GATEWAY_DIAGNOSTICO["ultima_duracao_s"] = round(duracao, 3)
+                print(
+                    f"[REDMINE] OK {path} | tentativa {tentativa}/{tentativas} | "
+                    f"{duracao:.2f}s",
+                    flush=True,
+                )
+                if alterar_circuit_breaker_global:
+                    painel_fechar_circuit_breaker()
+                return response.json()
+
+            except (
+                requests.exceptions.ConnectTimeout,
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+            ) as exc:
+                print(
+                    f"[REDMINE] Falha transitória {type(exc).__name__} em {path} | "
+                    f"tentativa {tentativa}/{tentativas}: {exc}",
+                    flush=True,
+                )
+                if tentativa >= tentativas:
+                    if alterar_circuit_breaker_global:
+                        painel_abrir_circuit_breaker(
+                            cooldown_seconds=int(os.getenv("REDMINE_CIRCUIT_BREAKER_SECONDS", "180")),
+                            detalhes=f"{type(exc).__name__}: {exc}",
+                        )
+                        try:
+                            from ednna.observabilidade import log_event
+                            log_event("REDMINE", "Redmine indisponível; circuit breaker aberto", nivel="ERROR",
+                                      detalhe=f"path={path} | {type(exc).__name__}: {exc}", dedup_seconds=120)
+                        except Exception:
+                            pass
+                    raise
+
+            except requests.exceptions.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else "?"
+                print(
+                    f"[REDMINE] Erro HTTP {status} em {path}: {exc}",
+                    flush=True,
+                )
                 raise
 
-        except requests.exceptions.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else "?"
-            print(
-                f"[REDMINE] Erro HTTP {status} em {path}: {exc}",
-                flush=True,
-            )
-            raise
+        raise RuntimeError(f"Falha inesperada ao consultar {path}.")
 
-    raise RuntimeError(f"Falha inesperada ao consultar {path}.")
 
+    finally:
+        if probe_owner is not None:
+            liberar_probe_redmine(probe_owner)
 
 def buscar_custom_fields(force: bool = False) -> list[dict]:
     """Catálogo compartilhado: memória -> SQLite -> Redmine.
