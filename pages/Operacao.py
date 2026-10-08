@@ -8,7 +8,7 @@ from ednna.security import current_user, display_name
 from ednna.linguagem import quantidade, verbo
 from ui.operational_shell import setup, footer
 from ui.operational_data import chamados_ativos_df, redmine_link
-from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email
+from ednna.motor_inclusoes_operacional import avaliar_fila_inclusoes, preparar_atuacao_assistida, gerar_rascunho_inclusao, executar_atuacao_assistida_email, reconstruir_continuidades_orfas
 from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta, listar_acoes_recentes
 from ednna.planejador_inclusoes import rastrear_descoberta_chamado
@@ -91,6 +91,25 @@ c1.metric('🔴 Você',len(preciso),help='Somente decisões ou ações que o EDD
 c2.metric('🟢 EDDY',cuidando_total,help='Acompanhamentos, histórico e reconciliações automáticas.')
 c3.metric('🤖 Realizado',len(recentes),help='Atuações persistidas recentemente.')
 c4.metric('⚠️ Exceções',len(falhas),help='Situações em que a automação realmente travou.')
+
+# Retomada operacional segura: sincroniza evidências dos chamados órfãos.
+# Não envia mensagens nem altera o Redmine; permite ao motor decidir o próximo passo.
+orfaos_continuidade=[x for x in itens if x.get('estado_motor') in {'CONTINUIDADE_ATUACAO_PREVIA','CONTINUIDADE_ESTADO_REDMINE'} and int(x.get('id') or 0) in active_ids]
+if orfaos_continuidade:
+    st.warning(f"🧠 **{len(orfaos_continuidade)} chamados** precisam de reconstrução de histórico para que o EDDY identifique a próxima ação.")
+    if st.button('🧠 EDDY: retomar 12 acompanhamentos', key='eddy_retomar_orfaos_33', help='Sincroniza histórico e evidências; não envia e-mails nem modifica chamados no Redmine.'):
+        with st.spinner('EDDY reconstruindo os históricos...'):
+            try:
+                resultado_retomada=reconstruir_continuidades_orfas(snapshot, limite=12)
+                st.session_state['eddy_retomada_33']=resultado_retomada
+                st.cache_data.clear()
+            except Exception as exc:
+                st.error(f'Falha ao reconstruir históricos: {type(exc).__name__}: {exc}')
+    if st.session_state.get('eddy_retomada_33'):
+        r=st.session_state['eddy_retomada_33']
+        st.info(f"Retomada: {r.get('sucesso',0)} históricos sincronizados; {r.get('erros',0)} falhas. Reavalie a fila após atualizar.")
+        with st.expander('Detalhes da retomada'):
+            st.json(r.get('itens') or [])
 
 if atrasados:
     st.warning(f"⏱️ **{quantidade(len(atrasados), 'acompanhamento')}** {verbo(len(atrasados), 'está', 'estão')} com execução automática atrasada. O EDDY tentará executá-los no próximo ciclo; acompanhe em **Estou cuidando → Atrasados**.")
