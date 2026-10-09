@@ -5,14 +5,12 @@ Nunca considera um texto colado no journal como confirmação de envio Graph.
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Any
 
 EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
-SENHA = re.compile(r"(?im)^(\s*(?:senha|password|token|api[_ -]?key|secret)\s*:\s*).+$")
+SENHA = re.compile(r"(?im)^([ \\t]*(?:senha|password|token|api[_ -]?key|secret)[ \\t]*:[ \\t]*).+$")
 CHAMADO = re.compile(r"(?<!\d)#?(\d{4,7})(?!\d)")
 CABECALHO = re.compile(r"(?im)^\s*(?:De|From|Para|To|Cc|Assunto|Subject|Enviad[ao]s?|Sent)\s*:")
-ENVIADO = re.compile(r"(?im)^\s*(?:Enviad[ao]s?|Sent)\s*:")
 TERCEIRO = re.compile(r"aguardando retorno (?:adquirente|terceiro)|espera de terceiro", re.I)
 
 
@@ -52,8 +50,11 @@ def correlacionar_historico(issue: dict, mensagens: list[dict] | None = None,
 
     confirmadas = []
     for msg in mensagens or []:
+        # Evidência somente quando o adaptador Graph autenticar a origem.
+        if msg.get("_fonte_verificada") != "MICROSOFT_GRAPH":
+            continue
         assunto = str(msg.get("subject") or "")
-        texto_ref = " ".join([assunto, str(msg.get("conversationId") or "")])
+        texto_ref = assunto  # conversationId não é número de chamado
         # Não associar mensagens por mera coincidência de remetente.
         ids = {int(n) for n in CHAMADO.findall(texto_ref)}
         if numero not in ids:
@@ -66,7 +67,7 @@ def correlacionar_historico(issue: dict, mensagens: list[dict] | None = None,
             "id": str(ident),
             "data": msg.get("sentDateTime") or msg.get("receivedDateTime"),
             "tipo": "MENSAGEM_VERIFICADA",
-            "evidencia_envio_confirmado": bool(msg.get("sentDateTime")),
+            "evidencia_envio_confirmado": bool(msg.get("sentDateTime") and msg.get("_pasta_origem") == "sentitems"),
             "assunto_relacionado": True,
         })
     eventos.extend(confirmadas)
@@ -81,7 +82,7 @@ def correlacionar_historico(issue: dict, mensagens: list[dict] | None = None,
         "mensagens_graph_verificadas": len(confirmadas),
         "envio_confirmado_graph": any(e["evidencia_envio_confirmado"] for e in confirmadas),
         "caixas_consultadas": caixas_consultadas or [],
-        "consulta_email_realizada": caixas_consultadas is not None,
+        "consulta_email_realizada": bool(caixas_consultadas is not None and mensagens is not None),
         "estado": ("EVIDENCIA_GRAPH_CORRELACIONADA" if confirmadas else
                    "HISTORICO_DOCUMENTAL_SEM_CONFIRMACAO_GRAPH" if eventos else
                    "SEM_EVIDENCIA"),
