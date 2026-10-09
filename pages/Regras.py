@@ -17,7 +17,7 @@ from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 from ednna.prontidao_operacional import avaliar_prontidao_regra
 from ednna.motor_aberturas import avaliar_abertura, avaliar_aberturas_homologadas, autorizar_abertura_assistida
-from ednna.motor_falta_arquivo import avaliar_falta_arquivo
+from ednna.motor_falta_arquivo import avaliar_falta_arquivo, listar_regras_aprendidas
 
 st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
@@ -184,7 +184,8 @@ _motor_aberturas = avaliar_aberturas_homologadas()
 _mi, _ma, _mf = st.columns(3)
 _mi.metric("Inclusões cadastradas", _motor_inclusoes)
 _ma.metric("Aberturas homologadas", len(_motor_aberturas))
-_mf.metric("Falta de arquivo", "Triagem")
+_regras_falta = listar_regras_aprendidas()
+_mf.metric("Falta de arquivo · homologadas", len(_regras_falta))
 with st.expander("🏦 Motor de Aberturas · homologação e preparação assistida", expanded=False):
     st.warning("Preparação assistida não envia solicitações, não atualiza Redmine e não conclui abertura. O executor externo permanece pendente.")
     if _motor_aberturas:
@@ -206,7 +207,11 @@ with st.expander("🏦 Motor de Aberturas · homologação e preparação assist
 with st.expander("📁 Motor de Falta de Arquivo · diagnóstico",expanded=False):
     st.caption("A triagem depende de evidências reais de calendário, janela, recepção e frequência. Nenhum disparo externo é realizado.")
     st.write("Estados: aguardando dados, fora do calendário, dentro da janela, conferência de recepção e falta confirmada.")
-    st.info("Motor criado para triagem; integração com monitor de arquivos e regras homologadas ainda pendente.")
+    if _regras_falta:
+        st.dataframe(pd.DataFrame(_regras_falta),hide_index=True,width="stretch")
+    else:
+        st.info("Nenhuma homologação identificada pelos identificadores de falta de arquivo. Verificar a nomenclatura das regras aprendidas.")
+    st.warning("Integração com recepção real e executor de cobrança ainda pendente; nenhuma ação externa autorizada.")
 
 st.divider()
 st.subheader("📋 Homologações da Escola e decisões do professor")
