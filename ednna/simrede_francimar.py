@@ -9,6 +9,7 @@ from ednna.armazenamento import carregar_snapshot_chamados
 from ednna.email_sender import GRAPH_BASE_URL, _graph_get, baixar_mensagem_eml
 from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome
 from ednna.regras_ocorrencias import obter_regra_ocorrencia
+from ednna.observabilidade import log_event
 
 FRANCIMAR="francimar.tondello@grupoargenta.com.br"
 PLAYERS=("SENFF","POLICARD","STONE","CIELO","GREENCARD","ROTACARD")
@@ -24,10 +25,10 @@ def classificar_ocorrencias_simrede(msg:dict[str,Any])->list[dict]:
     texto=re.sub(r"<[^>]+>"," ",str(body.get("content") or msg.get("bodyPreview") or ""))
     texto=re.sub(r"\s+"," ",texto).strip()
     texto=re.split(r"(?i)\bEm\s+(?:seg|ter|qua|qui|sex|s[aá]b|dom)\.?[, ]|\bFrom:\s|\bDe:\s",texto,maxsplit=1)[0].strip()
-    up=texto.upper()
+    up=(str(msg.get('subject') or '')+' '+texto).upper()
     players=[p for p in PLAYERS if p in up]
     if ("UP BRASIL" in up or "UPBRASIL" in up) and "POLICARD" not in players: players.append("POLICARD")
-    tipos=[n for n,rx in TIPOS if re.search(rx,texto,re.I)]
+    tipos=[n for n,rx in TIPOS if re.search(rx,str(msg.get('subject') or '')+' '+texto,re.I)]
     cnpjs=sorted(set(CNPJ_RE.findall(texto)))
     ecs=sorted(set(EC_RE.findall(texto)))
     datas=sorted(set(DATA_RE.findall(texto)))
@@ -120,13 +121,16 @@ def _criar_chamado(oc:dict,*,eml:bytes|None=None)->int:
 
 def processar_entrada_francimar(*,limite:int=100)->dict:
     caixas=[x.strip() for x in str(os.getenv("EDDY_SIMREDE_MAILBOXES","wilson.martins@netunna.com.br,edi@netunna.com.br")).split(",") if x.strip()]
-    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[]}; vistos=set()
+    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[],"sem_classificacao":0}; vistos=set()
     for caixa in caixas:
         dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
         for msg in dados.get("value",[]) or []:
             if _remetente(msg)!=FRANCIMAR: continue
             resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
-            if not ocorrencias: continue
+            if not ocorrencias:
+                resumo['sem_classificacao']+=1
+                log_event('SIM_REDE','Mensagem sem classificação',detalhe='Remetente autorizado sem player e tipo reconhecidos',dedup_seconds=3600)
+                continue
             eml=None
             for oc in ocorrencias:
                 resumo["ocorrencias"]+=1
@@ -152,5 +156,6 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                 except Exception as exc:
                     _concluir_reserva(oc["chave"],None,"RECONCILIAR")
                     resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+    log_event('SIM_REDE','Ciclo de leitura SIM REDE',detalhe='mensagens={} ocorrencias={} sem_classificacao={} existentes={} abertos={} erros={}'.format(resumo['mensagens'],resumo['ocorrencias'],resumo['sem_classificacao'],resumo['existentes'],len(resumo['abertos']),len(resumo['erros'])))
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
     return resumo
