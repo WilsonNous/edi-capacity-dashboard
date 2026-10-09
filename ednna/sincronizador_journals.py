@@ -170,6 +170,20 @@ def processar_chamado(
         row.get("Alterado")
     )
 
+    # Protege também chamadas diretas, fora do seletor de pendentes.
+    # A decisão só é reaberta quando a marca de alteração do Redmine mudar.
+    if not chamado_precisa_analise(chamado_id, alterado_em):
+        print(
+            f"[EDNNA] Journals REUTILIZADOS | chamado={chamado_id} | "
+            "motivo=REDMINE_SEM_ALTERACAO",
+            flush=True,
+        )
+        return {
+            "ok": True, "id": chamado_id, "journals": 0,
+            "situacao": "VALIDACAO_REUTILIZADA",
+            "ignorado_sem_alteracao": True,
+        }
+
     chave_cooldown = f"journal:{chamado_id}"
     if cooldown_ativo(chave_cooldown):
         print(f"[EDNNA] Journals | chamado={chamado_id} | cooldown ativo | ignorando", flush=True)

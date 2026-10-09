@@ -120,6 +120,7 @@ def _get(
     Regras:
     - ConnectTimeout / ReadTimeout / ConnectionError: até 3 tentativas.
     - Espera progressiva: 0s, 2s e 5s.
+    - Saturação do semáforo local não abre o circuit breaker do Redmine.
     - Erros HTTP (401, 403, 404, 500...) não são mascarados nem repetidos aqui.
     - O HTTPAdapter continua com max_retries=0 para evitar tentativas ocultas.
     """
@@ -173,7 +174,9 @@ def _get(
                 adquirido = _RED_GATEWAY.acquire(timeout=_RED_GATEWAY_WAIT_SECONDS)
                 espera_gateway = monotonic() - espera_inicio
                 if not adquirido:
-                    raise requests.exceptions.ConnectTimeout(
+                    # Saturação local não prova indisponibilidade do Redmine.
+                    # Não abrir o circuit breaker global por contenção interna.
+                    raise TimeoutError(
                         f"Gateway Redmine ocupado por mais de {_RED_GATEWAY_WAIT_SECONDS}s"
                     )
                 try:

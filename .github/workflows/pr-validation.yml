@@ -80,7 +80,7 @@ jobs:
           EDNNA_AUTO_EXECUTE: "false"
           EDNNA_FOLLOWUP_AUTO: "false"
         run: |
-          python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py
+          python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py tests/test_observabilidade_motores.py tests/test_redmine_gateway_resiliencia.py tests/test_correlacao_historico.py tests/test_journals_idempotencia.py
 
       - name: Validate EDDY Intelligence Contract v1
         env:
