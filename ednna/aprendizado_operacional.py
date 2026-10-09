@@ -594,6 +594,8 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
     elif revisao.get("estado") != "HOMOLOGADA" and not (escola and escola.get("estado") in {"ATIVA", "EM_OBSERVACAO"}):
         if modo != "BLOQUEADA":
             raise ValueError("Somente regra homologada pode ser autorizada para operação.")
+    if modo in {"ASSISTIDA", "AUTOMATICA"} and escola and revisao.get("estado") != "HOMOLOGADA" and not str(regra_id).upper().startswith("INCLUSAO-"):
+        raise ValueError("A homologação da Escola para esta operação requer executor próprio; motor de inclusão não autorizado.")
     aprendido = obter_aprendizado(regra_id) or {}
     if not aprendido and escola:
         aprendido = {"player": escola.get("player")}
