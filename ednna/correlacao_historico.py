@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 EMAIL = re.compile(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}")
-SENHA = re.compile(r"(?im)^([ \\t]*(?:senha|password|token|api[_ -]?key|secret)[ \\t]*:[ \\t]*).+$")
+SENHA = re.compile(r"(?im)^([ \t]*(?:senha|password|token|api[_ -]?key|secret)[ \t]*:[ \t]*).+$")
 CHAMADO = re.compile(r"(?<!\d)#?(\d{4,7})(?!\d)")
 CABECALHO = re.compile(r"(?im)^\s*(?:De|From|Para|To|Cc|Assunto|Subject|Enviad[ao]s?|Sent)\s*:")
 TERCEIRO = re.compile(r"aguardando retorno (?:adquirente|terceiro)|espera de terceiro", re.I)
