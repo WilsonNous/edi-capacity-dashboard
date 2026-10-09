@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from ednna.aprendizado_operacional import obter_autorizacao_motor
 from ednna.homologacao import estado_regra, listar_homologacoes_mais_recentes
-from ednna.workflows_inclusao import obter_workflow
+from ednna.minerador_aberturas import listar_propostas
 from ednna.armazenamento import conectar, agora_brasil_iso
 
 
@@ -23,20 +23,21 @@ def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
     autorizacao = obter_autorizacao_motor(rid) or {}
     modo = str(autorizacao.get("modo") or "BLOQUEADA").upper()
     player = str(homologacao.get("player") or "").strip().upper()
-    workflow = obter_workflow(player)
+    propostas = {str(p.get("regra_id") or ""): p for p in listar_propostas()}
+    proposta = propostas.get(rid) or {}
+    etapas = list(proposta.get("etapas") or [])
+    checkpoints = [e for e in etapas if str(e.get("responsavel") or "").upper() == "CHECKPOINT_HUMANO"]
     if modo not in {"ASSISTIDA", "AUTOMATICA"}:
         estado = "AGUARDANDO_AUTORIZACAO"
-    elif workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
-        estado = "AGUARDANDO_EXECUTOR"
+    elif not proposta:
+        estado = "AGUARDANDO_PROCEDIMENTO_APRENDIDO"
     else:
-        # Abertura exige validação própria do procedimento e do canal;
-        # prontidão do workflow de INCLUSAO não prova execução de ABERTURA.
         estado = "PREPARACAO_ASSISTIDA_SEM_ENVIO"
     return {"regra_id": rid, "player": player, "operacao": "ABERTURA",
             "estado": estado, "modo": modo, "executavel": False,
-            "workflow_referencia": workflow.get("workflow"),
-            "checkpoints_humanos": workflow.get("checkpoints_humanos") or [],
-            "dados_recebidos": sorted(dados)}
+            "etapas_aprendidas": len(etapas), "evidencias": proposta.get("evidencias", 0),
+            "checkpoints_humanos": checkpoints, "dados_recebidos": sorted(dados),
+            "proxima_acao": "Validar procedimento e executor de abertura antes de enviar"}
 
 
 def avaliar_aberturas_homologadas() -> list[dict]:
