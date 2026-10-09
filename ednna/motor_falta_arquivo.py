@@ -43,3 +43,32 @@ def avaliar_falta_arquivo(demanda: dict[str, Any]) -> dict[str, Any]:
         "evidencia_necessaria": ["arquivo esperado", "janela e calendário",
                                 "verificação de recepção", "último arquivo recebido"],
     }
+
+
+def listar_regras_aprendidas() -> list[dict]:
+    """Inventaria homologações reais de falta de arquivo da Escola."""
+    from ednna.homologacao import listar_homologacoes_mais_recentes
+    prefixos = ("FALTA-ARQUIVO-", "FALTA_ARQUIVO-", "AUSENCIA-ARQUIVO-")
+    return [
+        {"regra_id": h["regra_id"], "player": h.get("player"),
+         "estado": h.get("estado"), "nota": h.get("nota"),
+         "operacao": "FALTA_ARQUIVO",
+         "executavel": False, "autorizacao_externa": "PENDENTE_EXECUTOR"}
+        for h in listar_homologacoes_mais_recentes()
+        if str(h.get("regra_id") or "").upper().startswith(prefixos)
+    ]
+
+
+def avaliar_regra_aprendida(regra_id: str, demanda: dict) -> dict:
+    """Combina conhecimento homologado e evidência real, sem disparar."""
+    resultado = avaliar_falta_arquivo(demanda)
+    regra = next((r for r in listar_regras_aprendidas()
+                  if r["regra_id"] == regra_id), None)
+    resultado["regra_id"] = regra_id
+    resultado["homologacao"] = (regra or {}).get("estado", "NAO_ENCONTRADA")
+    resultado["executavel"] = False
+    if not regra or regra["estado"] not in {"ATIVA", "EM_OBSERVACAO"}:
+        resultado["estado"] = "AGUARDANDO_HOMOLOGACAO"
+    elif resultado["estado"] == "FALTA_CONFIRMADA":
+        resultado["estado"] = "TRATATIVA_APRENDIDA_AGUARDANDO_EXECUTOR"
+    return resultado
