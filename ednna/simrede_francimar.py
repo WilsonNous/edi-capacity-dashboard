@@ -119,17 +119,56 @@ def _criar_chamado(oc:dict,*,eml:bytes|None=None)->int:
     if not cid: raise RuntimeError("Redmine não retornou ID do chamado SIM REDE")
     return cid
 
+def diagnosticar_mensagem(msg:dict[str,Any])->str:
+    """Motivo estruturado sem expor assunto, corpo ou dados pessoais."""
+    if _remetente(msg)!=FRANCIMAR: return "REMETENTE_DIFERENTE"
+    assunto=str(msg.get("subject") or "")
+    body=msg.get("body") or {}
+    texto=re.sub(r"<[^>]+>"," ",str(body.get("content") or msg.get("bodyPreview") or ""))
+    texto=re.split(r"(?i)\\bFrom:\\s|\\bDe:\\s",texto,maxsplit=1)[0]
+    up=(assunto+" "+texto).upper()
+    players=[p for p in PLAYERS if p in up]
+    if "UP BRASIL" in up or "UPBRASIL" in up: players.append("POLICARD")
+    tipos=[nome for nome,rx in TIPOS if re.search(rx,assunto+" "+texto,re.I)]
+    if not players and not tipos: return "PLAYER_E_TIPO_NAO_RECONHECIDOS"
+    if not players: return "PLAYER_NAO_RECONHECIDO"
+    if not tipos: return "TIPO_NAO_RECONHECIDO"
+    return "CLASSIFICADA"
+
+
+def _mensagens_paginadas(caixa:str, limite:int):
+    """Consulta páginas Graph com limite global e URL de continuação fornecida pelo Graph."""
+    base=f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages"
+    params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview",
+            "$orderby":"receivedDateTime desc","$top":str(min(100,max(1,limite)))}
+    url=base
+    visitadas=set()
+    lidas=0
+    while url and lidas<limite:
+        if url in visitadas: raise RuntimeError("Graph retornou paginação circular")
+        if not url.startswith(GRAPH_BASE_URL+"/"):
+            raise RuntimeError("URL de paginação fora do Microsoft Graph")
+        visitadas.add(url)
+        dados=_graph_get(url,params=params if url==base else None)
+        for msg in dados.get("value",[]) or []:
+            if lidas>=limite: break
+            lidas+=1
+            yield msg
+        url=dados.get("@odata.nextLink")
+        params=None
+
+
 def processar_entrada_francimar(*,limite:int=100)->dict:
     caixas=[x.strip() for x in str(os.getenv("EDDY_SIMREDE_MAILBOXES","wilson.martins@netunna.com.br,edi@netunna.com.br")).split(",") if x.strip()]
     resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[],"sem_classificacao":0}; vistos=set()
     for caixa in caixas:
-        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
-        for msg in dados.get("value",[]) or []:
+        for msg in _mensagens_paginadas(caixa, max(1,limite)):
             if _remetente(msg)!=FRANCIMAR: continue
             resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
             if not ocorrencias:
                 resumo['sem_classificacao']+=1
-                log_event('SIM_REDE','Mensagem sem classificação',detalhe='Remetente autorizado sem player e tipo reconhecidos',dedup_seconds=3600)
+                motivo=diagnosticar_mensagem(msg)
+                log_event('SIM_REDE','Mensagem sem classificação',detalhe='motivo='+motivo+' id_hash='+hashlib.sha256(str(msg.get('internetMessageId') or msg.get('id') or '').encode()).hexdigest()[:16],dedup_seconds=0)
                 continue
             eml=None
             for oc in ocorrencias:
