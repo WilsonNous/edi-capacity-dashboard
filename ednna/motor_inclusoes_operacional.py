@@ -300,7 +300,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
             contadores["aguardando_executor"] += 1
             acao = "Implementar executor"
         elif estado == "CHECKPOINT_HUMANO":
-            acao = "Preparar/validar Termo SAFRAPAY com o cliente"
+            checkpoints = wf.get("checkpoints_humanos") or []
+            acao = str(checkpoints[0].get("titulo") or "Solicitar intervenção humana") if checkpoints else "Solicitar intervenção humana"
         else:
             acao = "Revisar"
 
