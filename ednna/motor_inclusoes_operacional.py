@@ -651,7 +651,7 @@ def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
         "PLAYER_AMBIGUO": ("IDENTIFICACAO", "Player/adquirente ambíguo"),
         "AGUARDANDO_VERIFICACAO_HISTORICO": ("PRECISA_DE_VOCE", "Histórico precisa ser sincronizado antes de agir"),
         "REDMINE_PENDENTE": ("REDMINE_PENDENTE", "E-mail/ação já ocorreu; falta reconciliar Redmine"),
-        "AGUARDANDO_RESPOSTA": ("AGUARDANDO_RESPOSTA", "EDNNA já atuou e aguarda retorno"),
+        "AGUARDANDO_RESPOSTA": ("AGUARDANDO_RESPOSTA", "EDDY já atuou e aguarda retorno"),
         "CONTINUIDADE_ESTADO_REDMINE": ("CONTINUIDADE", "Chamado já está em continuidade no Redmine"),
         "CONTINUIDADE_ATUACAO_PREVIA": ("CONTINUIDADE", "Há evidência de atuação anterior"),
     }
@@ -787,7 +787,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "Os arquivos deverão ser disponibilizados na CAIXA POSTAL NETUNNA junto à Greencard.", "",
             "Agradecemos e ficamos à disposição para quaisquer esclarecimentos.", "",
             "Atenciosamente,", "Equipe EDI Netunna", "",
-            "Mensagem operacional preparada e acompanhada pela EDNNA — Automação EDI Netunna."
+            "Mensagem operacional preparada e acompanhada pelo EDDY — Automação EDI Netunna."
         ]
         return {
             "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
@@ -797,7 +797,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         }
 
     if player == "VR BENEFICIOS":
-        # O cliente é quem realiza a habilitação no Portal VR. A EDNNA somente
+        # O cliente é quem realiza a habilitação no Portal VR. O EDDY somente
         # orienta e acompanha; não envia solicitação de inclusão para a VR.
         assunto=f"[VR - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
         linhas=[
@@ -999,10 +999,10 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
                 if pacote.get("player") == "GREENCARD":
                     registrar_estado(pacote, "AGUARDANDO_GREENCARD", assunto=r.get("assunto"), ec_solicitado=list(pacote.get("estabelecimentos") or []))
                     bp_msg=(f"Chamado #{cid}: solicitação de inclusão de estabelecimento enviada diretamente ao Suporte Credenciado Greencard. "
-                            "Arquivos solicitados para a CAIXA POSTAL NETUNNA. Estado EDNNA: AGUARDANDO_GREENCARD.")
+                            "Arquivos solicitados para a CAIXA POSTAL NETUNNA. Estado EDDY: AGUARDANDO_GREENCARD.")
                 else:
                     registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
-                    bp_msg=f"Chamado #{cid}: formulário ROTACARD pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE."
+                    bp_msg=f"Chamado #{cid}: formulário ROTACARD pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDDY: AGUARDANDO_CLIENTE."
                 bp_res=registrar_movimentacao_bp(pacote, bp_msg)
                 print(f"[EDNNA] {pacote.get('player')} | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
             except Exception as gc_exc:
@@ -1012,7 +1012,7 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
                 from ednna.redmine_writer import adicionar_nota_chamado
                 bp=int(pacote.get("blueprint_id") or 0)
                 contas=", ".join(str(x) for x in (pacote.get("contas_bancarias") or []))
-                nota_bp=f"*EDNNA · Movimentação bancária SICREDI*\n\nChamado #{cid}: solicitação de abertura de relacionamento enviada ao contato bancário obtido do Blueprint.\nContas: {contas or 'não informadas'}\nEstado EDNNA: AGUARDANDO_RETORNO_BANCO.\n\nMarcador: EDNNA-SICREDI:{cid}"
+                nota_bp=f"*EDDY · Movimentação bancária SICREDI*\n\nChamado #{cid}: solicitação de abertura de relacionamento enviada ao contato bancário obtido do Blueprint.\nContas: {contas or 'não informadas'}\nEstado EDDY: AGUARDANDO_RETORNO_BANCO.\n\nMarcador: EDNNA-SICREDI:{cid}"
                 adicionar_nota_chamado(chamado_id=bp, nota=nota_bp)
                 print(f"[EDNNA] SICREDI | BP movimentado | chamado={cid} | bp={bp}", flush=True)
             except Exception as bank_exc:
