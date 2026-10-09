@@ -215,6 +215,22 @@ for h in _homologacoes:
     rid=str(h["regra_id"])
     with st.expander(f"🎓 {h.get('player') or 'Player'} · {rid} · {h.get('estado')} · {h.get('nota')}%"):
         st.caption(f"Versão {h.get('versao')} · Homologada por {h.get('homologado_por')} · {h.get('motivo') or 'Sem observações'}")
+        aut_escola=obter_autorizacao_motor(rid)
+        wf_escola=obter_workflow(h.get("player"))
+        modo_escola=str(aut_escola.get("modo") or "BLOQUEADA")
+        st.write(f"**Motor:** {modo_escola} · **Executor:** {wf_escola.get('prontidao') or 'NÃO IDENTIFICADO'}")
+        if h.get("estado") in {"ATIVA","EM_OBSERVACAO"} and wf_escola.get("prontidao")=="ASSISTIDA_DISPONIVEL":
+            col_ass,col_auto=st.columns(2)
+            with col_ass:
+                if st.button("▶ Autorizar assistida",key="school_ass_"+rid):
+                    autorizar_regra_motor(rid,modo="ASSISTIDA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização da regra homologada na Escola")
+                    st.rerun()
+            with col_auto:
+                if st.button("⚡ Autorizar automática",key="school_auto_"+rid):
+                    autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização explícita da regra homologada na Escola; sujeito aos checkpoints")
+                    st.rerun()
+        elif h.get("estado")!="SUSPENSA":
+            st.warning("Executor indisponível: homologação preservada, mas não é possível liberar atuação.")
         if h.get("estado")!="SUSPENSA":
             if st.button("⏸ Suspender homologação",key="school_suspend_"+rid):
                 alterar_estado(rid,"SUSPENSA","OPERADOR_EDNNA","Suspensão manual na Central de Regras")
