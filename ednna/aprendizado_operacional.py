@@ -564,9 +564,19 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
     if modo not in {"ASSISTIDA", "AUTOMATICA", "BLOQUEADA"}:
         raise ValueError("Modo operacional inválido.")
     revisao = obter_revisao(regra_id)
-    if revisao.get("estado") != "HOMOLOGADA":
-        raise ValueError("Somente regra homologada pode ser autorizada para operação.")
+    # A Escola é outra fonte de homologação; aceitar sua aprovação explícita,
+    # mas nunca autorizar uma regra suspensa por qualquer uma das fontes.
+    from ednna.homologacao import estado_regra
+    escola = estado_regra(regra_id)
+    if escola and escola.get("estado") == "SUSPENSA":
+        if modo != "BLOQUEADA":
+            raise ValueError("Regra suspensa na Escola; revise antes de autorizar.")
+    elif revisao.get("estado") != "HOMOLOGADA" and not (escola and escola.get("estado") in {"ATIVA", "EM_OBSERVACAO"}):
+        if modo != "BLOQUEADA":
+            raise ValueError("Somente regra homologada pode ser autorizada para operação.")
     aprendido = obter_aprendizado(regra_id) or {}
+    if not aprendido and escola:
+        aprendido = {"player": escola.get("player")}
     workflow = obter_workflow(aprendido.get("player"))
     if modo in {"ASSISTIDA", "AUTOMATICA"} and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
         raise ValueError("O executor deste workflow ainda não está disponível para operação.")
