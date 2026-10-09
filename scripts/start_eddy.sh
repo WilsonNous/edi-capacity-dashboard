@@ -63,6 +63,11 @@ for name, url, accepted in targets:
         raise SystemExit(f"[EDDY] Timeout aguardando {name}; último resultado: {last_detail}")
 PY
 
+if [[ "${EDDY_MOTORES_OBSERVABILIDADE_ENABLED:-true}" == "true" ]]; then
+  python -m ednna.observabilidade_motores &
+  pids+=("$!")
+fi
+
 python -m uvicorn eddy_gateway:app --host 0.0.0.0 --port "$PUBLIC_PORT" --workers 1 &
 pids+=("$!")
 
