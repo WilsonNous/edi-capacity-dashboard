@@ -1117,18 +1117,9 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         rid=str(item.get("regra_id") or "")
         aut = obter_autorizacao_motor(rid)
         modo_motor = str(aut.get("modo") or "BLOQUEADA").upper()
-        # AUTOMATICA é autorização humana explícita. Para compatibilidade, uma
-        # regra ASSISTIDA que já possua envio confirmado também pode ser promovida
-        # pelo histórico, como nas versões anteriores.
-        confianca_historica = regra_possui_envio_confirmado(rid)
-        # Workflows documentais (Greencard) só entram no worker quando o operador
-        # marcou explicitamente AUTOMATICA. Um envio assistido anterior não promove
-        # sozinho um processo que envolve documento/assinatura.
-        player_item = str(item.get("player") or "").upper()
-        if player_item in {"GREENCARD", "ROTACARD"}:
-            autorizado_auto = (modo_motor == "AUTOMATICA")
-        else:
-            autorizado_auto = modo_motor == "AUTOMATICA" or (modo_motor == "ASSISTIDA" and confianca_historica)
+        # O histórico nunca promove uma regra assistida para execução autônoma.
+        # Somente a autorização explícita do operador permite ação externa.
+        autorizado_auto = modo_motor == "AUTOMATICA"
         if not autorizado_auto:
             resumo["ignorados"] += 1; continue
         resumo["elegiveis"] += 1
@@ -1136,7 +1127,7 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         if not pacote.get("ok"):
             resumo["ignorados"] += 1; continue
         try:
-            origem_auto = "AUTORIZACAO_EXPLICITA" if modo_motor == "AUTOMATICA" else "HISTORICO_CONFIRMADO"
+            origem_auto = "AUTORIZACAO_EXPLICITA"
             print(f"[EDNNA] Inclusão automática | chamado={pacote.get('chamado_id')} | regra={rid} | origem={origem_auto}",flush=True)
             resultado=executar_atuacao_assistida_email(pacote)
             if resultado.get("ok"):
