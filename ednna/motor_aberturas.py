@@ -27,15 +27,18 @@ def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
     proposta = propostas.get(rid) or {}
     etapas = list(proposta.get("etapas") or [])
     checkpoints = [e for e in etapas if str(e.get("responsavel") or "").upper() == "CHECKPOINT_HUMANO"]
+    politicas = list(proposta.get("politicas_homologadas") or [])
+    etapas_validas = [e for e in etapas if e.get("confianca") == "ALTA"]
     if modo not in {"ASSISTIDA", "AUTOMATICA"}:
         estado = "AGUARDANDO_AUTORIZACAO"
-    elif not proposta:
+    elif not proposta or not etapas_validas:
         estado = "AGUARDANDO_PROCEDIMENTO_APRENDIDO"
     else:
         estado = "PREPARACAO_ASSISTIDA_SEM_ENVIO"
     return {"regra_id": rid, "player": player, "operacao": "ABERTURA",
             "estado": estado, "modo": modo, "executavel": False,
-            "etapas_aprendidas": len(etapas), "evidencias": proposta.get("evidencias", 0),
+            "etapas_aprendidas": len(etapas), "etapas_validadas": len(etapas_validas),
+            "politicas_homologadas": len(politicas), "evidencias": proposta.get("evidencias", 0),
             "checkpoints_humanos": checkpoints, "dados_recebidos": sorted(dados),
             "proxima_acao": "Validar procedimento e executor de abertura antes de enviar"}
 
