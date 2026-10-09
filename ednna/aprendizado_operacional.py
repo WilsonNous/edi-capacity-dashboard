@@ -530,8 +530,12 @@ def listar_regras_operacionais() -> list[dict]:
 
 def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | None:
     alvo=str(player or '').strip().upper()
+    from ednna.homologacao import estado_regra
     for regra in listar_regras_operacionais():
         if str(regra.get('player') or '').strip().upper()==alvo and str(regra.get('operacao') or '').upper()==str(operacao).upper() and regra.get('estado_revisao')=='HOMOLOGADA':
+            escola_atual = estado_regra(str(regra.get("regra_id") or ""))
+            if escola_atual and escola_atual.get("estado") == "SUSPENSA":
+                continue
             return regra
     # Compatibilidade: homologação da Escola para INCLUSAO, sem assumir que
     # uma regra de ABERTURA possa ser consumida como inclusão.
