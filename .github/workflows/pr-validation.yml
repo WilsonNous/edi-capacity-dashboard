@@ -72,6 +72,16 @@ jobs:
           PY
 
 
+      - name: Test EDDY operational motors and SIM REDE
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          EDNNA_DB_PATH: ${{ runner.temp }}/eddy-motores-test.db
+          EDNNA_MONITOR_EMAIL_ENABLED: "false"
+          EDNNA_AUTO_EXECUTE: "false"
+          EDNNA_FOLLOWUP_AUTO: "false"
+        run: |
+          python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py
+
       - name: Validate EDDY Intelligence Contract v1
         env:
           PYTHONPATH: ${{ github.workspace }}
