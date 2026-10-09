@@ -138,12 +138,14 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                 vistos.add(oc["chave"])
                 try:
                     if not _reservar(oc["chave"]):
-                        resumo["existentes"]+=1
+                        resumo['existentes']+=1
+                        log_event('SIM_REDE','Ocorrência previamente reservada',player=oc['player'],regra_id=oc['tipo'],dedup_seconds=3600)
                         continue
                     existente=_ja_existe(oc)
                     if existente:
                         _concluir_reserva(oc["chave"],existente,"CRIADO")
-                        resumo["existentes"]+=1
+                        resumo['existentes']+=1
+                        log_event('SIM_REDE','Chamado existente identificado',chamado_id=existente,player=oc['player'],regra_id=oc['tipo'])
                         continue
                 except Exception as exc:
                     resumo["erros"].append(f"{oc['chave']}: reserva/correlação: {exc}")
@@ -152,10 +154,12 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                     if eml is None: eml=baixar_mensagem_eml(caixa_postal=caixa,message_id=str(msg.get("id") or ""))
                     regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
                     cid=_criar_chamado(oc,eml=eml); _concluir_reserva(oc["chave"],cid,"CRIADO"); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
+                    log_event('SIM_REDE','Chamado aberto confirmado',chamado_id=cid,player=oc['player'],regra_id=oc['tipo'])
                     print(f"[EDDY] SIM REDE | chamado aberto #{cid} | player={oc['player']} | tipo={oc['tipo']} | responsavel=EDNNA | origem=Francimar",flush=True)
                 except Exception as exc:
                     _concluir_reserva(oc["chave"],None,"RECONCILIAR")
-                    resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+                    resumo['erros'].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+                    log_event('SIM_REDE','Falha na abertura de chamado',nivel='ERROR',player=oc['player'],regra_id=oc['tipo'],detalhe=type(exc).__name__)
     log_event('SIM_REDE','Ciclo de leitura SIM REDE',detalhe='mensagens={} ocorrencias={} sem_classificacao={} existentes={} abertos={} erros={}'.format(resumo['mensagens'],resumo['ocorrencias'],resumo['sem_classificacao'],resumo['existentes'],len(resumo['abertos']),len(resumo['erros'])))
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
     return resumo
