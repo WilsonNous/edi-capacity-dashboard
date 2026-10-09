@@ -218,8 +218,13 @@ for h in _homologacoes:
         if h.get("estado")!="SUSPENSA":
             if st.button("⏸ Suspender homologação",key="school_suspend_"+rid):
                 alterar_estado(rid,"SUSPENSA","OPERADOR_EDNNA","Suspensão manual na Central de Regras")
-                try: autorizar_regra_motor(rid,modo="BLOQUEADA",autorizado_por="OPERADOR_EDNNA",observacoes="Suspensão da homologação da Escola")
-                except ValueError: pass
+                from ednna.aprendizado_operacional import _garantir_tabela_autorizacoes_motor
+                from ednna.armazenamento import conectar, agora_brasil_iso
+                _garantir_tabela_autorizacoes_motor()
+                with conectar() as conn:
+                    agora=agora_brasil_iso()
+                    conn.execute("UPDATE autorizacoes_motor SET modo='BLOQUEADA', autorizado_por=?, autorizado_em=?, observacoes=?, atualizado_em=? WHERE regra_id=?",
+                                 ("OPERADOR_EDNNA", agora, "Suspensão manual da homologação da Escola", agora, rid))
                 st.rerun()
         else:
             st.warning("Regra suspensa. A reativação exige decisão explícita e revisão do procedimento.")
