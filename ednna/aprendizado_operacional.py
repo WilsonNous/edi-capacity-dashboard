@@ -533,6 +533,22 @@ def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | No
     for regra in listar_regras_operacionais():
         if str(regra.get('player') or '').strip().upper()==alvo and str(regra.get('operacao') or '').upper()==str(operacao).upper() and regra.get('estado_revisao')=='HOMOLOGADA':
             return regra
+    # Compatibilidade: homologação da Escola para INCLUSAO, sem assumir que
+    # uma regra de ABERTURA possa ser consumida como inclusão.
+    from ednna.homologacao import listar_homologacoes_mais_recentes
+    for escola in listar_homologacoes_mais_recentes():
+        if str(escola.get("player") or "").strip().upper() != alvo:
+            continue
+        if escola.get("estado") not in {"ATIVA", "EM_OBSERVACAO"}:
+            continue
+        rid = str(escola.get("regra_id") or "")
+        if not rid.upper().startswith("INCLUSAO-") or str(operacao).upper() != "INCLUSAO":
+            continue
+        return {"regra_id": rid, "player": alvo, "operacao": "INCLUSAO",
+                "estado_revisao": "HOMOLOGADA", "estado_operacional": "HOMOLOGADA",
+                "origem_homologacao": "ESCOLA",
+                "workflow": obter_workflow(alvo),
+                "autorizacao_motor": obter_autorizacao_motor(rid)}
     return None
 
 
