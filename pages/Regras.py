@@ -16,6 +16,8 @@ from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 from ednna.prontidao_operacional import avaliar_prontidao_regra
+from ednna.motor_aberturas import avaliar_abertura, avaliar_aberturas_homologadas, autorizar_abertura_assistida
+from ednna.motor_falta_arquivo import avaliar_falta_arquivo
 
 st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
@@ -174,6 +176,38 @@ for r in regras:
 st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="stretch",hide_index=True); st.caption(f"EDDY v{APP_VERSION} · Central de Regras")
 # Inventário unificado: regras do aprendizado de inclusão e homologações da Escola.
 # A aprovação excepcional não habilita envios nem remove checkpoints do executor.
+st.divider()
+st.subheader("⚙️ Motores operacionais EDDY")
+st.caption("Inclusão, abertura e falta de arquivo são operações distintas. Homologação de conhecimento não equivale a execução liberada.")
+_motor_inclusoes = len([r for r in regras if str(r.get("regra_id") or "").upper().startswith("INCLUSAO-")])
+_motor_aberturas = avaliar_aberturas_homologadas()
+_mi, _ma, _mf = st.columns(3)
+_mi.metric("Inclusões cadastradas", _motor_inclusoes)
+_ma.metric("Aberturas homologadas", len(_motor_aberturas))
+_mf.metric("Falta de arquivo", "Triagem")
+with st.expander("🏦 Motor de Aberturas · homologação e preparação assistida", expanded=False):
+    st.warning("Preparação assistida não envia solicitações, não atualiza Redmine e não conclui abertura. O executor externo permanece pendente.")
+    if _motor_aberturas:
+        st.dataframe(pd.DataFrame([{"Regra":x["regra_id"],"Player":x.get("player"),"Estado":x.get("estado"),"Modo":x.get("modo"),"Executável":x.get("executavel")} for x in _motor_aberturas]),hide_index=True,width="stretch")
+        _aberturas_homologadas = [x for x in _motor_aberturas if x.get("estado") == "AGUARDANDO_AUTORIZACAO"]
+        if _aberturas_homologadas:
+            _abertura_id = st.selectbox("Regra de abertura para preparação assistida", [x["regra_id"] for x in _aberturas_homologadas], key="abertura_regra")
+            _abertura_responsavel = st.text_input("Responsável pela autorização",key="abertura_responsavel")
+            _abertura_justificativa = st.text_area("Justificativa técnica (mínimo 20 caracteres)",key="abertura_justificativa")
+            if st.button("Autorizar somente preparação assistida",key="abertura_autorizar",disabled=not _abertura_responsavel.strip() or len(_abertura_justificativa.strip())<20):
+                try:
+                    autorizar_abertura_assistida(_abertura_id,responsavel=_abertura_responsavel,justificativa=_abertura_justificativa)
+                    st.success("Preparação assistida registrada. Envio externo permanece bloqueado.")
+                    st.rerun()
+                except Exception as _exc:
+                    st.error(str(_exc))
+    else:
+        st.info("Nenhuma abertura homologada encontrada. As propostas continuam visíveis na seção da Escola.")
+with st.expander("📁 Motor de Falta de Arquivo · diagnóstico",expanded=False):
+    st.caption("A triagem depende de evidências reais de calendário, janela, recepção e frequência. Nenhum disparo externo é realizado.")
+    st.write("Estados: aguardando dados, fora do calendário, dentro da janela, conferência de recepção e falta confirmada.")
+    st.info("Motor criado para triagem; integração com monitor de arquivos e regras homologadas ainda pendente.")
+
 st.divider()
 st.subheader("📋 Homologações da Escola e decisões do professor")
 st.caption("Esta visão inclui regras aprovadas na Central de Aprendizagem que antes não apareciam no inventário de inclusão. Aprovar conhecimento e liberar execução são decisões separadas.")
