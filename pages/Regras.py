@@ -202,6 +202,23 @@ else:
     st.info("Ainda não há homologações persistidas disponíveis nesta instância.")
 st.divider()
 
+st.subheader("🔎 Continuidade · evidências do chamado")
+st.caption("Leitura pontual dos journals do Redmine. Não comprova envio na caixa Microsoft 365 e não executa ações externas.")
+with st.form("eddy_correlacao_historico"):
+    _numero_correlacao = st.number_input("Número do chamado", min_value=1, value=48311, step=1)
+    _consultar_correlacao = st.form_submit_button("Analisar histórico")
+if _consultar_correlacao:
+    try:
+        from ednna.correlacao_historico import analisar_chamado
+        _analise = analisar_chamado(int(_numero_correlacao))
+        st.write("Estado:", _analise["estado"])
+        st.write("Próxima ação sugerida:", _analise["proxima_acao"])
+        st.caption("Mensagens Microsoft Graph verificadas: 0 nesta consulta. E-mail transcrito no Redmine é evidência documental, não confirmação de envio.")
+        st.dataframe(pd.DataFrame(_analise["eventos"]), hide_index=True, width="stretch")
+    except Exception as _erro_correlacao:
+        st.warning(f"Não foi possível consultar o histórico neste momento: {type(_erro_correlacao).__name__}. Nenhuma ação foi executada.")
+st.divider()
+
 st.subheader("⚙️ Motores operacionais EDDY")
 st.caption("Inclusão, abertura e falta de arquivo são operações distintas. Homologação de conhecimento não equivale a execução liberada.")
 _motor_inclusoes = len([h for h in _homologacoes_escola if str(h.get("regra_id") or "").upper().startswith("INCLUSAO-")])
