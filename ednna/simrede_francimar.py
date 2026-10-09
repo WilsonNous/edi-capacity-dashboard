@@ -175,6 +175,10 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                 resumo["ocorrencias"]+=1
                 if oc["chave"] in vistos: resumo["existentes"]+=1; continue
                 vistos.add(oc["chave"])
+                regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
+                if not regra or str(regra.get("estado") or "").upper() not in {"HOMOLOGADA", "ATIVA"} or str(regra.get("modo_motor") or "").upper() not in {"ASSISTIDA", "AUTOMATICA"}:
+                    log_event("SIM_REDE","Ocorrência sem regra autorizada",player=oc["player"],regra_id=oc["tipo"],detalhe="REGRA_NAO_HABILITADA",dedup_seconds=3600)
+                    continue
                 try:
                     if not _reservar(oc["chave"]):
                         resumo['existentes']+=1
