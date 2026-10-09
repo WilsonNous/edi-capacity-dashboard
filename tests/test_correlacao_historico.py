@@ -60,4 +60,4 @@ def test_graph_recebido_nao_comprova_envio():
 
 
 def test_redacao_nao_remove_linha_seguinte():
-    assert mascarar_segredos("Senha: segredo\\nPasta: /RedeJP") == "Senha: [REDACTED]\\nPasta: /RedeJP"
+    assert mascarar_segredos("Senha: segredo\nPasta: /RedeJP") == "Senha: [REDACTED]\nPasta: /RedeJP"
