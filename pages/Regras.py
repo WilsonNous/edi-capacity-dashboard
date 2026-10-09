@@ -86,19 +86,9 @@ with st.expander(f"🚦 Prontidão operacional · {len(prontas_prontidao)} pront
     else:
         st.success("Todas as regras conhecidas estão operacionalmente prontas.")
 
-aptas_auto=[r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao")=="ASSISTIDA_DISPONIVEL"]
-pendentes_auto=[r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper()!="AUTOMATICA"]
-if pendentes_auto:
-    st.warning(f"⚡ {len(pendentes_auto)} regra(s) homologada(s) com executor disponível ainda não estão em modo automático.")
-    if st.button("⚡ Colocar TODAS as homologadas aptas em AUTOMÁTICO",type="primary",key="central_auto_todas",width="content"):
-        ok,erros=0,[]
-        for rr in pendentes_auto:
-            rid=str(rr.get("regra_id") or "")
-            try: autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização em lote explícita: executar automaticamente todas as regras já homologadas e com executor disponível."); ok+=1
-            except Exception as exc: erros.append(f"{rr.get('player')}: {exc}")
-        if ok: st.success(f"{ok} regra(s) promovida(s) para execução automática.")
-        if erros: st.error("Não foi possível ativar: "+" | ".join(erros))
-        st.rerun()
+# Promoção em lote desabilitada: autorização é individual, auditável e
+# dependente da operação e dos checkpoints de cada workflow.
+st.caption("A autorização automática é individual por regra. Não há promoção em lote.")
 
 aba0,aba1,aba2,aba3=st.tabs([f"📚 Todas as regras ({len(catalogo_declarativo)+len(regras_treinaveis)})",f"1 · Revisar e homologar ({len(revisar)})",f"2 · Autorizar motor ({len(bloqueadas)})",f"Regras ativas ({len(autorizadas)})"])
 with aba0:
@@ -219,7 +209,9 @@ for h in _homologacoes:
         wf_escola=obter_workflow(h.get("player"))
         modo_escola=str(aut_escola.get("modo") or "BLOQUEADA")
         st.write(f"**Motor:** {modo_escola} · **Executor:** {wf_escola.get('prontidao') or 'NÃO IDENTIFICADO'}")
-        if h.get("estado") in {"ATIVA","EM_OBSERVACAO"} and wf_escola.get("prontidao")=="ASSISTIDA_DISPONIVEL":
+        operacao_escola = str(rid).split("-",1)[0].upper()
+        pode_autorizar_escola = operacao_escola == "INCLUSAO" and h.get("estado") in {"ATIVA","EM_OBSERVACAO"} and wf_escola.get("prontidao")=="ASSISTIDA_DISPONIVEL"
+        if pode_autorizar_escola:
             col_ass,col_auto=st.columns(2)
             with col_ass:
                 if st.button("▶ Autorizar assistida",key="school_ass_"+rid):
@@ -230,7 +222,7 @@ for h in _homologacoes:
                     autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização explícita da regra homologada na Escola; sujeito aos checkpoints")
                     st.rerun()
         elif h.get("estado")!="SUSPENSA":
-            st.warning("Executor indisponível: homologação preservada, mas não é possível liberar atuação.")
+            st.warning("Execução não liberada: regras de abertura e outras operações exigem executor específico; inclusão exige executor disponível.")
         if h.get("estado")!="SUSPENSA":
             if st.button("⏸ Suspender homologação",key="school_suspend_"+rid):
                 alterar_estado(rid,"SUSPENSA","OPERADOR_EDNNA","Suspensão manual na Central de Regras")
