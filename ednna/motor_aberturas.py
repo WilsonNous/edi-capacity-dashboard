@@ -29,7 +29,9 @@ def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
     checkpoints = [e for e in etapas if str(e.get("responsavel") or "").upper() == "CHECKPOINT_HUMANO"]
     politicas = list(proposta.get("politicas_homologadas") or [])
     etapas_validas = [e for e in etapas if e.get("confianca") == "ALTA"]
-    if modo not in {"ASSISTIDA", "AUTOMATICA"}:
+    if modo == "AUTOMATICA":
+        estado = "AUTOMATICA_NAO_SUPORTADA_ABERTURA"
+    elif modo != "ASSISTIDA":
         estado = "AGUARDANDO_AUTORIZACAO"
     elif not proposta or not etapas_validas:
         estado = "AGUARDANDO_PROCEDIMENTO_APRENDIDO"
@@ -61,6 +63,10 @@ def autorizar_abertura_assistida(regra_id: str, *, responsavel: str, justificati
     homologacao = estado_regra(rid) or {}
     if homologacao.get("estado") not in {"ATIVA", "EM_OBSERVACAO"}:
         raise ValueError("Abertura não homologada ou suspensa.")
+    propostas = {str(p.get("regra_id") or ""): p for p in listar_propostas()}
+    proposta = propostas.get(rid) or {}
+    if not any(e.get("confianca") == "ALTA" for e in proposta.get("etapas") or []):
+        raise ValueError("Abertura sem etapas aprendidas com confiança ALTA; autorização assistida bloqueada.")
     from ednna.aprendizado_operacional import _garantir_tabela_autorizacoes_motor
     _garantir_tabela_autorizacoes_motor()
     agora = agora_brasil_iso()
