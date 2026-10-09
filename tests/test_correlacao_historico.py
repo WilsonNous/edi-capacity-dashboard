@@ -30,7 +30,7 @@ def test_journals_provam_historico_nao_envio():
 
 def test_graph_confirma_apenas_mensagem_correlacionada():
     mensagens = [
-        {"id": "id1", "subject": "RE: CN: 48311", "sentDateTime": "2026-10-09T15:03:00Z"},
+        {"id": "id1", "subject": "RE: CN: 48311", "sentDateTime": "2026-10-09T15:03:00Z", "_fonte_verificada": "MICROSOFT_GRAPH", "_pasta_origem": "sentitems"},
         {"id": "id2", "subject": "CN: 99999", "sentDateTime": "2026-10-09T15:03:00Z"},
     ]
     r = correlacionar_historico(_issue(), mensagens, caixas_consultadas=["wilson.martins@netunna.com.br"])
@@ -40,3 +40,24 @@ def test_graph_confirma_apenas_mensagem_correlacionada():
 
 def test_senha_mascarada():
     assert "abc123" not in mascarar_segredos("Senha: abc123")
+
+
+def test_graph_nao_autenticado_nao_confirma_envio():
+    r = correlacionar_historico(_issue(), [
+        {"id": "forjado", "subject": "CN: 48311", "sentDateTime": "2026-10-09T15:03:00Z"}
+    ])
+    assert r["mensagens_graph_verificadas"] == 0
+    assert r["envio_confirmado_graph"] is False
+
+
+def test_graph_recebido_nao_comprova_envio():
+    r = correlacionar_historico(_issue(), [
+        {"id": "recebido", "subject": "CN: 48311", "receivedDateTime": "2026-10-09T15:03:00Z",
+         "_fonte_verificada": "MICROSOFT_GRAPH", "_pasta_origem": "inbox"}
+    ])
+    assert r["mensagens_graph_verificadas"] == 1
+    assert r["envio_confirmado_graph"] is False
+
+
+def test_redacao_nao_remove_linha_seguinte():
+    assert mascarar_segredos("Senha: segredo\\nPasta: /RedeJP") == "Senha: [REDACTED]\\nPasta: /RedeJP"
