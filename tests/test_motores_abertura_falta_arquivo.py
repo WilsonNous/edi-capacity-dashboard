@@ -79,3 +79,15 @@ def test_falta_arquivo_sem_confirmacao_nao_cobra(monkeypatch):
         "FALTA-ARQUIVO-REDE-001", _demanda(arquivo_recebido=None))
     assert result["estado"] == "AGUARDANDO_CONFIRMACAO_AUSENCIA"
     assert result["envio_externo_autorizado"] is False
+
+
+def test_abertura_autorizada_automatica_nao_e_liberada(monkeypatch):
+    import ednna.motor_aberturas as motor
+    monkeypatch.setattr(motor, "estado_regra", lambda rid: {"estado": "ATIVA", "player": "SICREDI"})
+    monkeypatch.setattr(motor, "obter_autorizacao_motor", lambda rid: {"modo": "AUTOMATICA"})
+    monkeypatch.setattr(motor, "listar_propostas", lambda: [{
+        "regra_id": "ABERTURA-SICREDI-001",
+        "etapas": [{"codigo": "PREPARAR_SOLICITACAO", "confianca": "ALTA"}]}])
+    result = motor.avaliar_abertura("ABERTURA-SICREDI-001")
+    assert result["estado"] == "AUTOMATICA_NAO_SUPORTADA_ABERTURA"
+    assert result["executavel"] is False
