@@ -16,6 +16,9 @@ from ednna.motor_inclusoes_operacional import diagnosticar_regras_operacionais
 from ui.operational_data import chamados_ativos_df, redmine_link
 from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 from ednna.prontidao_operacional import avaliar_prontidao_regra
+from ednna.motor_aberturas import avaliar_abertura, avaliar_aberturas_homologadas, autorizar_abertura_assistida
+from ednna.motor_falta_arquivo import avaliar_falta_arquivo, listar_regras_aprendidas
+from ednna.homologacao import listar_homologacoes_mais_recentes
 
 st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
@@ -86,19 +89,9 @@ with st.expander(f"🚦 Prontidão operacional · {len(prontas_prontidao)} pront
     else:
         st.success("Todas as regras conhecidas estão operacionalmente prontas.")
 
-aptas_auto=[r for r in hom if (r.get("workflow") or obter_workflow(r.get("player"))).get("prontidao")=="ASSISTIDA_DISPONIVEL"]
-pendentes_auto=[r for r in aptas_auto if str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA").upper()!="AUTOMATICA"]
-if pendentes_auto:
-    st.warning(f"⚡ {len(pendentes_auto)} regra(s) homologada(s) com executor disponível ainda não estão em modo automático.")
-    if st.button("⚡ Colocar TODAS as homologadas aptas em AUTOMÁTICO",type="primary",key="central_auto_todas",width="content"):
-        ok,erros=0,[]
-        for rr in pendentes_auto:
-            rid=str(rr.get("regra_id") or "")
-            try: autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização em lote explícita: executar automaticamente todas as regras já homologadas e com executor disponível."); ok+=1
-            except Exception as exc: erros.append(f"{rr.get('player')}: {exc}")
-        if ok: st.success(f"{ok} regra(s) promovida(s) para execução automática.")
-        if erros: st.error("Não foi possível ativar: "+" | ".join(erros))
-        st.rerun()
+# Promoção em lote desabilitada: autorização é individual, auditável e
+# dependente da operação e dos checkpoints de cada workflow.
+st.caption("A autorização automática é individual por regra. Não há promoção em lote.")
 
 aba0,aba1,aba2,aba3=st.tabs([f"📚 Todas as regras ({len(catalogo_declarativo)+len(regras_treinaveis)})",f"1 · Revisar e homologar ({len(revisar)})",f"2 · Autorizar motor ({len(bloqueadas)})",f"Regras ativas ({len(autorizadas)})"])
 with aba0:
@@ -182,3 +175,146 @@ st.divider(); rows=[]
 for r in regras:
     wf=r.get("workflow") or obter_workflow(r.get("player")); pr=avaliar_prontidao_regra(r.get("player")); rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Workflow":wf.get("workflow"),"Executor":wf.get("prontidao"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Prontidão":pr.get("estado_prontidao"),"Bloqueios":", ".join(pr.get("bloqueios") or []),"Próxima ação":pr.get("proxima_acao")})
 st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="stretch",hide_index=True); st.caption(f"EDDY v{APP_VERSION} · Central de Regras")
+# Inventário unificado: regras do aprendizado de inclusão e homologações da Escola.
+# A aprovação excepcional não habilita envios nem remove checkpoints do executor.
+st.divider()
+st.subheader("📚 Inventário unificado · Escola + Central")
+_homologacoes_escola = listar_homologacoes_mais_recentes()
+_ids_catalogo = {str(x.get("regra_id") or "") for x in regras}
+_linhas_unificadas = []
+for _h in _homologacoes_escola:
+    _rid = str(_h.get("regra_id") or "")
+    _operacao = ("ABERTURA" if _rid.upper().startswith("ABERTURA-") else
+                 "INCLUSAO" if _rid.upper().startswith("INCLUSAO-") else
+                 "FALTA_ARQUIVO" if _rid.upper().startswith(("FALTA-ARQUIVO-", "FALTA_ARQUIVO-", "AUSENCIA-ARQUIVO-")) else "OUTRA")
+    _autorizacao = obter_autorizacao_motor(_rid) or {}
+    _linhas_unificadas.append({
+        "Regra da Escola": _rid, "Player": _h.get("player"), "Operação": _operacao,
+        "Homologação": _h.get("estado"), "Nota": _h.get("nota"),
+        "Autorização": _autorizacao.get("modo") or "NÃO AUTORIZADA",
+        "No catálogo operacional": "SIM" if _rid in _ids_catalogo else "NÃO · VINCULAR",
+        "Executor externo": "NÃO VALIDADO" if _operacao in {"ABERTURA", "FALTA_ARQUIVO"} else "VERIFICAR WORKFLOW",
+    })
+if _linhas_unificadas:
+    st.dataframe(pd.DataFrame(_linhas_unificadas), hide_index=True, width="stretch")
+    st.caption("Inventário das homologações persistidas. O vínculo com o catálogo e a autorização são independentes; não há ativação automática.")
+else:
+    st.info("Ainda não há homologações persistidas disponíveis nesta instância.")
+st.divider()
+
+st.subheader("⚙️ Motores operacionais EDDY")
+st.caption("Inclusão, abertura e falta de arquivo são operações distintas. Homologação de conhecimento não equivale a execução liberada.")
+_motor_inclusoes = len([h for h in _homologacoes_escola if str(h.get("regra_id") or "").upper().startswith("INCLUSAO-")])
+_motor_aberturas = avaliar_aberturas_homologadas()
+_mi, _ma, _mf = st.columns(3)
+_mi.metric("Inclusões cadastradas", _motor_inclusoes)
+_ma.metric("Aberturas homologadas", len(_motor_aberturas))
+_regras_falta = listar_regras_aprendidas()
+_mf.metric("Falta de arquivo · homologadas", len(_regras_falta))
+with st.expander("🏦 Motor de Aberturas · homologação e preparação assistida", expanded=False):
+    st.warning("Preparação assistida não envia solicitações, não atualiza Redmine e não conclui abertura. O executor externo permanece pendente.")
+    if _motor_aberturas:
+        st.dataframe(pd.DataFrame([{"Regra":x["regra_id"],"Player":x.get("player"),"Estado":x.get("estado"),"Modo":x.get("modo"),"Executável":x.get("executavel")} for x in _motor_aberturas]),hide_index=True,width="stretch")
+        _aberturas_homologadas = [x for x in _motor_aberturas if x.get("estado") == "AGUARDANDO_AUTORIZACAO"]
+        if _aberturas_homologadas:
+            _abertura_id = st.selectbox("Regra de abertura para preparação assistida", [x["regra_id"] for x in _aberturas_homologadas], key="abertura_regra")
+            _abertura_responsavel = st.text_input("Responsável pela autorização",key="abertura_responsavel")
+            _abertura_justificativa = st.text_area("Justificativa técnica (mínimo 20 caracteres)",key="abertura_justificativa")
+            if st.button("Autorizar somente preparação assistida",key="abertura_autorizar",disabled=not _abertura_responsavel.strip() or len(_abertura_justificativa.strip())<20):
+                try:
+                    autorizar_abertura_assistida(_abertura_id,responsavel=_abertura_responsavel,justificativa=_abertura_justificativa)
+                    st.success("Preparação assistida registrada. Envio externo permanece bloqueado.")
+                    st.rerun()
+                except Exception as _exc:
+                    st.error(str(_exc))
+    else:
+        st.info("Nenhuma abertura homologada encontrada. As propostas continuam visíveis na seção da Escola.")
+with st.expander("📁 Motor de Falta de Arquivo · diagnóstico",expanded=False):
+    st.caption("A triagem depende de evidências reais de calendário, janela, recepção e frequência. Nenhum disparo externo é realizado.")
+    st.write("Estados: aguardando dados, fora do calendário, dentro da janela, conferência de recepção e falta confirmada.")
+    if _regras_falta:
+        st.dataframe(pd.DataFrame(_regras_falta),hide_index=True,width="stretch")
+    else:
+        st.info("Nenhuma homologação identificada pelos identificadores de falta de arquivo. Verificar a nomenclatura das regras aprendidas.")
+    st.warning("Integração com recepção real e executor de cobrança ainda pendente; nenhuma ação externa autorizada.")
+
+st.divider()
+st.subheader("📋 Homologações da Escola e decisões do professor")
+st.caption("Esta visão inclui regras aprovadas na Central de Aprendizagem que antes não apareciam no inventário de inclusão. Aprovar conhecimento e liberar execução são decisões separadas.")
+from ednna.homologacao import listar_homologacoes_mais_recentes, alterar_estado, homologar_por_decisao_humana
+from ednna.minerador_aberturas import listar_propostas
+
+_homologacoes=listar_homologacoes_mais_recentes()
+_propostas=listar_propostas()
+_por_id={str(p.get("regra_id") or ""):p for p in _propostas if p.get("regra_id")}
+_hom_ids={str(h["regra_id"]) for h in _homologacoes}
+_ids_operacionais={str(r.get("regra_id") or "") for r in regras}
+_unificadas=[]
+for h in _homologacoes:
+    _unificadas.append({"Regra":h["regra_id"],"Player":h.get("player"),"Origem":"Escola / homologação","Estado":h.get("estado"),"Nota":h.get("nota"),"Responsável":h.get("homologado_por"),"Motor":"Autorização independente"})
+for p in _propostas:
+    rid=str(p.get("regra_id") or "")
+    if rid and rid not in _hom_ids:
+        _unificadas.append({"Regra":rid,"Player":p.get("player"),"Origem":"Escola / proposta","Estado":"EM_APRENDIZADO","Nota":"—","Responsável":"—","Motor":"BLOQUEADA"})
+for rr in regras:
+    rid=str(rr.get("regra_id") or "")
+    if rid and rid not in _hom_ids:
+        _unificadas.append({"Regra":rid,"Player":rr.get("player"),"Origem":"Aprendizado / inclusão","Estado":rr.get("estado_revisao") or rr.get("estado"),"Nota":rr.get("completude"),"Responsável":"—","Motor":(rr.get("autorizacao_motor") or {}).get("modo","BLOQUEADA")})
+if _unificadas:
+    st.dataframe(pd.DataFrame(_unificadas),hide_index=True,width="stretch")
+else:
+    st.info("Ainda não há regras persistidas nas fontes consultadas.")
+
+for h in _homologacoes:
+    rid=str(h["regra_id"])
+    with st.expander(f"🎓 {h.get('player') or 'Player'} · {rid} · {h.get('estado')} · {h.get('nota')}%"):
+        st.caption(f"Versão {h.get('versao')} · Homologada por {h.get('homologado_por')} · {h.get('motivo') or 'Sem observações'}")
+        aut_escola=obter_autorizacao_motor(rid)
+        wf_escola=obter_workflow(h.get("player"))
+        modo_escola=str(aut_escola.get("modo") or "BLOQUEADA")
+        st.write(f"**Motor:** {modo_escola} · **Executor:** {wf_escola.get('prontidao') or 'NÃO IDENTIFICADO'}")
+        operacao_escola = str(rid).split("-",1)[0].upper()
+        pode_autorizar_escola = operacao_escola == "INCLUSAO" and h.get("estado") in {"ATIVA","EM_OBSERVACAO"} and wf_escola.get("prontidao")=="ASSISTIDA_DISPONIVEL"
+        if pode_autorizar_escola:
+            col_ass,col_auto=st.columns(2)
+            with col_ass:
+                if st.button("▶ Autorizar assistida",key="school_ass_"+rid):
+                    autorizar_regra_motor(rid,modo="ASSISTIDA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização da regra homologada na Escola")
+                    st.rerun()
+            with col_auto:
+                if st.button("⚡ Autorizar automática",key="school_auto_"+rid):
+                    autorizar_regra_motor(rid,modo="AUTOMATICA",autorizado_por="OPERADOR_EDNNA",observacoes="Autorização explícita da regra homologada na Escola; sujeito aos checkpoints")
+                    st.rerun()
+        elif h.get("estado")!="SUSPENSA":
+            st.warning("Execução não liberada: regras de abertura e outras operações exigem executor específico; inclusão exige executor disponível.")
+        if h.get("estado")!="SUSPENSA":
+            if st.button("⏸ Suspender homologação",key="school_suspend_"+rid):
+                alterar_estado(rid,"SUSPENSA","OPERADOR_EDNNA","Suspensão manual na Central de Regras")
+                from ednna.aprendizado_operacional import _garantir_tabela_autorizacoes_motor
+                from ednna.armazenamento import conectar, agora_brasil_iso
+                _garantir_tabela_autorizacoes_motor()
+                with conectar() as conn:
+                    agora=agora_brasil_iso()
+                    conn.execute("UPDATE autorizacoes_motor SET modo='BLOQUEADA', autorizado_por=?, autorizado_em=?, observacoes=?, atualizado_em=? WHERE regra_id=?",
+                                 ("OPERADOR_EDNNA", agora, "Suspensão manual da homologação da Escola", agora, rid))
+                st.rerun()
+        else:
+            st.warning("Regra suspensa. A reativação exige decisão explícita e revisão do procedimento.")
+            if st.button("▶ Reativar em observação",key="school_resume_"+rid):
+                alterar_estado(rid,"EM_OBSERVACAO","OPERADOR_EDNNA","Reativação manual supervisionada")
+                st.rerun()
+
+for rid,p in _por_id.items():
+    if rid in _hom_ids: continue
+    with st.expander(f"👨‍🏫 Aprovar por decisão humana · {p.get('player') or rid} · {rid}"):
+        st.warning("A aprovação excepcional preserva a nota e inicia em observação. Não autoriza envio automático; exige executor e liberação operacional próprios.")
+        professor=st.text_input("Responsável pela decisão",key="override_prof_"+rid)
+        motivo=st.text_area("Justificativa técnica e riscos aceitos",key="override_reason_"+rid)
+        nota=st.number_input("Nota de aprendizado verificada (%)",min_value=0,max_value=100,value=0,key="override_score_"+rid)
+        confirma=st.checkbox("Revisei evidências, destinatários, segurança e checkpoints; autorizo a homologação em observação.",key="override_confirm_"+rid)
+        if st.button("✅ Homologar excepcionalmente",key="override_approve_"+rid,disabled=not confirma):
+            try:
+                homologar_por_decisao_humana(p,professor,motivo,nota=int(nota))
+                st.success("Homologação registrada em observação. A execução permanece sujeita à autorização do motor.")
+                st.rerun()
+            except Exception as exc: st.error(str(exc))

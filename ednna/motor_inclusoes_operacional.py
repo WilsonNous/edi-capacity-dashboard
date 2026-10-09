@@ -300,7 +300,8 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
             contadores["aguardando_executor"] += 1
             acao = "Implementar executor"
         elif estado == "CHECKPOINT_HUMANO":
-            acao = "Preparar/validar Termo SAFRAPAY com o cliente"
+            checkpoints = wf.get("checkpoints_humanos") or []
+            acao = str(checkpoints[0].get("titulo") or "Solicitar intervenção humana") if checkpoints else "Solicitar intervenção humana"
         else:
             acao = "Revisar"
 
@@ -650,7 +651,7 @@ def diagnosticar_regras_operacionais(snapshot: pd.DataFrame) -> dict:
         "PLAYER_AMBIGUO": ("IDENTIFICACAO", "Player/adquirente ambíguo"),
         "AGUARDANDO_VERIFICACAO_HISTORICO": ("PRECISA_DE_VOCE", "Histórico precisa ser sincronizado antes de agir"),
         "REDMINE_PENDENTE": ("REDMINE_PENDENTE", "E-mail/ação já ocorreu; falta reconciliar Redmine"),
-        "AGUARDANDO_RESPOSTA": ("AGUARDANDO_RESPOSTA", "EDNNA já atuou e aguarda retorno"),
+        "AGUARDANDO_RESPOSTA": ("AGUARDANDO_RESPOSTA", "EDDY já atuou e aguarda retorno"),
         "CONTINUIDADE_ESTADO_REDMINE": ("CONTINUIDADE", "Chamado já está em continuidade no Redmine"),
         "CONTINUIDADE_ATUACAO_PREVIA": ("CONTINUIDADE", "Há evidência de atuação anterior"),
     }
@@ -786,7 +787,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
             "Os arquivos deverão ser disponibilizados na CAIXA POSTAL NETUNNA junto à Greencard.", "",
             "Agradecemos e ficamos à disposição para quaisquer esclarecimentos.", "",
             "Atenciosamente,", "Equipe EDI Netunna", "",
-            "Mensagem operacional preparada e acompanhada pela EDNNA — Automação EDI Netunna."
+            "Mensagem operacional preparada e acompanhada pelo EDDY — Automação EDI Netunna."
         ]
         return {
             "ok":True,"remetente":os.getenv("EDNNA_EMAIL_FROM","edi@netunna.com.br"),
@@ -796,7 +797,7 @@ def gerar_rascunho_inclusao(pacote: dict) -> dict:
         }
 
     if player == "VR BENEFICIOS":
-        # O cliente é quem realiza a habilitação no Portal VR. A EDNNA somente
+        # O cliente é quem realiza a habilitação no Portal VR. O EDDY somente
         # orienta e acompanha; não envia solicitação de inclusão para a VR.
         assunto=f"[VR - Inclusão de Estabelecimento - {cliente} - CN: {cid}]"
         linhas=[
@@ -998,10 +999,10 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
                 if pacote.get("player") == "GREENCARD":
                     registrar_estado(pacote, "AGUARDANDO_GREENCARD", assunto=r.get("assunto"), ec_solicitado=list(pacote.get("estabelecimentos") or []))
                     bp_msg=(f"Chamado #{cid}: solicitação de inclusão de estabelecimento enviada diretamente ao Suporte Credenciado Greencard. "
-                            "Arquivos solicitados para a CAIXA POSTAL NETUNNA. Estado EDNNA: AGUARDANDO_GREENCARD.")
+                            "Arquivos solicitados para a CAIXA POSTAL NETUNNA. Estado EDDY: AGUARDANDO_GREENCARD.")
                 else:
                     registrar_estado(pacote, "AGUARDANDO_CLIENTE", formulario_nome=((r.get("formulario") or {}).get("filename") or ""), assunto=r.get("assunto"))
-                    bp_msg=f"Chamado #{cid}: formulário ROTACARD pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDNNA: AGUARDANDO_CLIENTE."
+                    bp_msg=f"Chamado #{cid}: formulário ROTACARD pré-preenchido e enviado ao cliente para revisão, complemento e assinatura. Estado EDDY: AGUARDANDO_CLIENTE."
                 bp_res=registrar_movimentacao_bp(pacote, bp_msg)
                 print(f"[EDNNA] {pacote.get('player')} | BP movimentado | chamado={cid} | ok={bp_res.get('ok')}", flush=True)
             except Exception as gc_exc:
@@ -1011,7 +1012,7 @@ def executar_atuacao_assistida_email(pacote: dict) -> dict:
                 from ednna.redmine_writer import adicionar_nota_chamado
                 bp=int(pacote.get("blueprint_id") or 0)
                 contas=", ".join(str(x) for x in (pacote.get("contas_bancarias") or []))
-                nota_bp=f"*EDNNA · Movimentação bancária SICREDI*\n\nChamado #{cid}: solicitação de abertura de relacionamento enviada ao contato bancário obtido do Blueprint.\nContas: {contas or 'não informadas'}\nEstado EDNNA: AGUARDANDO_RETORNO_BANCO.\n\nMarcador: EDNNA-SICREDI:{cid}"
+                nota_bp=f"*EDDY · Movimentação bancária SICREDI*\n\nChamado #{cid}: solicitação de abertura de relacionamento enviada ao contato bancário obtido do Blueprint.\nContas: {contas or 'não informadas'}\nEstado EDDY: AGUARDANDO_RETORNO_BANCO.\n\nMarcador: EDNNA-SICREDI:{cid}"
                 adicionar_nota_chamado(chamado_id=bp, nota=nota_bp)
                 print(f"[EDNNA] SICREDI | BP movimentado | chamado={cid} | bp={bp}", flush=True)
             except Exception as bank_exc:
@@ -1117,26 +1118,19 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         rid=str(item.get("regra_id") or "")
         aut = obter_autorizacao_motor(rid)
         modo_motor = str(aut.get("modo") or "BLOQUEADA").upper()
-        # AUTOMATICA é autorização humana explícita. Para compatibilidade, uma
-        # regra ASSISTIDA que já possua envio confirmado também pode ser promovida
-        # pelo histórico, como nas versões anteriores.
-        confianca_historica = regra_possui_envio_confirmado(rid)
-        # Workflows documentais (Greencard) só entram no worker quando o operador
-        # marcou explicitamente AUTOMATICA. Um envio assistido anterior não promove
-        # sozinho um processo que envolve documento/assinatura.
-        player_item = str(item.get("player") or "").upper()
-        if player_item in {"GREENCARD", "ROTACARD"}:
-            autorizado_auto = (modo_motor == "AUTOMATICA")
-        else:
-            autorizado_auto = modo_motor == "AUTOMATICA" or (modo_motor == "ASSISTIDA" and confianca_historica)
+        # O histórico nunca promove uma regra assistida para execução autônoma.
+        # Somente a autorização explícita do operador permite ação externa.
+        autorizado_auto = modo_motor == "AUTOMATICA"
         if not autorizado_auto:
-            resumo["ignorados"] += 1; continue
+            resumo["ignorados"] += 1
+            print(f"[EDDY] Inclusão não executada | chamado={cid_item} | regra={rid} | motivo=MODO_{modo_motor}",flush=True)
+            continue
         resumo["elegiveis"] += 1
         pacote=preparar_atuacao_assistida(item)
         if not pacote.get("ok"):
             resumo["ignorados"] += 1; continue
         try:
-            origem_auto = "AUTORIZACAO_EXPLICITA" if modo_motor == "AUTOMATICA" else "HISTORICO_CONFIRMADO"
+            origem_auto = "AUTORIZACAO_EXPLICITA"
             print(f"[EDNNA] Inclusão automática | chamado={pacote.get('chamado_id')} | regra={rid} | origem={origem_auto}",flush=True)
             resultado=executar_atuacao_assistida_email(pacote)
             if resultado.get("ok"):

@@ -1,0 +1,27 @@
+name: EDDY - Testes dos Motores
+on:
+  pull_request:
+    paths:
+      - 'ednna/**'
+      - 'pages/Regras.py'
+      - 'tests/**'
+      - '.github/workflows/validate-motores-eddy.yml'
+  workflow_dispatch:
+
+jobs:
+  motores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EDNNA_DB_PATH: ${{ runner.temp }}/eddy-test.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies and pytest
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+      - name: Run operational motor regression tests
+        run: python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py

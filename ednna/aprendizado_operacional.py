@@ -530,9 +530,29 @@ def listar_regras_operacionais() -> list[dict]:
 
 def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | None:
     alvo=str(player or '').strip().upper()
+    from ednna.homologacao import estado_regra
     for regra in listar_regras_operacionais():
         if str(regra.get('player') or '').strip().upper()==alvo and str(regra.get('operacao') or '').upper()==str(operacao).upper() and regra.get('estado_revisao')=='HOMOLOGADA':
+            escola_atual = estado_regra(str(regra.get("regra_id") or ""))
+            if escola_atual and escola_atual.get("estado") == "SUSPENSA":
+                continue
             return regra
+    # Compatibilidade: homologação da Escola para INCLUSAO, sem assumir que
+    # uma regra de ABERTURA possa ser consumida como inclusão.
+    from ednna.homologacao import listar_homologacoes_mais_recentes
+    for escola in listar_homologacoes_mais_recentes():
+        if str(escola.get("player") or "").strip().upper() != alvo:
+            continue
+        if escola.get("estado") not in {"ATIVA", "EM_OBSERVACAO"}:
+            continue
+        rid = str(escola.get("regra_id") or "")
+        if not rid.upper().startswith("INCLUSAO-") or str(operacao).upper() != "INCLUSAO":
+            continue
+        return {"regra_id": rid, "player": alvo, "operacao": "INCLUSAO",
+                "estado_revisao": "HOMOLOGADA", "estado_operacional": "HOMOLOGADA",
+                "origem_homologacao": "ESCOLA",
+                "workflow": obter_workflow(alvo),
+                "autorizacao_motor": obter_autorizacao_motor(rid)}
     return None
 
 
@@ -564,9 +584,21 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
     if modo not in {"ASSISTIDA", "AUTOMATICA", "BLOQUEADA"}:
         raise ValueError("Modo operacional inválido.")
     revisao = obter_revisao(regra_id)
-    if revisao.get("estado") != "HOMOLOGADA":
-        raise ValueError("Somente regra homologada pode ser autorizada para operação.")
+    # A Escola é outra fonte de homologação; aceitar sua aprovação explícita,
+    # mas nunca autorizar uma regra suspensa por qualquer uma das fontes.
+    from ednna.homologacao import estado_regra
+    escola = estado_regra(regra_id)
+    if escola and escola.get("estado") == "SUSPENSA":
+        if modo != "BLOQUEADA":
+            raise ValueError("Regra suspensa na Escola; revise antes de autorizar.")
+    elif revisao.get("estado") != "HOMOLOGADA" and not (escola and escola.get("estado") in {"ATIVA", "EM_OBSERVACAO"}):
+        if modo != "BLOQUEADA":
+            raise ValueError("Somente regra homologada pode ser autorizada para operação.")
+    if modo in {"ASSISTIDA", "AUTOMATICA"} and escola and revisao.get("estado") != "HOMOLOGADA" and not str(regra_id).upper().startswith("INCLUSAO-"):
+        raise ValueError("A homologação da Escola para esta operação requer executor próprio; motor de inclusão não autorizado.")
     aprendido = obter_aprendizado(regra_id) or {}
+    if not aprendido and escola:
+        aprendido = {"player": escola.get("player")}
     workflow = obter_workflow(aprendido.get("player"))
     if modo in {"ASSISTIDA", "AUTOMATICA"} and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
         raise ValueError("O executor deste workflow ainda não está disponível para operação.")

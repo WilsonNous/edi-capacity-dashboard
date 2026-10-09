@@ -9,6 +9,7 @@ from ednna.armazenamento import carregar_snapshot_chamados
 from ednna.email_sender import GRAPH_BASE_URL, _graph_get, baixar_mensagem_eml
 from ednna.redmine_writer import REDMINE_URL, _headers, upload_arquivo_redmine, obter_status_id_por_nome
 from ednna.regras_ocorrencias import obter_regra_ocorrencia
+from ednna.observabilidade import log_event
 
 FRANCIMAR="francimar.tondello@grupoargenta.com.br"
 PLAYERS=("SENFF","POLICARD","STONE","CIELO","GREENCARD","ROTACARD")
@@ -24,10 +25,10 @@ def classificar_ocorrencias_simrede(msg:dict[str,Any])->list[dict]:
     texto=re.sub(r"<[^>]+>"," ",str(body.get("content") or msg.get("bodyPreview") or ""))
     texto=re.sub(r"\s+"," ",texto).strip()
     texto=re.split(r"(?i)\bEm\s+(?:seg|ter|qua|qui|sex|s[aá]b|dom)\.?[, ]|\bFrom:\s|\bDe:\s",texto,maxsplit=1)[0].strip()
-    up=texto.upper()
+    up=(str(msg.get('subject') or '')+' '+texto).upper()
     players=[p for p in PLAYERS if p in up]
     if ("UP BRASIL" in up or "UPBRASIL" in up) and "POLICARD" not in players: players.append("POLICARD")
-    tipos=[n for n,rx in TIPOS if re.search(rx,texto,re.I)]
+    tipos=[n for n,rx in TIPOS if re.search(rx,str(msg.get('subject') or '')+' '+texto,re.I)]
     cnpjs=sorted(set(CNPJ_RE.findall(texto)))
     ecs=sorted(set(EC_RE.findall(texto)))
     datas=sorted(set(DATA_RE.findall(texto)))
@@ -118,28 +119,76 @@ def _criar_chamado(oc:dict,*,eml:bytes|None=None)->int:
     if not cid: raise RuntimeError("Redmine não retornou ID do chamado SIM REDE")
     return cid
 
+def diagnosticar_mensagem(msg:dict[str,Any])->str:
+    """Motivo estruturado sem expor assunto, corpo ou dados pessoais."""
+    if _remetente(msg)!=FRANCIMAR: return "REMETENTE_DIFERENTE"
+    assunto=str(msg.get("subject") or "")
+    body=msg.get("body") or {}
+    texto=re.sub(r"<[^>]+>"," ",str(body.get("content") or msg.get("bodyPreview") or ""))
+    texto=re.split(r"(?i)\\bFrom:\\s|\\bDe:\\s",texto,maxsplit=1)[0]
+    up=(assunto+" "+texto).upper()
+    players=[p for p in PLAYERS if p in up]
+    if "UP BRASIL" in up or "UPBRASIL" in up: players.append("POLICARD")
+    tipos=[nome for nome,rx in TIPOS if re.search(rx,assunto+" "+texto,re.I)]
+    if not players and not tipos: return "PLAYER_E_TIPO_NAO_RECONHECIDOS"
+    if not players: return "PLAYER_NAO_RECONHECIDO"
+    if not tipos: return "TIPO_NAO_RECONHECIDO"
+    return "CLASSIFICADA"
+
+
+def _mensagens_paginadas(caixa:str, limite:int):
+    """Consulta páginas Graph com limite global e URL de continuação fornecida pelo Graph."""
+    base=f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages"
+    params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview",
+            "$orderby":"receivedDateTime desc","$top":str(min(100,max(1,limite)))}
+    url=base
+    visitadas=set()
+    lidas=0
+    while url and lidas<limite:
+        if url in visitadas: raise RuntimeError("Graph retornou paginação circular")
+        if not url.startswith(GRAPH_BASE_URL+"/"):
+            raise RuntimeError("URL de paginação fora do Microsoft Graph")
+        visitadas.add(url)
+        dados=_graph_get(url,params=params if url==base else None)
+        for msg in dados.get("value",[]) or []:
+            if lidas>=limite: break
+            lidas+=1
+            yield msg
+        url=dados.get("@odata.nextLink")
+        params=None
+
+
 def processar_entrada_francimar(*,limite:int=100)->dict:
     caixas=[x.strip() for x in str(os.getenv("EDDY_SIMREDE_MAILBOXES","wilson.martins@netunna.com.br,edi@netunna.com.br")).split(",") if x.strip()]
-    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[]}; vistos=set()
+    resumo={"mensagens":0,"ocorrencias":0,"existentes":0,"abertos":[],"erros":[],"sem_classificacao":0}; vistos=set()
     for caixa in caixas:
-        dados=_graph_get(f"{GRAPH_BASE_URL}/users/{caixa}/mailFolders/inbox/messages",params={"$select":"id,subject,conversationId,internetMessageId,receivedDateTime,from,body,bodyPreview","$orderby":"receivedDateTime desc","$top":str(max(1,limite))})
-        for msg in dados.get("value",[]) or []:
+        for msg in _mensagens_paginadas(caixa, max(1,limite)):
             if _remetente(msg)!=FRANCIMAR: continue
             resumo["mensagens"]+=1; ocorrencias=classificar_ocorrencias_simrede(msg)
-            if not ocorrencias: continue
+            if not ocorrencias:
+                resumo['sem_classificacao']+=1
+                motivo=diagnosticar_mensagem(msg)
+                log_event('SIM_REDE','Mensagem sem classificação',detalhe='motivo='+motivo+' id_hash='+hashlib.sha256(str(msg.get('internetMessageId') or msg.get('id') or '').encode()).hexdigest()[:16],dedup_seconds=0)
+                continue
             eml=None
             for oc in ocorrencias:
                 resumo["ocorrencias"]+=1
                 if oc["chave"] in vistos: resumo["existentes"]+=1; continue
                 vistos.add(oc["chave"])
+                regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
+                if not regra or str(regra.get("estado") or "").upper() not in {"HOMOLOGADA", "ATIVA"} or str(regra.get("modo_motor") or "").upper() not in {"AUTOMATICA", "AUTOMÁTICA"}:
+                    log_event("SIM_REDE","Ocorrência sem regra autorizada",player=oc["player"],regra_id=oc["tipo"],detalhe="REGRA_NAO_HABILITADA",dedup_seconds=3600)
+                    continue
                 try:
                     if not _reservar(oc["chave"]):
-                        resumo["existentes"]+=1
+                        resumo['existentes']+=1
+                        log_event('SIM_REDE','Ocorrência previamente reservada',player=oc['player'],regra_id=oc['tipo'],dedup_seconds=3600)
                         continue
                     existente=_ja_existe(oc)
                     if existente:
                         _concluir_reserva(oc["chave"],existente,"CRIADO")
-                        resumo["existentes"]+=1
+                        resumo['existentes']+=1
+                        log_event('SIM_REDE','Chamado existente identificado',chamado_id=existente,player=oc['player'],regra_id=oc['tipo'])
                         continue
                 except Exception as exc:
                     resumo["erros"].append(f"{oc['chave']}: reserva/correlação: {exc}")
@@ -148,9 +197,12 @@ def processar_entrada_francimar(*,limite:int=100)->dict:
                     if eml is None: eml=baixar_mensagem_eml(caixa_postal=caixa,message_id=str(msg.get("id") or ""))
                     regra=obter_regra_ocorrencia(oc["player"],oc["tipo"])
                     cid=_criar_chamado(oc,eml=eml); _concluir_reserva(oc["chave"],cid,"CRIADO"); resumo["abertos"].append({"chamado_id":cid,"player":oc["player"],"tipo":oc["tipo"],"chave":oc["chave"],"regra_id":(regra or {}).get("regra_id"),"modo_motor":(regra or {}).get("modo_motor")})
+                    log_event('SIM_REDE','Chamado aberto confirmado',chamado_id=cid,player=oc['player'],regra_id=oc['tipo'])
                     print(f"[EDDY] SIM REDE | chamado aberto #{cid} | player={oc['player']} | tipo={oc['tipo']} | responsavel=EDNNA | origem=Francimar",flush=True)
                 except Exception as exc:
                     _concluir_reserva(oc["chave"],None,"RECONCILIAR")
-                    resumo["erros"].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+                    resumo['erros'].append(f"{oc['chave']}: {type(exc).__name__}: {exc}")
+                    log_event('SIM_REDE','Falha na abertura de chamado',nivel='ERROR',player=oc['player'],regra_id=oc['tipo'],detalhe=type(exc).__name__)
+    log_event('SIM_REDE','Ciclo de leitura SIM REDE',detalhe='mensagens={} ocorrencias={} sem_classificacao={} existentes={} abertos={} erros={}'.format(resumo['mensagens'],resumo['ocorrencias'],resumo['sem_classificacao'],resumo['existentes'],len(resumo['abertos']),len(resumo['erros'])))
     print(f"[EDDY] SIM REDE | mensagens={resumo['mensagens']} | ocorrencias={resumo['ocorrencias']} | existentes={resumo['existentes']} | abertos={len(resumo['abertos'])} | erros={len(resumo['erros'])}",flush=True)
     return resumo
