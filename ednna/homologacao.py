@@ -84,3 +84,33 @@ def alterar_estado(regra_id,estado,professor,motivo=''):
 
 def regra_pode_executar(regra_id):
     r=estado_regra(regra_id); return bool(r and r.get('estado') in ('ATIVA','EM_OBSERVACAO'))
+
+def homologar_por_decisao_humana(regra:dict, professor:str, justificativa:str, *, nota:int=0):
+    """Exceção explícita do administrador: homologação em observação, sem ativar executor."""
+    _init()
+    rid=str(regra.get("regra_id") or "").strip()
+    professor=str(professor or "").strip()
+    justificativa=str(justificativa or "").strip()
+    if not rid or not professor or len(justificativa)<20:
+        raise ValueError("Regra, responsável e justificativa de pelo menos 20 caracteres são obrigatórios.")
+    nota=max(0,min(100,int(nota or 0)))
+    raw,sha=_snapshot(regra,{"nota_ponderada_pct":nota,"excecao_manual":True,"justificativa":justificativa})
+    agora=agora_brasil_iso()
+    with conectar() as c:
+        versao=int(c.execute("SELECT COALESCE(MAX(versao),0) FROM homologacoes_regras WHERE regra_id=?",(rid,)).fetchone()[0])+1
+        c.execute("UPDATE homologacoes_regras SET estado='SUSPENSA',atualizado_em=? WHERE regra_id=? AND estado IN ('ATIVA','EM_OBSERVACAO')",(agora,rid))
+        c.execute("""INSERT INTO homologacoes_regras
+          (regra_id,versao,player,estado,homologado_por,homologado_em,nota,snapshot_json,snapshot_sha256,motivo,atualizado_em)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+          (rid,versao,str(regra.get("player") or ""),"EM_OBSERVACAO",professor,agora,nota,raw,sha,"EXCECAO HUMANA: "+justificativa,agora))
+    return estado_regra(rid)
+
+
+def listar_homologacoes_mais_recentes()->list[dict]:
+    _init()
+    with conectar() as c:
+        rows=c.execute("""SELECT h.regra_id,h.versao,h.player,h.estado,h.homologado_por,h.homologado_em,h.nota,h.motivo
+          FROM homologacoes_regras h
+          WHERE h.versao=(SELECT MAX(h2.versao) FROM homologacoes_regras h2 WHERE h2.regra_id=h.regra_id)
+          ORDER BY h.player,h.regra_id""").fetchall()
+    return [dict(row) for row in rows]
