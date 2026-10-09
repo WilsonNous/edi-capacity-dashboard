@@ -1121,7 +1121,9 @@ def executar_inclusoes_automaticas(snapshot: pd.DataFrame) -> dict:
         # Somente a autorização explícita do operador permite ação externa.
         autorizado_auto = modo_motor == "AUTOMATICA"
         if not autorizado_auto:
-            resumo["ignorados"] += 1; continue
+            resumo["ignorados"] += 1
+            print(f"[EDDY] Inclusão não executada | chamado={cid_item} | regra={rid} | motivo=MODO_{modo_motor}",flush=True)
+            continue
         resumo["elegiveis"] += 1
         pacote=preparar_atuacao_assistida(item)
         if not pacote.get("ok"):
