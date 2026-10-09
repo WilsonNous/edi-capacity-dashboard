@@ -18,6 +18,7 @@ from ednna.construtor_regras import listar_regras_treinaveis, explicar_regra
 from ednna.prontidao_operacional import avaliar_prontidao_regra
 from ednna.motor_aberturas import avaliar_abertura, avaliar_aberturas_homologadas, autorizar_abertura_assistida
 from ednna.motor_falta_arquivo import avaliar_falta_arquivo, listar_regras_aprendidas
+from ednna.homologacao import listar_homologacoes_mais_recentes
 
 st.set_page_config(page_title="EDDY · Central de Regras", page_icon="🧠", layout="wide", initial_sidebar_state="collapsed")
 require_admin()
@@ -177,9 +178,33 @@ st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="
 # Inventário unificado: regras do aprendizado de inclusão e homologações da Escola.
 # A aprovação excepcional não habilita envios nem remove checkpoints do executor.
 st.divider()
+st.subheader("📚 Inventário unificado · Escola + Central")
+_homologacoes_escola = listar_homologacoes_mais_recentes()
+_ids_catalogo = {str(x.get("regra_id") or "") for x in regras}
+_linhas_unificadas = []
+for _h in _homologacoes_escola:
+    _rid = str(_h.get("regra_id") or "")
+    _operacao = ("ABERTURA" if _rid.upper().startswith("ABERTURA-") else
+                 "INCLUSAO" if _rid.upper().startswith("INCLUSAO-") else
+                 "FALTA_ARQUIVO" if _rid.upper().startswith(("FALTA-ARQUIVO-", "FALTA_ARQUIVO-", "AUSENCIA-ARQUIVO-")) else "OUTRA")
+    _autorizacao = obter_autorizacao_motor(_rid) or {}
+    _linhas_unificadas.append({
+        "Regra da Escola": _rid, "Player": _h.get("player"), "Operação": _operacao,
+        "Homologação": _h.get("estado"), "Nota": _h.get("nota"),
+        "Autorização": _autorizacao.get("modo") or "NÃO AUTORIZADA",
+        "No catálogo operacional": "SIM" if _rid in _ids_catalogo else "NÃO · VINCULAR",
+        "Executor externo": "NÃO VALIDADO" if _operacao in {"ABERTURA", "FALTA_ARQUIVO"} else "VERIFICAR WORKFLOW",
+    })
+if _linhas_unificadas:
+    st.dataframe(pd.DataFrame(_linhas_unificadas), hide_index=True, width="stretch")
+    st.caption("Inventário das homologações persistidas. O vínculo com o catálogo e a autorização são independentes; não há ativação automática.")
+else:
+    st.info("Ainda não há homologações persistidas disponíveis nesta instância.")
+st.divider()
+
 st.subheader("⚙️ Motores operacionais EDDY")
 st.caption("Inclusão, abertura e falta de arquivo são operações distintas. Homologação de conhecimento não equivale a execução liberada.")
-_motor_inclusoes = len([r for r in regras if str(r.get("regra_id") or "").upper().startswith("INCLUSAO-")])
+_motor_inclusoes = len([h for h in _homologacoes_escola if str(h.get("regra_id") or "").upper().startswith("INCLUSAO-")])
 _motor_aberturas = avaliar_aberturas_homologadas()
 _mi, _ma, _mf = st.columns(3)
 _mi.metric("Inclusões cadastradas", _motor_inclusoes)
