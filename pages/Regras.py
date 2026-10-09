@@ -182,3 +182,62 @@ st.divider(); rows=[]
 for r in regras:
     wf=r.get("workflow") or obter_workflow(r.get("player")); pr=avaliar_prontidao_regra(r.get("player")); rows.append({"Player":r.get("player"),"Regra":r.get("regra_id"),"Conhecimento":r.get("estado_operacional") or r.get("estado"),"Workflow":wf.get("workflow"),"Executor":wf.get("prontidao"),"Motor":str((r.get("autorizacao_motor") or {}).get("modo") or "BLOQUEADA"),"Prontidão":pr.get("estado_prontidao"),"Bloqueios":", ".join(pr.get("bloqueios") or []),"Próxima ação":pr.get("proxima_acao")})
 st.markdown("### Inventário completo"); st.dataframe(pd.DataFrame(rows),width="stretch",hide_index=True); st.caption(f"EDDY v{APP_VERSION} · Central de Regras")
+# Inventário unificado: regras do aprendizado de inclusão e homologações da Escola.
+# A aprovação excepcional não habilita envios nem remove checkpoints do executor.
+st.divider()
+st.subheader("📋 Homologações da Escola e decisões do professor")
+st.caption("Esta visão inclui regras aprovadas na Central de Aprendizagem que antes não apareciam no inventário de inclusão. Aprovar conhecimento e liberar execução são decisões separadas.")
+from ednna.homologacao import listar_homologacoes_mais_recentes, alterar_estado, homologar_por_decisao_humana
+from ednna.minerador_aberturas import listar_propostas
+
+_homologacoes=listar_homologacoes_mais_recentes()
+_propostas=listar_propostas()
+_por_id={str(p.get("regra_id") or ""):p for p in _propostas if p.get("regra_id")}
+_hom_ids={str(h["regra_id"]) for h in _homologacoes}
+_ids_operacionais={str(r.get("regra_id") or "") for r in regras}
+_unificadas=[]
+for h in _homologacoes:
+    _unificadas.append({"Regra":h["regra_id"],"Player":h.get("player"),"Origem":"Escola / homologação","Estado":h.get("estado"),"Nota":h.get("nota"),"Responsável":h.get("homologado_por"),"Motor":"Autorização independente"})
+for p in _propostas:
+    rid=str(p.get("regra_id") or "")
+    if rid and rid not in _hom_ids:
+        _unificadas.append({"Regra":rid,"Player":p.get("player"),"Origem":"Escola / proposta","Estado":"EM_APRENDIZADO","Nota":"—","Responsável":"—","Motor":"BLOQUEADA"})
+for rr in regras:
+    rid=str(rr.get("regra_id") or "")
+    if rid and rid not in _hom_ids:
+        _unificadas.append({"Regra":rid,"Player":rr.get("player"),"Origem":"Aprendizado / inclusão","Estado":rr.get("estado_revisao") or rr.get("estado"),"Nota":rr.get("completude"),"Responsável":"—","Motor":(rr.get("autorizacao_motor") or {}).get("modo","BLOQUEADA")})
+if _unificadas:
+    st.dataframe(pd.DataFrame(_unificadas),hide_index=True,width="stretch")
+else:
+    st.info("Ainda não há regras persistidas nas fontes consultadas.")
+
+for h in _homologacoes:
+    rid=str(h["regra_id"])
+    with st.expander(f"🎓 {h.get('player') or 'Player'} · {rid} · {h.get('estado')} · {h.get('nota')}%"):
+        st.caption(f"Versão {h.get('versao')} · Homologada por {h.get('homologado_por')} · {h.get('motivo') or 'Sem observações'}")
+        if h.get("estado")!="SUSPENSA":
+            if st.button("⏸ Suspender homologação",key="school_suspend_"+rid):
+                alterar_estado(rid,"SUSPENSA","OPERADOR_EDNNA","Suspensão manual na Central de Regras")
+                try: autorizar_regra_motor(rid,modo="BLOQUEADA",autorizado_por="OPERADOR_EDNNA",observacoes="Suspensão da homologação da Escola")
+                except ValueError: pass
+                st.rerun()
+        else:
+            st.warning("Regra suspensa. A reativação exige decisão explícita e revisão do procedimento.")
+            if st.button("▶ Reativar em observação",key="school_resume_"+rid):
+                alterar_estado(rid,"EM_OBSERVACAO","OPERADOR_EDNNA","Reativação manual supervisionada")
+                st.rerun()
+
+for rid,p in _por_id.items():
+    if rid in _hom_ids: continue
+    with st.expander(f"👨‍🏫 Aprovar por decisão humana · {p.get('player') or rid} · {rid}"):
+        st.warning("A aprovação excepcional preserva a nota e inicia em observação. Não autoriza envio automático; exige executor e liberação operacional próprios.")
+        professor=st.text_input("Responsável pela decisão",key="override_prof_"+rid)
+        motivo=st.text_area("Justificativa técnica e riscos aceitos",key="override_reason_"+rid)
+        nota=st.number_input("Nota de aprendizado verificada (%)",min_value=0,max_value=100,value=0,key="override_score_"+rid)
+        confirma=st.checkbox("Revisei evidências, destinatários, segurança e checkpoints; autorizo a homologação em observação.",key="override_confirm_"+rid)
+        if st.button("✅ Homologar excepcionalmente",key="override_approve_"+rid,disabled=not confirma):
+            try:
+                homologar_por_decisao_humana(p,professor,motivo,nota=int(nota))
+                st.success("Homologação registrada em observação. A execução permanece sujeita à autorização do motor.")
+                st.rerun()
+            except Exception as exc: st.error(str(exc))
