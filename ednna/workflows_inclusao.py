@@ -98,6 +98,21 @@ def listar_catalogo_workflows() -> list[dict]:
 
 # Infraestrutura realmente disponível hoje. Executores compostos só ficam
 # prontos quando TODOS os seus componentes estiverem implementados.
+# Fallback humano para integrações externas ainda indisponíveis.
+# O checkpoint exige protocolo/evidência antes da continuidade.
+CHECKPOINTS_EXECUCAO_HUMANA = {
+    "CIELO": ("OPERAR_PORTAL_CIELO", "Executar procedimento Cielo e registrar protocolo"),
+    "BANRISUL": ("ACIONAR_BANRISUL", "Acionar relacionamento bancário e registrar retorno"),
+    "TICKETLOG": ("ABRIR_TICKETLOG", "Abrir solicitação Ticketlog e registrar protocolo"),
+}
+for _player, (_codigo, _titulo) in CHECKPOINTS_EXECUCAO_HUMANA.items():
+    _cfg = WORKFLOWS[_player]
+    _cfg["executor_original_pendente"] = _cfg["executor"]
+    _cfg["executor"] = "INTERVENCAO_HUMANA"
+    _cfg["canal_original"] = _cfg["canal"]
+    _cfg["canal"] = "CHECKPOINT_HUMANO"
+    _cfg["checkpoints_humanos"] = [{"codigo": _codigo, "titulo": _titulo, "momento": "ANTES_ACAO_EXTERNA", "evidencia_obrigatoria": True}]
+
 EXECUTORES_IMPLEMENTADOS = {"EMAIL_GRAPH", "MONITOR_EMAIL", "REDMINE", "FORMULARIO_GREENCARD", "FORMULARIO_ROTACARD", "INTERVENCAO_HUMANA"}
 
 
@@ -176,7 +191,7 @@ def planejar_workflow(player: str, dados: dict | None = None) -> dict:
         estado = "AGUARDANDO_DADOS"
     elif cfg.get("prontidao") != "ASSISTIDA_DISPONIVEL":
         estado = "AGUARDANDO_EXECUTOR"
-    elif str(cfg.get("player") or "").upper() == "SAFRAPAY":
+    elif str(cfg.get("player") or "").upper() in (set(CHECKPOINTS_EXECUCAO_HUMANA) | {"SAFRAPAY"}):
         # SAFRAPAY começa com um checkpoint humano deliberado: o termo deve ser
         # validado/carimbado/assinado pelo cliente. A regra pode ser automática
         # sem permitir que o worker pule essa etapa.
