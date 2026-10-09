@@ -34,3 +34,26 @@ def test_abertura_nao_aceita_regra_de_inclusao():
     resultado = avaliar_abertura("INCLUSAO-REDE-001")
     assert resultado["estado"] == "OPERACAO_INCOMPATIVEL"
     assert resultado["executavel"] is False
+
+
+def test_abertura_homologada_nao_usa_workflow_de_inclusao(monkeypatch):
+    import ednna.motor_aberturas as motor
+    monkeypatch.setattr(motor, "estado_regra", lambda rid: {"estado": "ATIVA", "player": "BANRISUL"})
+    monkeypatch.setattr(motor, "obter_autorizacao_motor", lambda rid: {"modo": "ASSISTIDA"})
+    monkeypatch.setattr(motor, "listar_propostas", lambda: [{
+        "regra_id": "ABERTURA-BANRISUL-001", "etapas": [
+            {"responsavel": "CHECKPOINT_HUMANO", "titulo": "Acessar portal"}],
+        "evidencias": 3}])
+    result = motor.avaliar_abertura("ABERTURA-BANRISUL-001")
+    assert result["estado"] == "PREPARACAO_ASSISTIDA_SEM_ENVIO"
+    assert result["executavel"] is False
+    assert len(result["checkpoints_humanos"]) == 1
+
+
+def test_falta_aprendida_sem_executor_externo(monkeypatch):
+    import ednna.motor_falta_arquivo as motor
+    monkeypatch.setattr(motor, "listar_regras_aprendidas", lambda: [{
+        "regra_id": "FALTA-ARQUIVO-REDE-001", "estado": "ATIVA"}])
+    result = motor.avaliar_regra_aprendida("FALTA-ARQUIVO-REDE-001", _demanda())
+    assert result["estado"] == "TRATATIVA_APRENDIDA_AGUARDANDO_EXECUTOR"
+    assert result["executavel"] is False
