@@ -42,7 +42,7 @@ def test_abertura_homologada_nao_usa_workflow_de_inclusao(monkeypatch):
     monkeypatch.setattr(motor, "obter_autorizacao_motor", lambda rid: {"modo": "ASSISTIDA"})
     monkeypatch.setattr(motor, "listar_propostas", lambda: [{
         "regra_id": "ABERTURA-BANRISUL-001", "etapas": [
-            {"responsavel": "CHECKPOINT_HUMANO", "titulo": "Acessar portal"}],
+            {"responsavel": "CHECKPOINT_HUMANO", "titulo": "Acessar portal", "confianca": "ALTA"}],
         "evidencias": 3}])
     result = motor.avaliar_abertura("ABERTURA-BANRISUL-001")
     assert result["estado"] == "PREPARACAO_ASSISTIDA_SEM_ENVIO"
@@ -57,3 +57,25 @@ def test_falta_aprendida_sem_executor_externo(monkeypatch):
     result = motor.avaliar_regra_aprendida("FALTA-ARQUIVO-REDE-001", _demanda())
     assert result["estado"] == "TRATATIVA_APRENDIDA_AGUARDANDO_EXECUTOR"
     assert result["executavel"] is False
+
+
+def test_abertura_sem_etapa_validada_nao_prepara(monkeypatch):
+    import ednna.motor_aberturas as motor
+    monkeypatch.setattr(motor, "estado_regra", lambda rid: {"estado": "ATIVA", "player": "SICREDI"})
+    monkeypatch.setattr(motor, "obter_autorizacao_motor", lambda rid: {"modo": "ASSISTIDA"})
+    monkeypatch.setattr(motor, "listar_propostas", lambda: [{
+        "regra_id": "ABERTURA-SICREDI-001",
+        "etapas": [{"codigo": "ENVIAR_EMAIL", "confianca": "A_VALIDAR"}]}])
+    result = motor.avaliar_abertura("ABERTURA-SICREDI-001")
+    assert result["estado"] == "AGUARDANDO_PROCEDIMENTO_APRENDIDO"
+    assert result["executavel"] is False
+
+
+def test_falta_arquivo_sem_confirmacao_nao_cobra(monkeypatch):
+    import ednna.motor_falta_arquivo as motor
+    monkeypatch.setattr(motor, "listar_regras_aprendidas", lambda: [{
+        "regra_id": "FALTA-ARQUIVO-REDE-001", "estado": "ATIVA"}])
+    result = motor.avaliar_regra_aprendida(
+        "FALTA-ARQUIVO-REDE-001", _demanda(arquivo_recebido=None))
+    assert result["estado"] == "AGUARDANDO_CONFIRMACAO_AUSENCIA"
+    assert result["envio_externo_autorizado"] is False
