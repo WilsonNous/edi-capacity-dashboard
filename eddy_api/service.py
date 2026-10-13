@@ -15,6 +15,7 @@ CAPABILITIES = (
     "edi.rule.list",
     "edi.operations.readiness",
     "edi.staff.departure.audit",
+    "edi.case.plan",
 )
 
 def _db_path(env_name: str, filename: str) -> Path:
@@ -208,6 +209,42 @@ def staff_departure_audit(data: dict[str, Any]) -> tuple[dict, float, list, list
         {"source": "eddy:sqlite-read-model", "snapshot_updated_at": snapshot_at}
     ], ([] if snapshot_at else ["Snapshot indisponível: nenhum resultado não significa ausência de chamados."]), True
 
+def case_plan(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
+    """Plano auditável por demanda, sem efeitos externos ou falsas autorizações."""
+    operation = str(data.get("operation") or "").strip().upper().replace("-", "_")
+    issue_id = data.get("issue_id")
+    if operation == "FALTA_ARQUIVO":
+        from ednna.motor_falta_arquivo import avaliar_regra_aprendida, avaliar_falta_arquivo
+        demand = data.get("demand") or {}
+        if not isinstance(demand, dict):
+            raise ValueError("demand deve ser um objeto.")
+        rid = str(data.get("rule_id") or "").strip()
+        assessment = avaliar_regra_aprendida(rid, demand) if rid else avaliar_falta_arquivo(demand)
+    elif operation == "ABERTURA":
+        from ednna.motor_aberturas import avaliar_abertura
+        rid = str(data.get("rule_id") or "").strip()
+        if not rid:
+            raise ValueError("rule_id é obrigatório para abertura.")
+        demand = data.get("demand") or {}
+        if not isinstance(demand, dict):
+            raise ValueError("demand deve ser um objeto.")
+        assessment = avaliar_abertura(rid, dados=demand)
+    else:
+        raise ValueError("operation deve ser ABERTURA ou FALTA_ARQUIVO.")
+    return {
+        "issue_id": issue_id,
+        "operation": operation,
+        "assessment": assessment,
+        "execution": "NOT_PERFORMED",
+        "external_messages_sent": 0,
+        "redmine_updates": 0,
+        "human_approval_required": True,
+        "next_step": assessment.get("proxima_acao") or "Revisar avaliação e autorizar próximo passo",
+    }, 0.90, [{"source": "eddy:operational-motors"}], [
+        "Somente avaliação: nenhum envio ou alteração no Redmine foi realizado."
+    ], True
+
+
 ROUTES = {
     "edi.status.get": status_get,
     "edi.issue.inspect": issue_inspect,
@@ -215,4 +252,5 @@ ROUTES = {
     "edi.rule.list": rule_list,
     "edi.operations.readiness": operations_readiness,
     "edi.staff.departure.audit": staff_departure_audit,
+    "edi.case.plan": case_plan,
 }
