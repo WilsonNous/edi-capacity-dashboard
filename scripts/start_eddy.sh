@@ -64,10 +64,11 @@ for name, url, accepted in targets:
 PY
 
 # Worker separado da UI: monitoramento não depende de sessões Streamlit.
-if [[ "${EDNNA_MONITOR_EMAIL_ENABLED:-true}" == "true" ]]; then
-  python -m ednna.worker_operacional &
+if [[ "${EDNNA_MONITOR_EMAIL_ENABLED:-false}" == "true" ]]; then
+  echo "[EDDY] Worker operacional habilitado explicitamente."\n  python -m ednna.worker_operacional &
   pids+=("$!")
-fi
+else
+  echo "[EDDY] Worker operacional desabilitado; configurar EDNNA_MONITOR_EMAIL_ENABLED=true após homologação."\nfi
 
 if [[ "${EDDY_MOTORES_OBSERVABILIDADE_ENABLED:-true}" == "true" ]]; then
   python -m ednna.observabilidade_motores &
