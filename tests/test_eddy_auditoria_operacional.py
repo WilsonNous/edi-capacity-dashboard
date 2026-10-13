@@ -71,3 +71,47 @@ def test_abertura_exige_regra_identificada():
     import pytest
     with pytest.raises(ValueError, match="rule_id"):
         service.case_plan({"operation": "ABERTURA", "demand": {}})
+
+
+
+def test_homologacao_47851_lacuna_historica_nao_confirma_ausencia_atual():
+    """PDF #47851: Mambo/VR Benefício, convênio 38722, NSA 339 e 355.
+
+    As capturas demonstram saltos históricos, não a recepção atual.
+    O motor não deve concluir falta confirmada nem executar comunicação.
+    """
+    demand = {
+        "player": "VR BENEFICIO",
+        "cliente": "SUPERMERCADOS MAMBO",
+        "arquivo_esperado": "NSA 339 e NSA 355 / convenio 38722",
+        "janela_vencida": True,
+        "dia_util_confirmado": True,
+        "entrega_esperada_confirmada": True,
+        "recepcao_verificada": False,
+        "arquivo_recebido": None,
+    }
+    result, _, _, _, human = service.case_plan({
+        "operation": "FALTA_ARQUIVO", "issue_id": 47851, "demand": demand
+    })
+    assert result["assessment"]["estado"] == "AGUARDANDO_CONFERENCIA_RECEPCAO"
+    assert result["assessment"]["executavel"] is False
+    assert result["execution"] == "NOT_PERFORMED"
+    assert result["external_messages_sent"] == 0
+    assert result["redmine_updates"] == 0
+    assert human is True
+
+
+def test_homologacao_47851_dados_desconhecidos_nao_sao_inferidos_do_pdf():
+    demand = {
+        "player": "VR BENEFICIO",
+        "cliente": "SUPERMERCADOS MAMBO",
+        "arquivo_esperado": "NSA 339 / convenio 38722",
+        "recepcao_verificada": False,
+    }
+    result, _, _, _, _ = service.case_plan({
+        "operation": "FALTA_ARQUIVO", "issue_id": 47851, "demand": demand
+    })
+    assert result["assessment"]["estado"] == "AGUARDANDO_DADOS"
+    assert "janela_vencida" in result["assessment"]["dados_pendentes"]
+    assert "entrega_esperada_confirmada" in result["assessment"]["dados_pendentes"]
+    assert result["execution"] == "NOT_PERFORMED"
