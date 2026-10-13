@@ -88,7 +88,7 @@ jobs:
           EDDY_INTELLIGENCE_TOKEN: test-secret
           EDNNA_MONITOR_EMAIL_ENABLED: "false"
         run: |
-          pytest -q tests/test_intelligence_contract.py
+          pytest -q tests/test_intelligence_contract.py tests/test_eddy_auditoria_operacional.py
 
       - name: Validate combined runtime startup and health
         env:
