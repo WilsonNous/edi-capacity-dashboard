@@ -36,3 +36,9 @@ def test_listagem_regras_usa_catalogo():
     with patch.object(service, "listar_homologacoes_mais_recentes", return_value=[{"regra_id": "A", "estado": "ATIVA"}]):
         result, _, _, _, _ = service.rule_list({})
     assert result["total"] == 1
+
+def test_worker_dedicado_nao_inicia_em_import():
+    from ednna import worker_operacional
+    assert callable(worker_operacional.main)
+    from ednna import monitor_respostas
+    assert monitor_respostas._THREAD is None or not monitor_respostas._THREAD.is_alive()
