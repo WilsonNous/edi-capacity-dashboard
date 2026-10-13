@@ -90,6 +90,9 @@ jobs:
         run: |
           pytest -q tests/test_intelligence_contract.py tests/test_eddy_auditoria_operacional.py
 
+      - name: Validate startup shell syntax
+        run: bash -n scripts/start_eddy.sh
+
       - name: Validate combined runtime startup and health
         env:
           PYTHONPATH: ${{ github.workspace }}
