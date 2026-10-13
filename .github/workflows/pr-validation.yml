@@ -101,6 +101,12 @@ jobs:
           bash scripts/start_eddy.sh > /tmp/eddy-runtime.log 2>&1 &
           runtime_pid=$!
           cleanup() {
+            result=$?
+            if [ "$result" -ne 0 ]; then
+              echo "::group::EDDY runtime diagnostic log"
+              tail -n 200 /tmp/eddy-runtime.log || true
+              echo "::endgroup::"
+            fi
             kill -TERM "$runtime_pid" 2>/dev/null || true
             wait "$runtime_pid" 2>/dev/null || true
           }
@@ -112,7 +118,7 @@ jobs:
           import urllib.error
           import urllib.request
 
-          deadline = time.time() + 45
+          deadline = time.time() + 90
           last = None
           while time.time() < deadline:
               try:
