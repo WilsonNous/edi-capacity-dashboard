@@ -42,3 +42,32 @@ def test_worker_dedicado_nao_inicia_em_import():
     assert callable(worker_operacional.main)
     from ednna import monitor_respostas
     assert monitor_respostas._THREAD is None or not monitor_respostas._THREAD.is_alive()
+
+
+def test_planejar_falta_arquivo_confirmada_sem_efeitos_externos():
+    demand = {
+        "player": "VERO", "cliente": "Cliente de teste",
+        "arquivo_esperado": "arquivo.txt", "janela_vencida": True,
+        "dia_util_confirmado": True, "entrega_esperada_confirmada": True,
+        "recepcao_verificada": True, "arquivo_recebido": False,
+    }
+    result, _, _, _, human = service.case_plan({
+        "operation": "FALTA_ARQUIVO", "issue_id": 123, "demand": demand
+    })
+    assert result["assessment"]["estado"] == "FALTA_CONFIRMADA"
+    assert result["execution"] == "NOT_PERFORMED"
+    assert result["external_messages_sent"] == 0
+    assert result["redmine_updates"] == 0
+    assert human is True
+
+
+def test_planejamento_nao_aceita_operacao_desconhecida():
+    import pytest
+    with pytest.raises(ValueError, match="operation"):
+        service.case_plan({"operation": "INCLUSAO"})
+
+
+def test_abertura_exige_regra_identificada():
+    import pytest
+    with pytest.raises(ValueError, match="rule_id"):
+        service.case_plan({"operation": "ABERTURA", "demand": {}})
