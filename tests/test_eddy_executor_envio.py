@@ -64,3 +64,24 @@ def test_erro_ambíguo_nao_gera_retry(tmp_path, monkeypatch):
     assert primeiro["requer_conciliacao"] is True
     assert segundo["estado"] == "JA_REGISTRADO"
     assert len(chamadas) == 1
+
+
+def test_alterar_minuta_nao_permite_segundo_envio(tmp_path, monkeypatch):
+    monkeypatch.setenv("EDDY_GRAPH_SEND_ENABLED", "true")
+    minuta, aprovacao = _dados()
+    chamadas = []
+    def fake_send(**kwargs):
+        chamadas.append(1)
+        return {"ok": True, "status_code": 202, "message_id": "id"}
+    args = dict(chamado_id=47851, remetente="edi@example.org",
+                db_path=str(tmp_path / "envios.db"), habilitar_envio=True, enviar=fake_send)
+    primeiro = executar_envio_assistido(minuta=minuta, aprovacao=aprovacao, **args)
+    assert primeiro["estado"] == "ACEITO_GRAPH"
+    alterada = dict(minuta, corpo=minuta["corpo"] + " Ajuste posterior")
+    novo_digest = avaliar_autorizacao_envio(alterada)["digest_minuta"]
+    segunda = executar_envio_assistido(minuta=alterada, aprovacao={
+        "aprovado": True, "digest": novo_digest, "aprovador": "Operador EDI"
+    }, **args)
+    assert segunda["estado"] == "JA_REGISTRADO"
+    assert segunda["minuta_alterada"] is True
+    assert len(chamadas) == 1
