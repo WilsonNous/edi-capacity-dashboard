@@ -49,7 +49,8 @@ def executar_envio_assistido(
             estado TEXT NOT NULL, criado_em TEXT NOT NULL, atualizado_em TEXT NOT NULL,
             graph_message_id TEXT NOT NULL DEFAULT '', erro TEXT NOT NULL DEFAULT ''
         )""")
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_eddy_envios_chamado ON eddy_envios(chamado_id)")\n        con.execute("BEGIN IMMEDIATE")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_eddy_envios_chamado ON eddy_envios(chamado_id)")
+        con.execute("BEGIN IMMEDIATE")
         try:
             registro = con.execute("SELECT estado, graph_message_id, digest FROM eddy_envios WHERE chamado_id=?", (int(chamado_id),)).fetchone()
             if registro:
