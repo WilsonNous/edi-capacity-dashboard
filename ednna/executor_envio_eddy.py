@@ -41,7 +41,7 @@ def executar_envio_assistido(
     if not path.parent.exists():
         raise ValueError("diretório de banco inexistente; exigir armazenamento persistente compartilhado")
     digest = gate["digest_minuta"]
-    chave = f"{int(chamado_id)}:{digest}"
+    # Um chamado só pode ter uma solicitação externa em andamento.\n    # Mudanças no texto não autorizam novo envio sem conciliação humana.\n    chave = f"{int(chamado_id)}:{digest}"
     with sqlite3.connect(str(path), timeout=30, isolation_level=None) as con:
         con.execute("PRAGMA busy_timeout=30000")
         con.execute("""CREATE TABLE IF NOT EXISTS eddy_envios (
@@ -49,13 +49,13 @@ def executar_envio_assistido(
             estado TEXT NOT NULL, criado_em TEXT NOT NULL, atualizado_em TEXT NOT NULL,
             graph_message_id TEXT NOT NULL DEFAULT '', erro TEXT NOT NULL DEFAULT ''
         )""")
-        con.execute("BEGIN IMMEDIATE")
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_eddy_envios_chamado ON eddy_envios(chamado_id)")\n        con.execute("BEGIN IMMEDIATE")
         try:
-            registro = con.execute("SELECT estado, graph_message_id FROM eddy_envios WHERE chave=?", (chave,)).fetchone()
+            registro = con.execute("SELECT estado, graph_message_id, digest FROM eddy_envios WHERE chamado_id=?", (int(chamado_id),)).fetchone()
             if registro:
                 con.execute("COMMIT")
                 return {"estado": "JA_REGISTRADO", "estado_anterior": registro[0],
-                        "graph_message_id": registro[1], "envio_realizado": False, "chave": chave}
+                        "graph_message_id": registro[1], "envio_realizado": False, "chave": chave,\n                        "minuta_alterada": registro[2] != digest}
             agora = _agora()
             con.execute("INSERT INTO eddy_envios (chave,chamado_id,digest,estado,criado_em,atualizado_em) VALUES (?,?,?,?,?,?)",
                         (chave, int(chamado_id), digest, "RESERVADO", agora, agora))
