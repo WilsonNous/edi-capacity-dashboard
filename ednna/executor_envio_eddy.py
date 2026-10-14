@@ -56,7 +56,8 @@ def executar_envio_assistido(
             if registro:
                 con.execute("COMMIT")
                 return {"estado": "JA_REGISTRADO", "estado_anterior": registro[0],
-                        "graph_message_id": registro[1], "envio_realizado": False, "chave": chave,\n                        "minuta_alterada": registro[2] != digest}
+                        "graph_message_id": registro[1], "envio_realizado": False, "chave": chave,
+                        "minuta_alterada": registro[2] != digest}
             agora = _agora()
             con.execute("INSERT INTO eddy_envios (chave,chamado_id,digest,estado,criado_em,atualizado_em) VALUES (?,?,?,?,?,?)",
                         (chave, int(chamado_id), digest, "RESERVADO", agora, agora))
