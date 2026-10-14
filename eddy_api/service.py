@@ -231,10 +231,17 @@ def case_plan(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
         assessment = avaliar_abertura(rid, dados=demand)
     else:
         raise ValueError("operation deve ser ABERTURA ou FALTA_ARQUIVO.")
+    draft = None
+    if operation == "FALTA_ARQUIVO" and data.get("solicitacao") is not None:
+        from ednna.preparador_falta_arquivo import preparar_solicitacao_falta_arquivo
+        if not isinstance(data["solicitacao"], dict):
+            raise ValueError("solicitacao deve ser um objeto.")
+        draft = preparar_solicitacao_falta_arquivo(data["solicitacao"])
     return {
         "issue_id": issue_id,
         "operation": operation,
         "assessment": assessment,
+        "solicitacao_preparada": draft,
         "execution": "NOT_PERFORMED",
         "external_messages_sent": 0,
         "redmine_updates": 0,
