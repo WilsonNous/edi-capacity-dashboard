@@ -37,3 +37,26 @@ def test_deduplicacao_e_controle_aprovacao():
     assert resultado["pronto_para_aprovacao"] is True
     assert resultado["aprovacao_humana_necessaria"] is True
     assert resultado["envio_realizado"] is False
+
+
+def test_api_case_plan_inclui_minuta_sem_efeitos_externos():
+    from eddy_api import service
+    result, _, _, _, human = service.case_plan({
+        "operation": "FALTA_ARQUIVO",
+        "issue_id": 47851,
+        "demand": {"player": "VR BENEFICIO", "cliente": "MAMBO", "arquivo_esperado": "NSA 339 e 355"},
+        "solicitacao": {
+            "player": "VR Benefício", "cliente": "Mambo", "convenio": "38722",
+            "arquivos": [
+                {"nsa": "339", "data": "2026-08-16", "ausencia_confirmada": True},
+                {"nsa": "355", "data": "2026-08-30", "ausencia_confirmada": False},
+            ],
+        },
+    })
+    assert "NSA 339" in result["solicitacao_preparada"]["corpo"]
+    assert "NSA 355" in result["solicitacao_preparada"]["corpo"]
+    assert result["solicitacao_preparada"]["pronto_para_aprovacao"] is False
+    assert result["execution"] == "NOT_PERFORMED"
+    assert result["external_messages_sent"] == 0
+    assert result["redmine_updates"] == 0
+    assert human is True
