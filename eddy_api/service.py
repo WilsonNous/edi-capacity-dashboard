@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from ednna.homologacao import estado_regra
+from ednna.homologacao import estado_regra, listar_homologacoes_mais_recentes
 from redmine_api import buscar_detalhes_chamado
 
 CAPABILITIES = (
@@ -13,6 +13,9 @@ CAPABILITIES = (
     "edi.issue.inspect",
     "edi.player.inspect",
     "edi.rule.list",
+    "edi.operations.readiness",
+    "edi.staff.departure.audit",
+    "edi.case.plan",
 )
 
 def _db_path(env_name: str, filename: str) -> Path:
@@ -122,20 +125,139 @@ def player_inspect(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]
     player = str(data.get("player") or "").strip()
     if not player:
         raise ValueError("player é obrigatório.")
-    return {"player": player, "message": "Consulta agregada de player ainda não materializada no contrato v1."}, 0.40, [], ["Evidência agregada insuficiente; requer análise humana."], True
+    homologacoes = [
+        h for h in listar_homologacoes_mais_recentes()
+        if str(h.get("player") or "").casefold() == player.casefold()
+    ]
+    return {
+        "player": player,
+        "rules": homologacoes,
+        "total_rules": len(homologacoes),
+        "external_execution_verified": False,
+    }, 0.90 if homologacoes else 0.40, [
+        {"source": "eddy:homologacoes"}
+    ], ([] if homologacoes else ["Nenhuma homologação encontrada para o player."]), True
+
 
 def rule_list(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
     rid = str(data.get("rule_id") or "").strip()
     if rid:
         state = estado_regra(rid)
-        if state:
-            return {"rules": [state]}, 0.99, [{"source": f"eddy:homologacao:{rid}"}], [], False
-        return {"rules": []}, 0.80, [], ["Regra não encontrada entre as homologações."], True
-    return {"rules": []}, 0.50, [], ["Listagem consolidada será ligada ao catálogo canônico em incremento posterior."], True
+        rules = [state] if state else []
+    else:
+        rules = listar_homologacoes_mais_recentes()
+    return {"rules": rules, "total": len(rules)}, 0.98, [
+        {"source": "eddy:homologacoes"}
+    ], ([] if rules else ["Nenhuma regra homologada disponível."]), False
+
+
+def operations_readiness(_: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
+    """Separar regras aprendidas de capacidade operacional comprovada."""
+    metrics = _local_metrics()
+    rules = listar_homologacoes_mais_recentes()
+    active = [r for r in rules if r.get("estado") in {"ATIVA", "EM_OBSERVACAO"}]
+    output = {
+        "rules_total": len(rules),
+        "rules_active_or_observed": len(active),
+        "recorded_executions": metrics["executions"],
+        "recorded_followups": metrics["followups"],
+        "under_monitoring": metrics["under_monitoring"],
+        "opening_executor": "NOT_IMPLEMENTED",
+        "missing_file_executor": "NOT_IMPLEMENTED",
+        "graph_cross_mailbox_correlation": "NOT_INTEGRATED",
+        "human_checkpoint_required": True,
+        "verified_live_health": False,
+        "critical_blockers": [
+            "Motores de Aberturas e Falta de Arquivo não possuem executor externo homologado",
+            "Correlação de histórico com duas caixas Microsoft 365 não está integrada",
+            "Saúde da produção e autorização efetiva exigem validação no Azure",
+        ],
+    }
+    return output, 0.95, [{"source": "eddy:code-capability-and-local-db"}], output["critical_blockers"], True
+
+
+def staff_departure_audit(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
+    """Localiza chamados atribuídos a pessoa desligada, sem transferir nenhum."""
+    person = str(data.get("person") or "").strip()
+    if not person:
+        raise ValueError("person é obrigatório.")
+    issues, snapshot_at = _active_snapshot()
+    matches = []
+    for issue in issues:
+        assigned = issue.get("assigned_to") or {}
+        assigned_name = str(assigned.get("name") if isinstance(assigned, dict) else assigned)
+        if person.casefold() not in assigned_name.casefold():
+            continue
+        status = issue.get("status") or {}
+        status_name = str(status.get("name") if isinstance(status, dict) else status)
+        matches.append({
+            "id": issue.get("id"),
+            "subject": issue.get("subject"),
+            "status": status_name,
+            "assigned_to": assigned_name,
+            "updated_on": issue.get("updated_on"),
+            "action": "REVIEW_ASSIGNMENT",
+        })
+    return {
+        "person": person,
+        "snapshot_updated_at": snapshot_at,
+        "matched_count": len(matches),
+        "issues": matches,
+        "transfers_performed": 0,
+        "complete": snapshot_at is not None,
+    }, 0.95 if snapshot_at else 0.40, [
+        {"source": "eddy:sqlite-read-model", "snapshot_updated_at": snapshot_at}
+    ], ([] if snapshot_at else ["Snapshot indisponível: nenhum resultado não significa ausência de chamados."]), True
+
+def case_plan(data: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
+    """Plano auditável por demanda, sem efeitos externos ou falsas autorizações."""
+    operation = str(data.get("operation") or "").strip().upper().replace("-", "_")
+    issue_id = data.get("issue_id")
+    if operation == "FALTA_ARQUIVO":
+        from ednna.motor_falta_arquivo import avaliar_regra_aprendida, avaliar_falta_arquivo
+        demand = data.get("demand") or {}
+        if not isinstance(demand, dict):
+            raise ValueError("demand deve ser um objeto.")
+        rid = str(data.get("rule_id") or "").strip()
+        assessment = avaliar_regra_aprendida(rid, demand) if rid else avaliar_falta_arquivo(demand)
+    elif operation == "ABERTURA":
+        from ednna.motor_aberturas import avaliar_abertura
+        rid = str(data.get("rule_id") or "").strip()
+        if not rid:
+            raise ValueError("rule_id é obrigatório para abertura.")
+        demand = data.get("demand") or {}
+        if not isinstance(demand, dict):
+            raise ValueError("demand deve ser um objeto.")
+        assessment = avaliar_abertura(rid, dados=demand)
+    else:
+        raise ValueError("operation deve ser ABERTURA ou FALTA_ARQUIVO.")
+    draft = None
+    if operation == "FALTA_ARQUIVO" and data.get("solicitacao") is not None:
+        from ednna.preparador_falta_arquivo import preparar_solicitacao_falta_arquivo
+        if not isinstance(data["solicitacao"], dict):
+            raise ValueError("solicitacao deve ser um objeto.")
+        draft = preparar_solicitacao_falta_arquivo(data["solicitacao"])
+    return {
+        "issue_id": issue_id,
+        "operation": operation,
+        "assessment": assessment,
+        "solicitacao_preparada": draft,
+        "execution": "NOT_PERFORMED",
+        "external_messages_sent": 0,
+        "redmine_updates": 0,
+        "human_approval_required": True,
+        "next_step": assessment.get("proxima_acao") or "Revisar avaliação e autorizar próximo passo",
+    }, 0.90, [{"source": "eddy:operational-motors"}], [
+        "Somente avaliação: nenhum envio ou alteração no Redmine foi realizado."
+    ], True
+
 
 ROUTES = {
     "edi.status.get": status_get,
     "edi.issue.inspect": issue_inspect,
     "edi.player.inspect": player_inspect,
     "edi.rule.list": rule_list,
+    "edi.operations.readiness": operations_readiness,
+    "edi.staff.departure.audit": staff_departure_audit,
+    "edi.case.plan": case_plan,
 }

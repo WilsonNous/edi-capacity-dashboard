@@ -17,7 +17,7 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
-python -m streamlit run app.py --server.port "$UI_PORT" --server.address 127.0.0.1 &
+EDNNA_MONITOR_EMAIL_ENABLED=false python -m streamlit run app.py --server.port "$UI_PORT" --server.address 127.0.0.1 &
 pids+=("$!")
 
 python -m uvicorn eddy_api.main:app --host 127.0.0.1 --port "$API_PORT" --workers 1 &
@@ -62,6 +62,15 @@ for name, url, accepted in targets:
     else:
         raise SystemExit(f"[EDDY] Timeout aguardando {name}; último resultado: {last_detail}")
 PY
+
+# Worker separado da UI: monitoramento não depende de sessões Streamlit.
+if [[ "${EDNNA_MONITOR_EMAIL_ENABLED:-false}" == "true" ]]; then
+  echo "[EDDY] Worker operacional habilitado explicitamente."
+  python -m ednna.worker_operacional &
+  pids+=("$!")
+else
+  echo "[EDDY] Worker operacional desabilitado; configurar EDNNA_MONITOR_EMAIL_ENABLED=true após homologação."
+fi
 
 if [[ "${EDDY_MOTORES_OBSERVABILIDADE_ENABLED:-true}" == "true" ]]; then
   python -m ednna.observabilidade_motores &

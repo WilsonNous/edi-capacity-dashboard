@@ -14,6 +14,10 @@ jobs:
     timeout-minutes: 15
     env:
       EDNNA_DB_PATH: ${{ runner.temp }}/eddy-test.db
+      PYTHONPATH: ${{ github.workspace }}
+      EDNNA_MONITOR_EMAIL_ENABLED: "false"
+      EDNNA_AUTO_EXECUTE: "false"
+      EDNNA_FOLLOWUP_AUTO: "false"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
