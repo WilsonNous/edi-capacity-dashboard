@@ -83,5 +83,26 @@ def executar_envio_assistido(
         con.execute("UPDATE eddy_envios SET estado=?, atualizado_em=?, graph_message_id=?, erro=? WHERE chave=?",
                     (estado, _agora(), mid, erro, chave))
     return {"estado": estado, "chave": chave, "graph_message_id": mid,
-            "envio_realizado": estado == "ACEITO_GRAPH",
-            "redmine_atualizado": False, "requer_conciliacao": estado == "INDETERMINADO"}
+            "envio_realizado": False, "aceito_pelo_graph": estado == "ACEITO_GRAPH",
+            "redmine_atualizado": False, "requer_conciliacao": estado == "INDETERMINADO" or not mid}
+
+
+def consultar_evidencia_envio(*, chamado_id: int, db_path: str) -> dict[str, Any]:
+    """Consulta local sem enviar nem alterar o chamado; 202 não prova entrega."""
+    if int(chamado_id) <= 0:
+        raise ValueError("chamado_id inválido")
+    path = Path(db_path)
+    if not path.is_file():
+        return {"estado": "SEM_REGISTRO", "evidencia_confirmada": False}
+    with sqlite3.connect(str(path), timeout=5) as con:
+        tabela = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='eddy_envios'").fetchone()
+        if not tabela:
+            return {"estado": "SEM_REGISTRO", "evidencia_confirmada": False}
+        row = con.execute("SELECT estado, graph_message_id, atualizado_em FROM eddy_envios WHERE chamado_id=?", (int(chamado_id),)).fetchone()
+    if row is None:
+        return {"estado": "SEM_REGISTRO", "evidencia_confirmada": False}
+    estado, message_id, atualizado_em = row
+    return {"estado": estado, "graph_message_id": message_id,
+            "atualizado_em": atualizado_em, "evidencia_confirmada": bool(message_id) and estado == "ACEITO_GRAPH",
+            "requer_conciliacao": estado in ("INDETERMINADO", "RESERVADO") or not message_id,
+            "redmine_atualizado": False}
