@@ -47,8 +47,9 @@ def selecionar_com_pendencias(ids: list[int], limite: int, cursor_chave: str) ->
         except (ValueError, TypeError):
             vencidos.append(cid)
     # A rotacao segue funcionando para os demais chamados.
+    pendentes = selecionar_persistido(vencidos, tamanho, cursor_chave + ":retry")
     novos = selecionar_persistido([cid for cid in candidatos if cid not in em_espera and cid not in vencidos], tamanho, cursor_chave)
-    return (vencidos[:tamanho] + [cid for cid in novos if cid not in vencidos])[:tamanho]
+    return (pendentes + [cid for cid in novos if cid not in pendentes])[:tamanho]
 
 
 def registrar_resultados(resultados: list[dict]) -> dict:
