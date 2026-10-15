@@ -590,7 +590,8 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
         frame["_eddy_alterado"] = pd.to_datetime(frame["Alterado"], errors="coerce", utc=True)
         frame = frame.sort_values("_eddy_alterado", ascending=True, na_position="first")
 
-    selecionados = selecionar_persistido(sorted(ids), max(0, int(limite)), chave_cursor)
+    from ednna.retry_continuidades import selecionar_com_pendencias, registrar_resultados
+    selecionados = selecionar_com_pendencias(sorted(ids), max(0, int(limite)), chave_cursor)
     if not selecionados:
         return {"candidatos": len(orfaos), "processados": 0, "sucesso": 0, "pendentes": 0, "ignorados_cooldown": 0, "erros": 0, "itens": []}
     # Manter a ordem do lote escolhido, mesmo que o snapshot esteja desordenado.
@@ -628,6 +629,11 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
             erros += 1
             resultados.append({"chamado_id": cid, "ok": False, "situacao": "ERRO_RECONSTRUCAO", "erro": f"{type(exc).__name__}: {exc}"})
 
+    try:
+        retry = registrar_resultados(resultados)
+        print(f"[EDDY] Continuidade | retry | {retry}", flush=True)
+    except Exception as exc:
+        print(f"[EDDY] Continuidade | retry nao persistido | erro={type(exc).__name__}", flush=True)
     confirmar_lote(chave_cursor, [int(x["chamado_id"]) for x in resultados])
     print(f"[EDDY] Continuidade | reconstrucao lote | selecionados={selecionados} | processados={[x['chamado_id'] for x in resultados]}", flush=True)
     print(
