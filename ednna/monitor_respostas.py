@@ -1186,6 +1186,37 @@ def _loop() -> None:
         try:
             print("[EDNNA] Monitor e-mail | iniciando ciclo", flush=True)
             resumo = executar_monitoramento_respostas()
+            # Follow-ups no mesmo worker dedicado, nunca no processo web.
+            # A ativacao exige configuracao explicita e os guardas do executor.
+            if _bool_env("EDDY_FOLLOWUP_WORKER_ENABLED", False):
+                from ednna.followup_engine import avaliar_followups, executar_followup, followup_automatico
+                try:
+                    avaliacao = avaliar_followups()
+                    limite = max(1, min(10, int(os.getenv("EDDY_FOLLOWUP_BATCH_SIZE", "3"))))
+                    elegiveis = [
+                        item for item in avaliacao.get("itens", [])
+                        if item.get("estado_followup") == "FOLLOWUP_PRONTO"
+                        and followup_automatico(item)
+                    ][:limite]
+                    print(
+                        f"[EDDY] Follow-up | elegiveis={avaliacao.get('automaticos_prontos', 0)} "
+                        f"| lote={len(elegiveis)}", flush=True,
+                    )
+                    for item in elegiveis:
+                        try:
+                            resultado = executar_followup(item)
+                            print(
+                                f"[EDDY] Follow-up | chamado={item.get('chamado_id')} "
+                                f"| estado={resultado.get('estado', 'EXECUTADO' if resultado.get('ok') else 'FALHA')} "
+                                f"| ok={bool(resultado.get('ok'))}", flush=True,
+                            )
+                        except Exception as exc:
+                            print(
+                                f"[EDDY] Follow-up | chamado={item.get('chamado_id')} "
+                                f"| erro={type(exc).__name__}: {str(exc)[:200]}", flush=True,
+                            )
+                except Exception as exc:
+                    print(f"[EDDY] Follow-up | falha avaliacao={type(exc).__name__}: {exc}", flush=True)
             print(
                 "[EDNNA] Monitor e-mail | ciclo concluído | "
                 f"aguardando={resumo['aguardando']} | respostas={resumo['respostas']} | "
