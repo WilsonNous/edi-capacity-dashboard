@@ -125,7 +125,7 @@ def _nota_retorno(*, remetente: str, assunto: str, corpo: str, recebida_em: str)
 
     return "\n".join(
         [
-            "*EDNNA — Retorno de e-mail recebido*",
+            "*EDDY — Retorno de e-mail recebido*",
             "",
             f"*De:* {remetente}",
             f"*Assunto:* {assunto}",
@@ -198,7 +198,7 @@ def _complemento_getnet(chamado_id: int, corpo: str) -> str:
             dados = extrair_dados_getnet(issues)
         except Exception:
             pass
-    linhas = ["", "*EDNNA — Complementação solicitada pela GETNET*", ""]
+    linhas = ["", "*EDDY — Complementação solicitada pela GETNET*", ""]
     if dados["ecs"]:
         linhas.append("*EC(s) localizado(s):* " + ", ".join(dados["ecs"]))
     if dados["cnpjs"]:
@@ -234,7 +234,7 @@ def _processar_retorno_getnet(chamado_id: int, corpo: str) -> tuple[str, int | N
         print(f"[EDNNA] Orquestrador | sincronização parcial | chamado={chamado_id} | {exc}", flush=True)
     marcar_etapa(chamado_id, "GETNET", "CANCELAMENTO_CONFIRMADO", "Retorno da GETNET confirmou desativação/cancelamento.")
     resumo = resumo_orquestracao(chamado_id)
-    linhas = ["", "*EDNNA — Resultado GETNET*", "", "*Resultado:* Cancelamento confirmado pela adquirente.",
+    linhas = ["", "*EDDY — Resultado GETNET*", "", "*Resultado:* Cancelamento confirmado pela adquirente.",
               f"*Progresso externo:* {resumo['concluidas']} de {resumo['total']} etapa(s) concluída(s)."]
     if resumo['todas_concluidas']:
         original = obter_responsavel_original_cancelamento(chamado_id)
@@ -258,7 +258,7 @@ def _processar_retorno_vr(chamado_id: int, corpo: str) -> tuple[str, int | None,
     sinais_habilitado = ("habilitad", "adicionei", "adicionado", "add o cnpj", "já esta tudo habilitado", "já está tudo habilitado", "concluí", "conclui")
     if any(x in t for x in sinais_habilitado):
         extra = (
-            "\n\n*EDNNA — Interpretação VR Benefícios*\n\n"
+            "\n\n*EDDY — Interpretação VR Benefícios*\n\n"
             "*Resultado:* retorno do cliente indica que a habilitação no Portal VR foi realizada.\n"
             "*Próxima etapa:* acompanhar o início da operação e a chegada dos primeiros arquivos com vendas. "
             "O chamado não deve ser concluído apenas pela confirmação da habilitação."
@@ -267,7 +267,7 @@ def _processar_retorno_vr(chamado_id: int, corpo: str) -> tuple[str, int | None,
             extra += "\n*Observação:* o retorno também contém informação sobre início/inauguração; usar essa data como referência para o acompanhamento dos arquivos."
         return extra, ednna_id, "Em andamento"
     return (
-        "\n\n*EDNNA — Interpretação VR Benefícios*\n\n"
+        "\n\n*EDDY — Interpretação VR Benefícios*\n\n"
         "*Resultado:* retorno do cliente recebido, mas a confirmação da habilitação no Portal VR não foi identificada com segurança. "
         "Manter o chamado em acompanhamento e revisar o conteúdo antes de avançar para a espera dos arquivos."
     ), ednna_id, "Em andamento"
@@ -281,7 +281,7 @@ def _processar_retorno_sicredi(chamado_id: int, corpo: str) -> tuple[str, int | 
     evento=r.get("evento") or "RETORNO_NAO_CLASSIFICADO"
     estado=r.get("estado") or "AGUARDANDO_BANCO"
     acao=r.get("acao") or "REVISAR_RETORNO"
-    extra=(f"\n\n*EDNNA — Interpretação SICREDI Banco*\n\n*Evento:* {evento}\n*Estado operacional:* {estado}\n*Próxima ação:* {acao}.")
+    extra=(f"\n\n*EDDY — Interpretação SICREDI Banco*\n\n*Evento:* {evento}\n*Estado operacional:* {estado}\n*Próxima ação:* {acao}.")
     if r.get("requer_humano"):
         extra += "\n*Segurança:* decisão mantida para revisão humana; a EDNNA não assumirá mudança de VAN/custo automaticamente."
     if r.get("emails_substitutos"):
@@ -634,7 +634,7 @@ def _reconciliar_evidencias_processadas(caixa: str) -> dict:
             from ednna.redmine_writer import REDMINE_URL as _RU, _headers as _rh
             r = _requests.put(
                 f"{_RU}/issues/{chamado_id}.json", headers=_rh(),
-                json={"issue": {"notes": "*EDNNA — Evidência documental*\n\nE-mail original do retorno da GETNET anexado ao chamado para rastreabilidade.",
+                json={"issue": {"notes": "*EDDY — Evidência documental*\n\nE-mail original do retorno da GETNET anexado ao chamado para rastreabilidade.",
                                 "uploads": [{"token": upload["token"], "filename": filename,
                                              "content_type": "message/rfc822",
                                              "description": "Evidência original do retorno da GETNET"}]}},
