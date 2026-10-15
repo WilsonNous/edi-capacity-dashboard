@@ -102,8 +102,24 @@ def classificar_lote(snapshot, diagnostico:dict, limite:int=30) -> dict:
     itens={int(x.get("chamado_id") or 0):x for x in diagnostico.get("itens",[]) if x.get("estado_motor") in {"CONTINUIDADE_ATUACAO_PREVIA","CONTINUIDADE_ESTADO_REDMINE"}}
     if not itens: return {"total":0,"decisoes":{},"itens":[]}
     from ednna.acompanhamento_acoes import obter_acompanhamento
+    from ednna.lotes_continuidade import selecionar_persistido, confirmar_lote
+    chave_cursor = "eddy:continuidade:classificacao:cursor"
+    selecionados = selecionar_persistido(list(itens), max(0, int(limite)), chave_cursor)
+    if not selecionados:
+        return {"total": 0, "decisoes": {}, "itens": []}
+    linhas = {}
+    for _, r in snapshot.iterrows():
+        try:
+            cid = int(float(r.get("#") or 0))
+        except (ValueError, TypeError):
+            continue
+        if cid in selecionados and cid not in linhas:
+            linhas[cid] = r
     saida=[]; cont={}
-    for _,r in snapshot.iterrows():
+    for cid in selecionados:
+        if cid not in linhas:
+            continue
+        r = linhas[cid]
         try: cid=int(float(r.get("#") or 0))
         except Exception: continue
         if cid not in itens: continue
@@ -130,4 +146,6 @@ def classificar_lote(snapshot, diagnostico:dict, limite:int=30) -> dict:
         d["regra_id"]=regra; d["estado_motor"]=itens[cid].get("estado_motor","")
         saida.append(d); cont[d["decisao"]]=cont.get(d["decisao"],0)+1
         if len(saida)>=max(1,int(limite)): break
+    confirmar_lote(chave_cursor, [x["chamado_id"] for x in saida])
+    print(f"[EDDY] Continuidade | classificacao lote | selecionados={selecionados} | processados={[x['chamado_id'] for x in saida]}", flush=True)
     return {"total":len(saida),"decisoes":cont,"itens":saida}

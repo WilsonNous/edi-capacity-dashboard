@@ -578,7 +578,9 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
     resultados = []
     sucesso = erros = pendentes = ignorados_cooldown = 0
 
-    # Priorizamos os mais antigos/estagnados quando a coluna existir.
+    # Rotacao persistente: evita processar indefinidamente os mesmos 12 legados.
+    from ednna.lotes_continuidade import selecionar_persistido, confirmar_lote
+    chave_cursor = "eddy:continuidade:reconstrucao:cursor"
     ids = {int(x.get("chamado_id") or 0) for x in orfaos}
     frame = snapshot.copy()
     if "#" in frame.columns:
@@ -588,7 +590,16 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
         frame["_eddy_alterado"] = pd.to_datetime(frame["Alterado"], errors="coerce", utc=True)
         frame = frame.sort_values("_eddy_alterado", ascending=True, na_position="first")
 
-    for _, row in frame.head(max(1, int(limite))).iterrows():
+    selecionados = selecionar_persistido(sorted(ids), max(0, int(limite)), chave_cursor)
+    if not selecionados:
+        return {"candidatos": len(orfaos), "processados": 0, "sucesso": 0, "pendentes": 0, "ignorados_cooldown": 0, "erros": 0, "itens": []}
+    # Manter a ordem do lote escolhido, mesmo que o snapshot esteja desordenado.
+    ordem = {cid: pos for pos, cid in enumerate(selecionados)}
+    frame = frame[frame["_eddy_id"].isin(selecionados)].copy()
+    frame["_eddy_ordem"] = frame["_eddy_id"].map(ordem)
+    frame = frame.sort_values("_eddy_ordem")
+
+    for _, row in frame.iterrows():
         cid = int(float(row.get("#", 0)))
         try:
             item = processar_chamado(row, autores_edi)
@@ -617,6 +628,8 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
             erros += 1
             resultados.append({"chamado_id": cid, "ok": False, "situacao": "ERRO_RECONSTRUCAO", "erro": f"{type(exc).__name__}: {exc}"})
 
+    confirmar_lote(chave_cursor, [int(x["chamado_id"]) for x in resultados])
+    print(f"[EDDY] Continuidade | reconstrucao lote | selecionados={selecionados} | processados={[x['chamado_id'] for x in resultados]}", flush=True)
     print(
         f"[EDNNA] Retomada continuidade | candidatos={len(orfaos)} | "
         f"processados={len(resultados)} | sucesso={sucesso} | pendentes={pendentes} | cooldown={ignorados_cooldown} | erros={erros} | "
