@@ -21,6 +21,14 @@ def executar_ciclo_followups() -> dict:
         for item in avaliacao.get("itens", []) if item.get("estado_followup") == "FOLLOWUP_PRONTO"
     )
     print(f"[EDDY] Follow-up | diagnostico | total={len(avaliacao.get('itens', []))} | estados={dict(sorted(estados.items()))} | prontos_por_modo={dict(sorted(modos_prontos.items()))}", flush=True)
+    if estados.get("SEM_THREAD", 0):
+        try:
+            from ednna.auditoria_threads_graph import auditar_threads_ausentes
+            auditoria = auditar_threads_ausentes(avaliacao.get("itens", []), limite=3)
+            contagem = Counter(x["estado"] for x in auditoria["itens"])
+            print(f"[EDDY] Thread Graph | auditoria={auditoria['avaliados']} | estados={dict(contagem)} | liberadas=0", flush=True)
+        except Exception as exc:
+            print(f"[EDDY] Thread Graph | auditoria indisponivel | erro={type(exc).__name__}", flush=True)
     resumo = {"elegiveis": avaliacao.get("automaticos_prontos", 0), "lote": len(elegiveis),
               "sucessos": 0, "bloqueados": 0, "erros": 0}
     print(f"[EDDY] Follow-up | inicio | elegiveis={resumo['elegiveis']} | lote={len(elegiveis)}", flush=True)
