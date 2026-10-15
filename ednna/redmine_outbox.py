@@ -42,7 +42,7 @@ def registrar_ou_enfileirar(*, chamado_id:int, regra_id:str, nota:str, status_no
             chamado_id, regra_id, nota=nota, status_nome=status_nome,
             assigned_to_id=assigned_to_id, erro=f"{type(exc).__name__}: {exc}"
         )
-        print(f"[EDNNA] Redmine pós-envio | PENDENTE chamado={chamado_id} | regra={regra_id} | {type(exc).__name__}: {exc}", flush=True)
+        print(f"[EDDY] Redmine pós-envio | PENDENTE chamado={chamado_id} | regra={regra_id} | {type(exc).__name__}: {exc}", flush=True)
         return {"ok":False,"pendente":True,"erro":f"{type(exc).__name__}: {exc}"}
 
 
@@ -70,7 +70,7 @@ def _nota_sent_item(item: dict, indice: int) -> tuple[str,str]:
     marcador=f"[EDNNA-EVIDENCIA:{mid}]"
     titulo="E-mail inicial" if indice==0 else f"Follow-up {indice}"
     nota=(
-        f"*EDNNA — {titulo} recuperado de Itens Enviados*\n\n"
+        f"*EDDY — {titulo} recuperado de Itens Enviados*\n\n"
         f"*Enviado em:* {item.get('sentDateTime') or ''}\n"
         f"*Para:* {_emails(item.get('toRecipients'))}\n"
         f"*Cc:* {_emails(item.get('ccRecipients'))}\n"
@@ -105,7 +105,7 @@ def reconstruir_historico_sent_items(*, chamado_id:int, regra_id:str, status_nom
             assigned_to_id=assigned_to_id,
         )
         registrados += 1
-        print(f"[EDNNA] Redmine histórico | RECUPERADO | chamado={chamado_id} | item={idx+1}/{len(itens)} | assunto={item.get('subject') or ''}", flush=True)
+        print(f"[EDDY] Redmine histórico | RECUPERADO | chamado={chamado_id} | item={idx+1}/{len(itens)} | assunto={item.get('subject') or ''}", flush=True)
     concluir_redmine_pendente(chamado_id, regra_id, status_nome)
     return {"ok":True,"recuperados":len(itens),"registrados":registrados,"ignorados":ignorados}
 
@@ -132,7 +132,7 @@ def _reconciliar_item(item: dict) -> dict:
         if hist.get('ok'):
             return {"ok":True,"chamado_id":cid,"historico":hist}
     except Exception as exc:
-        print(f"[EDNNA] Redmine histórico | fallback outbox | chamado={cid} | {type(exc).__name__}: {exc}", flush=True)
+        print(f"[EDDY] Redmine histórico | fallback outbox | chamado={cid} | {type(exc).__name__}: {exc}", flush=True)
     data_inicio,data_fim=_datas_acompanhamento(cid,rid)
     registrar_email_e_status_chamado(
         chamado_id=cid,
@@ -159,7 +159,7 @@ def reconciliar_redmine_pendentes(limite:int=10) -> dict:
             agendar_redmine_pendente(cid,rid,nota=str(item.get('redmine_pendente_nota') or ''),status_nome=str(item.get('redmine_pendente_status') or ''),assigned_to_id=item.get('redmine_pendente_assigned_to_id'),erro=f"{type(exc).__name__}: {exc}")
             pend.append(cid)
     if itens:
-        print(f"[EDNNA] Redmine reconciliação | consultados={len(itens)} | atualizados={ok} | pendentes={pend}", flush=True)
+        print(f"[EDDY] Redmine reconciliação | consultados={len(itens)} | atualizados={ok} | pendentes={pend}", flush=True)
     return {"consultados":len(itens),"atualizados":ok,"pendentes":pend}
 
 
@@ -176,10 +176,10 @@ def reconciliar_redmine_chamado(chamado_id:int, regra_id:str="") -> dict:
         try:
             resultado=_reconciliar_item(item)
             ok.append(cid)
-            print(f"[EDNNA] Redmine reconciliação MANUAL | OK | chamado={cid} | regra={rid} | historico={resultado.get('historico')}", flush=True)
+            print(f"[EDDY] Redmine reconciliação MANUAL | OK | chamado={cid} | regra={rid} | historico={resultado.get('historico')}", flush=True)
         except Exception as exc:
             erro=f"{type(exc).__name__}: {exc}"
             agendar_redmine_pendente(cid,rid,nota=str(item.get('redmine_pendente_nota') or ''),status_nome=str(item.get('redmine_pendente_status') or ''),assigned_to_id=item.get('redmine_pendente_assigned_to_id'),erro=erro)
             pend.append(cid); erros.append(erro)
-            print(f"[EDNNA] Redmine reconciliação MANUAL | PENDENTE | chamado={cid} | regra={rid} | {erro}", flush=True)
+            print(f"[EDDY] Redmine reconciliação MANUAL | PENDENTE | chamado={cid} | regra={rid} | {erro}", flush=True)
     return {"consultados":len(itens),"atualizados":ok,"pendentes":pend,"erros":erros}
