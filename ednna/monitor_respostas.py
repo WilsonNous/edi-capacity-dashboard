@@ -1165,12 +1165,14 @@ def executar_monitoramento_respostas() -> dict:
     except Exception as exc:
         print(f"[EDNNA] Continuidade | falha geral | {type(exc).__name__}: {exc}", flush=True)
 
-    # Repara efeitos pós-envio que ficaram pendentes por indisponibilidade do Redmine.
-    try:
-        from ednna.redmine_outbox import reconciliar_redmine_pendentes
-        resumo["redmine_reconciliacao"] = reconciliar_redmine_pendentes(10)
-    except Exception as exc:
-        print(f"[EDNNA] Redmine reconciliação | falha geral | {type(exc).__name__}: {exc}", flush=True)
+    # EDDY local-first: a reconciliação é responsabilidade de um worker independente.
+    # Compatibilidade: execução embutida somente se o worker dedicado estiver desligado.
+    if not _bool_env("EDDY_REDMINE_OUTBOX_WORKER_ENABLED", True):
+        try:
+            from ednna.redmine_outbox import reconciliar_redmine_pendentes
+            resumo["redmine_reconciliacao"] = reconciliar_redmine_pendentes(10)
+        except Exception as exc:
+            print(f"[EDDY] Redmine reconciliação | falha geral | {type(exc).__name__}: {exc}", flush=True)
 
     try:
         from ednna.indicadores_operacionais import consultar_indicadores
