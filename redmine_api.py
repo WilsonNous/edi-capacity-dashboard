@@ -207,6 +207,8 @@ def _get(
                 )
                 if alterar_circuit_breaker_global:
                     painel_fechar_circuit_breaker()
+                from ednna.telemetria_redmine import registrar_resultado
+                registrar_resultado("OK", duracao)
                 return response.json()
 
             except (
