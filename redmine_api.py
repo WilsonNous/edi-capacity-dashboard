@@ -235,6 +235,8 @@ def _get(
                     f"| probe_recuperacao={probe_owner is not None}",
                     flush=True,
                 )
+                from ednna.telemetria_redmine import registrar_resultado
+                registrar_resultado(tipo_falha, monotonic() - inicio)
                 if tentativa >= tentativas:
                     if alterar_circuit_breaker_global:
                         painel_abrir_circuit_breaker(
