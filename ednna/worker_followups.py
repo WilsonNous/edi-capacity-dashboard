@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections import Counter
 
 
 def executar_ciclo_followups() -> dict:
@@ -14,6 +15,12 @@ def executar_ciclo_followups() -> dict:
         item for item in avaliacao.get("itens", [])
         if item.get("estado_followup") == "FOLLOWUP_PRONTO" and followup_automatico(item)
     ][:limite]
+    estados = Counter(str(item.get("estado_followup") or "SEM_ESTADO") for item in avaliacao.get("itens", []))
+    modos_prontos = Counter(
+        "AUTOMATICO" if followup_automatico(item) else "ASSISTIDO"
+        for item in avaliacao.get("itens", []) if item.get("estado_followup") == "FOLLOWUP_PRONTO"
+    )
+    print(f"[EDDY] Follow-up | diagnostico | total={len(avaliacao.get('itens', []))} | estados={dict(sorted(estados.items()))} | prontos_por_modo={dict(sorted(modos_prontos.items()))}", flush=True)
     resumo = {"elegiveis": avaliacao.get("automaticos_prontos", 0), "lote": len(elegiveis),
               "sucessos": 0, "bloqueados": 0, "erros": 0}
     print(f"[EDDY] Follow-up | inicio | elegiveis={resumo['elegiveis']} | lote={len(elegiveis)}", flush=True)

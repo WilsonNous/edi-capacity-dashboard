@@ -219,6 +219,20 @@ def _get(
                     f"tentativa {tentativa}/{tentativas}: {exc}",
                     flush=True,
                 )
+                # Diagnóstico estrutural sem expor URL completa, credenciais ou headers.
+                # ConnectTimeout indica que a conexão não foi estabelecida no prazo;
+                # não permite concluir isoladamente se a causa é DNS, rede ou servidor.
+                tipo_falha = (
+                    "TIMEOUT_CONEXAO" if isinstance(exc, requests.exceptions.ConnectTimeout)
+                    else "TIMEOUT_RESPOSTA" if isinstance(exc, requests.exceptions.ReadTimeout)
+                    else "ERRO_CONEXAO"
+                )
+                print(
+                    f"[REDMINE-DIAG] tipo={tipo_falha} | tentativa={tentativa}/{tentativas} "
+                    f"| duracao_s={monotonic() - inicio:.2f} | gateway_espera_s={espera_gateway:.2f} "
+                    f"| probe_recuperacao={probe_owner is not None}",
+                    flush=True,
+                )
                 if tentativa >= tentativas:
                     if alterar_circuit_breaker_global:
                         painel_abrir_circuit_breaker(
