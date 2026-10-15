@@ -635,6 +635,7 @@ def reconstruir_continuidades_orfas(snapshot: pd.DataFrame, limite: int = 12) ->
     except Exception as exc:
         print(f"[EDDY] Continuidade | retry nao persistido | erro={type(exc).__name__}", flush=True)
     confirmar_lote(chave_cursor, [int(x["chamado_id"]) for x in resultados])
+    confirmar_lote(chave_cursor + ":retry", [int(x["chamado_id"]) for x in resultados])
     print(f"[EDDY] Continuidade | reconstrucao lote | selecionados={selecionados} | processados={[x['chamado_id'] for x in resultados]}", flush=True)
     print(
         f"[EDNNA] Retomada continuidade | candidatos={len(orfaos)} | "
