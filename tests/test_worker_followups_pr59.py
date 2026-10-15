@@ -3,6 +3,7 @@ import sys
 import types
 import unittest
 from unittest.mock import patch
+from io import StringIO
 
 from ednna.worker_followups import executar_ciclo_followups
 
@@ -25,6 +26,24 @@ class FollowupWorkerTests(unittest.TestCase):
         self.assertEqual(enviados, [1])
         self.assertEqual(resumo["sucessos"], 1)
         self.assertEqual(resumo["lote"], 1)
+
+    def test_diagnostico_expoe_estados_sem_executar_bloqueados(self):
+        fake = types.ModuleType("ednna.followup_engine")
+        fake.avaliar_followups = lambda: {
+            "itens": [
+                {"chamado_id": 21, "estado_followup": "SEM_THREAD"},
+                {"chamado_id": 22, "estado_followup": "REVISAO_HUMANA_RETORNO"},
+            ],
+            "automaticos_prontos": 0,
+        }
+        fake.followup_automatico = lambda _: False
+        fake.executar_followup = lambda _: self.fail("Nao deve executar itens bloqueados")
+        output = StringIO()
+        with patch.dict(sys.modules, {"ednna.followup_engine": fake}), patch("sys.stdout", output):
+            resumo = executar_ciclo_followups()
+        self.assertEqual(resumo["lote"], 0)
+        self.assertIn("SEM_THREAD", output.getvalue())
+        self.assertIn("REVISAO_HUMANA_RETORNO", output.getvalue())
 
     def test_bloqueio_nao_contabiliza_sucesso(self):
         fake = types.ModuleType("ednna.followup_engine")
