@@ -1136,7 +1136,7 @@ def executar_monitoramento_respostas() -> dict:
         resumo["followups_bloqueados"] = 0
         resumo["followups_falhos"] = 0
         auto = str(os.getenv("EDNNA_FOLLOWUP_AUTO", "true") or "true").strip().casefold() in {"1","true","sim","yes","on"}
-        if auto:
+        if auto and not _bool_env("EDDY_FOLLOWUP_WORKER_ENABLED", False):
             limite = max(1, int(os.getenv("EDNNA_FOLLOWUP_MAX_PER_CYCLE", "3") or 3))
             for item in [x for x in followups.get("itens", []) if x.get("estado_followup") == "FOLLOWUP_PRONTO" and followup_automatico(x)][:limite]:
                 try:
@@ -1171,6 +1171,14 @@ def executar_monitoramento_respostas() -> dict:
         resumo["redmine_reconciliacao"] = reconciliar_redmine_pendentes(10)
     except Exception as exc:
         print(f"[EDNNA] Redmine reconciliação | falha geral | {type(exc).__name__}: {exc}", flush=True)
+
+    try:
+        from ednna.indicadores_operacionais import consultar_indicadores
+        indicadores = consultar_indicadores()
+        resumo["indicadores_transacionais"] = indicadores
+        print("[EDDY] Indicadores | " + " | ".join(f"{k}={v}" for k, v in indicadores.items() if k not in {"observacao"}), flush=True)
+    except Exception as exc:
+        print(f"[EDDY] Indicadores | indisponivel | erro={type(exc).__name__}", flush=True)
 
     return resumo
 
