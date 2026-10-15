@@ -1077,6 +1077,10 @@ def executar_monitoramento_respostas() -> dict:
                                 from ednna.continuidade_decisoes import materializar_decisoes
                                 persistencia = materializar_decisoes(responsabilidade.get("itens") or [])
                                 resumo["decisoes_continuidade_persistidas"] = persistencia
+                                from ednna.fila_decisoes_continuidade import consultar_fila
+                                fila_assistida = consultar_fila()
+                                resumo["fila_decisoes_continuidade"] = fila_assistida
+                                print(f"[EDDY] Fila assistida | total={fila_assistida['total']} | vencidos={fila_assistida['vencidos']} | sem_responsavel={fila_assistida['sem_responsavel']}", flush=True)
                                 print("[EDDY] Continuidade persistida | " + " | ".join(
                                     f"{k}={v}" for k, v in persistencia.items()
                                 ), flush=True)
