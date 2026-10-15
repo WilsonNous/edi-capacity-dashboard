@@ -14,7 +14,7 @@ from ednna.armazenamento import (
 
 
 # ============================================================
-# EDNNA — INTELIGÊNCIA OPERACIONAL EDI
+# EDDY — ESPECIALISTA OPERACIONAL EDI (EDNNA: ORQUESTRADORA)
 # Módulo: Sincronizador
 # ============================================================
 
@@ -215,7 +215,7 @@ def sincronizar_dataframe(
             resultado["erros"] += 1
 
             print(
-                f"[EDNNA] Erro sincronizando chamado "
+                f"[EDDY] Erro sincronizando chamado "
                 f"#{chamado_id}: {exc}"
             )
 
