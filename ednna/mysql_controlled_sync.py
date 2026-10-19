@@ -5,13 +5,13 @@ This is opt-in and intentionally not wired to dashboard startup or workers.
 from __future__ import annotations
 
 import math
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import pandas as pd
 
 from ednna.mysql_snapshot_repository import carregar_snapshot, salvar_snapshot
-from ednna.sincronizador import normalizar_marca_alteracao
-from ednna.armazenamento import agora_brasil_iso
 
 
 FIELDS = {
@@ -57,6 +57,10 @@ def _float(value: Any) -> float | None:
         return None
 
 
+def _agora() -> str:
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(timespec='seconds')
+
+
 def sincronizar_dataframe_mysql(frame: pd.DataFrame, *, limite: int = 50) -> dict:
     """Upsert up to limite Redmine rows; never read or write legacy SQLite.
 
@@ -74,11 +78,11 @@ def sincronizar_dataframe_mysql(frame: pd.DataFrame, *, limite: int = 50) -> dic
         if chamado_id is None:
             result["ignorados"] += 1
             continue
-        snapshot = {"id": chamado_id, "sincronizado_em": agora_brasil_iso()}
+        snapshot = {"id": chamado_id, "sincronizado_em": _agora()}
         snapshot.update({key: _clean(dados.get(source)) for key, source in FIELDS.items()})
         snapshot["tempo_aberto_dias"] = _float(dados.get("Tempo em aberto (dias)"))
         snapshot["payload_json"] = dados
-        snapshot["alterado_em"] = normalizar_marca_alteracao(dados.get("Alterado"))
+        snapshot["alterado_em"] = _clean(dados.get("Alterado"))
         try:
             salvar_snapshot(snapshot)
             result["gravados"] += 1
