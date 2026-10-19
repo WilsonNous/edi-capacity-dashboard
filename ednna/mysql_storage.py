@@ -10,9 +10,39 @@ from contextlib import contextmanager
 
 import pymysql
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL = (
+    """CREATE TABLE IF NOT EXISTS eddy_chamados (
+        id BIGINT NOT NULL PRIMARY KEY,
+        cliente VARCHAR(255) NULL,
+        origem VARCHAR(191) NULL,
+        responsavel VARCHAR(255) NULL,
+        projeto VARCHAR(255) NULL,
+        tipo VARCHAR(191) NULL,
+        estado VARCHAR(191) NULL,
+        prioridade VARCHAR(191) NULL,
+        assunto TEXT NULL,
+        criado_em VARCHAR(40) NULL,
+        alterado_em VARCHAR(40) NULL,
+        tempo_aberto_dias DOUBLE NULL,
+        payload_json LONGTEXT NULL,
+        sincronizado_em VARCHAR(40) NOT NULL,
+        KEY idx_eddy_chamados_estado (estado),
+        KEY idx_eddy_chamados_alterado (alterado_em)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS eddy_journals (
+        id BIGINT NOT NULL PRIMARY KEY,
+        chamado_id BIGINT NOT NULL,
+        autor VARCHAR(255) NULL,
+        criado_em VARCHAR(40) NULL,
+        notas LONGTEXT NULL,
+        detalhes_json LONGTEXT NULL,
+        sincronizado_em VARCHAR(40) NOT NULL,
+        KEY idx_eddy_journals_chamado (chamado_id),
+        CONSTRAINT fk_eddy_journal_chamado FOREIGN KEY (chamado_id)
+            REFERENCES eddy_chamados(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
     """CREATE TABLE IF NOT EXISTS eddy_schema_versions (
         version INT NOT NULL PRIMARY KEY,
         applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
