@@ -22,6 +22,7 @@ from ednna.armazenamento import obter_analise_primeiro_combate, listar_journals
 from ednna.sincronizador import normalizar_marca_alteracao
 from ednna.acompanhamento_acoes import listar_redmine_pendentes, listar_acoes_aguardando_resposta
 from ednna.status_guard import estado_terminal_nome, chamado_em_quarentena
+from ednna.recovery_guard import persistencia_operacional_disponivel
 
 
 def _row_por_id(snapshot: pd.DataFrame, chamado_id: int) -> dict:
@@ -155,13 +156,16 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
     # Estado transacional tem precedência sobre a descoberta do motor.
     # Um chamado com e-mail já enviado não pode voltar para "Posso agir" só
     # porque o snapshot do Redmine ainda está como Aberto (ex.: PUT pendente).
+    persistencia_ok = persistencia_operacional_disponivel()
+    if not persistencia_ok:
+        print("[EDDY] Motor inclusões | memória operacional indisponível; fila bloqueada sem consultar SQLite legado", flush=True)
     try:
-        pendentes_redmine_ids = {int(x.get("chamado_id") or 0) for x in listar_redmine_pendentes()}
+        pendentes_redmine_ids = {int(x.get("chamado_id") or 0) for x in listar_redmine_pendentes()} if persistencia_ok else set()
     except Exception as exc:
         pendentes_redmine_ids = set()
         print(f"[EDDY] Motor inclusões | aviso ao ler Redmine pendente | {type(exc).__name__}: {exc}", flush=True)
     try:
-        aguardando_resposta_ids = {int(x.get("chamado_id") or 0) for x in listar_acoes_aguardando_resposta()}
+        aguardando_resposta_ids = {int(x.get("chamado_id") or 0) for x in listar_acoes_aguardando_resposta()} if persistencia_ok else set()
     except Exception as exc:
         aguardando_resposta_ids = set()
         print(f"[EDDY] Motor inclusões | aviso ao ler acompanhamentos | {type(exc).__name__}: {exc}", flush=True)
@@ -188,6 +192,17 @@ def avaliar_fila_inclusoes(snapshot: pd.DataFrame, *, emitir_prontidao: bool = T
                 "acao_sugerida": "Somente histórico / auditoria",
                 "executavel": False,
                 "estado_redmine": estado_snapshot,
+            })
+            continue
+
+        if not persistencia_ok:
+            contadores["historico_pendente"] += 1
+            itens.append({
+                **candidato, "player": player,
+                "estado_motor": "MEMORIA_OPERACIONAL_INDISPONIVEL",
+                "acao_sugerida": "Aguardar recuperação da persistência",
+                "executavel": False,
+                "historico_operacional": {"historico_pendente": True, "fonte": "PERSISTENCIA_INDISPONIVEL"},
             })
             continue
 
