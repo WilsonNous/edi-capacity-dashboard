@@ -5,6 +5,7 @@ import html
 import streamlit as st
 from version import APP_VERSION, APP_RELEASE
 from ui.operational_data import resumo, resumo_trabalho_ednna, chamados_ativos_df
+from ui.data_provenance import fonte_carteira
 from ednna.aprendizado_operacional import garantir_greencard_pronta, garantir_safrapay_pronta, garantir_itau_pronto
 from ednna.monitor_respostas import iniciar_monitor_respostas_background
 from ednna.security import current_user, role_label, audit, display_name
@@ -47,7 +48,7 @@ st.markdown('''<style>
 div.stButton>button{border-radius:14px!important;min-height:62px!important;font-weight:850!important;border:1px solid #dce7f4!important;background:#fff!important;color:#17386b!important}div.stButton>button:hover{border-color:#1268e8!important;color:#1268e8!important;transform:translateY(-1px)}.foot{text-align:center;color:#8ba0bd;font-size:.68rem;margin-top:16px}@media(max-width:950px){.grid4,.grid3{grid-template-columns:repeat(2,1fr)}.title{font-size:1.6rem}}
 </style>''', unsafe_allow_html=True)
 
-r = resumo(); trabalho = {} if RECOVERY_MODE else resumo_trabalho_ednna(); df = chamados_ativos_df(); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
+r = resumo(); trabalho = {} if RECOVERY_MODE else resumo_trabalho_ednna(); df = chamados_ativos_df(); fonte = fonte_carteira(df); cobertura = round(r['homologadas']/r['regras']*100) if r['regras'] else 0
 if RECOVERY_MODE: title = 'Estou em recuperação. A carteira continua visível.'
 elif r['revisao'] == 1: title = 'Tenho 1 decisão para você.'
 elif r['revisao'] > 1: title = f"Tenho {r['revisao']} decisões para você."
@@ -63,14 +64,15 @@ with av:
         st.markdown('<div class="avatar">', unsafe_allow_html=True); st.image(str(AVATAR), width='stretch'); st.markdown('</div>', unsafe_allow_html=True)
     else: st.markdown('<div style="font-size:4rem;text-align:center">🦾</div>', unsafe_allow_html=True)
 with main:
-    st.markdown(f'<div class="greet">Olá, {html.escape(display_name(user) or "você")}! Eu sou o EDDY.</div><div class="title">{html.escape(title)}</div><div class="copy">{f'A carteira consultada apresenta <b>{r["total"]} chamados ativos</b>. Minha memória operacional está indisponível e não estou executando automações.' if RECOVERY_MODE else f'Estou acompanhando <b>{r["total"]} chamados ativos</b>. A equipe e eu continuamos trabalhando; você entra onde sua decisão faz diferença.<br><b>{cobertura}%</b> das regras conhecidas estão homologadas e <b>{trabalho["regras_automaticas"]}</b> já estão autorizadas para atuação automática.'}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="greet">Olá, {html.escape(display_name(user) or "você")}! Eu sou o EDDY.</div><div class="title">{html.escape(title)}</div><div class="copy">{f'O último snapshot apresenta <b>{r["total"]} chamados</b>. Minha memória operacional está indisponível e não estou executando automações.' if RECOVERY_MODE else f'Estou acompanhando <b>{r["total"]} chamados ativos</b>. A equipe e eu continuamos trabalhando; você entra onde sua decisão faz diferença.<br><b>{cobertura}%</b> das regras conhecidas estão homologadas e <b>{trabalho["regras_automaticas"]}</b> já estão autorizadas para atuação automática.'}</div>', unsafe_allow_html=True)
 pct = round(r['terceiros']/r['total']*100) if r['total'] else 0
-st.markdown(f'<div class="voice"><b>💡 Minha leitura agora:</b> {r["terceiros"]} chamados aguardam terceiros ({pct}% da carteira); {('indicadores do meu trabalho estão temporariamente indisponíveis.' if RECOVERY_MODE else f'estou acompanhando {trabalho["acompanhando"]} e tenho {r["revisao"]} decisão(ões) para o professor.')}</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="voice"><b>💡 Minha leitura agora:</b> {r["terceiros"]} chamados em estados de espera ({pct}% da carteira); {('indicadores do meu trabalho estão temporariamente indisponíveis.' if RECOVERY_MODE else f'estou acompanhando {trabalho["acompanhando"]} e tenho {r["revisao"]} decisão(ões) para o professor.')}</div></div>', unsafe_allow_html=True)
 
 def cards(items, cols='grid4'):
     return f'<div class="{cols}">' + ''.join(f'<div class="card"><div class="label">{html.escape(str(a))}</div><div class="num">{b}</div><div class="note">{html.escape(str(c))}</div></div>' for a,b,c in items) + '</div>'
 
-estado=[('Chamados ativos',r['total'],'carteira ativa do Redmine'),('Equipe / atuação',r['em_atuacao'],'fora da espera por terceiros'),('Aguardando terceiros',r['terceiros'],'dependência externa'),('Comigo',trabalho.get('acompanhando', '—'),'temporariamente indisponível' if RECOVERY_MODE else 'sob acompanhamento EDDY')]
+estado=[('Chamados no snapshot',r['total'],'carteira armazenada do Redmine'),('Demais estados',r['em_atuacao'],'fora dos estados de espera'),('Estados de espera',r['terceiros'],'estados contendo aguard/terceir'),('Comigo',trabalho.get('acompanhando', '—'),'temporariamente indisponível' if RECOVERY_MODE else 'sob acompanhamento EDDY')]
+st.caption(f"Fonte da carteira: {fonte['fonte']} · Última atualização: {fonte['atualizado_em'] or 'não informada'} · {fonte['situacao']}. Dados de snapshot, não consulta em tempo real.")
 st.markdown('<div class="section"><div class="section-title">〽 Estado da operação</div><div class="section-sub">Uma leitura rápida da carteira antes de entrar nos módulos.</div>'+cards(estado)+'</div>', unsafe_allow_html=True)
 
 impact=[('Atuações executadas',trabalho.get('atuacoes', '—'),'operações persistidas'),('Em acompanhamento',trabalho.get('acompanhando', '—'),'retornos acompanhados'),('Follow-ups',trabalho.get('followups', '—'),'cobranças automáticas'),('Regras automáticas',trabalho.get('regras_automaticas', '—'),'procedimentos autorizados'),('Conhecimento',trabalho.get('clientes_conhecidos', '—'),f"{trabalho.get('blueprints', '—')} registros · {trabalho.get('participantes', '—')} contatos"),('Redmine pendente',trabalho.get('redmine_pendente', '—'),'reconciliações pendentes')]
