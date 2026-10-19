@@ -1422,10 +1422,11 @@ def obter_diagnostico_banco() -> dict:
 # INICIALIZAÇÃO AUTOMÁTICA
 # ============================================================
 
-inicializar_banco()
-
-
-print(
-    "[EDNNA] SQLite inicializado | "
-    f"arquivo={DB_PATH}"
-)
+# Importing EDNNA must not make the entire API unavailable when persistent
+# storage is damaged. Database operations still fail closed at point of use.
+try:
+    inicializar_banco()
+except sqlite3.DatabaseError as exc:
+    print(f"[EDNNA] SQLite indisponivel na inicializacao: {type(exc).__name__}", flush=True)
+else:
+    print(f"[EDNNA] SQLite inicializado | arquivo={DB_PATH}", flush=True)

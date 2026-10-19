@@ -17,6 +17,16 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
+# Fail closed during a persistence incident; never enable operational workers
+# solely because the frontend is responding.
+if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" ]]; then
+  export EDNNA_MONITOR_EMAIL_ENABLED=false
+  export EDNNA_AUTO_EXECUTE=false
+  export EDNNA_FOLLOWUP_AUTO=false
+  export EDDY_MOTORES_OBSERVABILIDADE_ENABLED=false
+  echo "[EDDY] MySQL configured but operational persistence not migrated: external automation disabled."
+fi
+
 EDNNA_MONITOR_EMAIL_ENABLED=false python -m streamlit run app.py --server.port "$UI_PORT" --server.address 127.0.0.1 &
 pids+=("$!")
 
