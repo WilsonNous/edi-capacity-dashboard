@@ -3,6 +3,20 @@
 No SQLite fallback and no external effects. Fail closed if MySQL is unavailable.
 """
 from __future__ import annotations
+import json
+
+
+def _prazo_redmine(chamado):
+    payload = chamado.get('payload_json') or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            payload = {}
+    if not isinstance(payload, dict):
+        return None
+    return payload.get('due_date') or None
+
 
 from ednna.mysql_storage import connect
 from ednna.mysql_snapshot_repository import CHAMADO_FIELDS, JOURNAL_FIELDS
@@ -43,6 +57,7 @@ def operacao_vr_mysql() -> dict:
                     "proxima_acao": decision.get("acao"),
                     "followup": followup.get("situacao"),
                     "vencimento": followup.get("vencimento"),
+                    "prazo_chamado": _prazo_redmine(chamado),
                     "evidencia_envio_confirmada": followup.get("situacao") in (
                         "AGUARDANDO_PRAZO", "FOLLOWUP_VENCIDO", "RESPOSTA_RECEBIDA"
                     ),

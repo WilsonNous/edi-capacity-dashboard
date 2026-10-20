@@ -42,6 +42,7 @@ def resumir_operacao_vr(batch: dict) -> dict:
             "proxima_acao": action,
             "followup": followup,
             "vencimento": item.get("vencimento"),
+            "prazo_chamado": item.get("prazo_chamado"),
             "ultimo_envio_confirmado": bool(item.get("evidencia_envio_confirmada")),
             "acao_executada": False,
             "documentacao_redmine_confirmada": False,
