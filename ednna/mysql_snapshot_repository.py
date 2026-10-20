@@ -58,6 +58,29 @@ def salvar_snapshot(chamado: dict, journals: list[dict] | None = None) -> None:
             raise ValueError("journal belongs to a different chamado")
     with connect() as conn:
         with conn.cursor() as cursor:
+            # Generic issue-only refreshes must not erase a newer, journal-complete
+            # Redmine snapshot used by rule engines for safe resume.
+            incoming = chamado.get("payload_json") or {}
+            if isinstance(incoming, str):
+                try:
+                    incoming = json.loads(incoming)
+                except (TypeError, ValueError):
+                    incoming = {}
+            if not isinstance(incoming, dict) or incoming.get("_eddy_journals_completos") is not True:
+                cursor.execute("SELECT payload_json FROM eddy_chamados WHERE id=%s FOR UPDATE", (chamado_id,))
+                existing = cursor.fetchone()
+                if existing and existing[0]:
+                    try:
+                        previous = json.loads(existing[0]) if isinstance(existing[0], str) else existing[0]
+                    except (ValueError, TypeError):
+                        previous = {}
+                    if isinstance(previous, dict) and previous.get("_eddy_journals_completos") is True:
+                        # Do not reuse a historical completeness marker for newer issue versions.
+                        # Preserve old journal snapshot until the dedicated journal sync updates it.
+                        if str(previous.get("updated_on") or "") == str(incoming.get("updated_on") or ""):
+                            chamado = {**chamado, "payload_json": previous}
+                        else:
+                            incoming.pop("_eddy_journals_completos", None)
             _upsert(cursor, "eddy_chamados", CHAMADO_FIELDS, chamado)
             for journal in journals:
                 _upsert(cursor, "eddy_journals", JOURNAL_FIELDS, journal)
