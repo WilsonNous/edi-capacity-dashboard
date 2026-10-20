@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
+from ednna.eddy_vr_origin import identificar_vr
 
 
 def _texto(value: Any) -> str:
@@ -27,13 +28,19 @@ def avaliar_vr(chamado: dict, journals: list[dict] | None = None) -> dict:
     if not isinstance(issue, dict):
         raise ValueError("Payload Redmine inválido")
     issue_id = int(issue.get("id") or chamado.get("id"))
-    origem = _texto([chamado.get("origem"), issue.get("custom_fields"), issue.get("subject")]).lower()
-    if not any(k in origem for k in ("vr beneficio", "vr benefícios", "vr beneficios", "vr benefício")):
+    if not identificar_vr(chamado):
         return {"chamado_id": issue_id, "regra": "VR_BENEFICIOS", "estado": "NAO_ELEGIVEL", "acao": "NENHUMA", "execucao_externa": False}
     estado = _texto([chamado.get("estado"), issue.get("status")]).lower()
     if any(k in estado for k in ("concluído", "concluido", "fechado", "rejeitado", "closed")):
         return {"chamado_id": issue_id, "regra": "VR_BENEFICIOS", "estado": "CONCLUIDO", "acao": "NENHUMA", "execucao_externa": False, "evidencias": ["estado_terminal_redmine"]}
+    assunto = _texto(issue.get("subject") or chamado.get("assunto"))
+    tipo = _texto(issue.get("tracker") or chamado.get("tipo"))
     descricao = _texto(issue.get("description"))
+    if any(marker in (assunto + " " + tipo).casefold() for marker in ("falta de arquivo", "arquivos faltantes", "salto de nsa")):
+        return {"chamado_id": issue_id, "regra": "VR_BENEFICIOS",
+                "estado": "ARQUIVOS_FALTANTES", "acao": "INVESTIGAR_NSA_E_ARQUIVOS",
+                "execucao_externa": False,
+                "observacao": "Exige verificação de NSA e recepção; não tratar como inclusão."}
     historico = _texto(journals or issue.get("journals") or [])
     texto = (descricao + " " + historico).lower()
     evidencias = []
