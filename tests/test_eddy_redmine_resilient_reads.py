@@ -30,6 +30,18 @@ class ResilientRedmineTests(unittest.TestCase):
 
     @patch("ednna.redmine_resilient_reads.buscar_detalhes_chamado")
     @patch("ednna.redmine_resilient_reads.carregar_snapshot")
+    def test_generic_snapshot_never_counts_as_journal_complete(self, stored, fetch):
+        stored.return_value = {"chamado": {
+            "alterado_em": "2026-10-20T18:00:00",
+            "payload_json": {"id": 47851, "journals": []},
+        }, "journals": []}
+        fetch.return_value = {"id": 47851, "journals": [{"id": 12}]}
+        result = detalhe_com_retomada({"id": 47851, "updated_on": "2026-10-20T18:00:00Z"})
+        self.assertTrue(result["consultou_redmine"])
+        fetch.assert_called_once()
+
+    @patch("ednna.redmine_resilient_reads.buscar_detalhes_chamado")
+    @patch("ednna.redmine_resilient_reads.carregar_snapshot")
     def test_changed_issue_fetches_fresh_journals(self, stored, fetch):
         stored.return_value = {"chamado": {
             "alterado_em": "2026-10-20T18:00:00",
