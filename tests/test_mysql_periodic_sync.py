@@ -17,7 +17,7 @@ class SyncTests(unittest.TestCase):
         self.addCleanup(self.patcher.stop)
 
     def test_confirmed_refresh_imports(self):
-        with patch("scripts.sync_eddy_mysql.extrair_snapshot_painel", return_value=([{"id": 1}, {"id": 2}], "now")), \\
+        with patch("scripts.sync_eddy_mysql.extrair_snapshot_painel", return_value=([{"id": 1}, {"id": 2}], "now")), \
              patch("scripts.sync_eddy_mysql.importar_snapshot_painel_mysql", return_value={"selecionados": 2}) as imp:
             result = sincronizar_uma_vez()
         self.assertTrue(result["redmine_confirmado"])
@@ -31,7 +31,7 @@ class SyncTests(unittest.TestCase):
             imp.assert_not_called()
 
     def test_mismatched_ids_never_imports(self):
-        with patch("scripts.sync_eddy_mysql.extrair_snapshot_painel", return_value=([{"id": 1}, {"id": 3}], "now")), \\
+        with patch("scripts.sync_eddy_mysql.extrair_snapshot_painel", return_value=([{"id": 1}, {"id": 3}], "now")), \
              patch("scripts.sync_eddy_mysql.importar_snapshot_painel_mysql") as imp:
             with self.assertRaises(RuntimeError):
                 sincronizar_uma_vez()
