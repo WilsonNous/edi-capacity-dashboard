@@ -28,7 +28,7 @@ def _snapshot(issue: dict, now: datetime) -> tuple[dict, list[dict]]:
     if not status:
         raise ValueError("Status Redmine ausente")
     row = {
-        "id": issue_id, "cliente": None, "origem": "VR BENEFICIOS",
+        "id": issue_id, "cliente": None, "origem": next((str(f.get("value")) for f in issue.get("custom_fields", []) if str(f.get("id")) == "5" and f.get("value") not in (None, "")), "VR BENEFICIOS"),
         "responsavel": (issue.get("assigned_to") or {}).get("name"),
         "projeto": (issue.get("project") or {}).get("name"),
         "tipo": (issue.get("tracker") or {}).get("name"),
@@ -79,6 +79,6 @@ def sincronizar_carteira_vr_mysql() -> dict:
     return {
         "fonte": "redmine", "destino": "mysql", "abertos_consultados": len(issues),
         "vr_identificados": len(candidates), "importados": imported,
-        "falhas": failures, "cobertura_completa": len(failures) == 0,
+        "falhas": failures, "cobertura_completa": len(failures) == 0 and len(candidates) > 0,
         "redmine_somente_leitura": True, "envios_realizados": 0,
     }
