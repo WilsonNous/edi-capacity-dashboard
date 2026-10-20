@@ -4,21 +4,11 @@ from __future__ import annotations
 import json
 from redmine_api import buscar_chamados_projetos, buscar_detalhes_chamado, traduzir_custom_field
 
-VR_NAMES = ("vr beneficio", "vr benefícios", "vr beneficios", "vr benefício")
+from ednna.eddy_vr_origin import identificar_vr
 
 
 def _is_vr(issue: dict) -> bool:
-    values = [issue.get("subject") or ""]
-    for field in issue.get("custom_fields") or []:
-        if field.get("id") == 5:
-            raw = field.get("value")
-            values.append(str(raw or ""))
-            try:
-                values.append(str(traduzir_custom_field(raw, 5) or ""))
-            except (ValueError, TypeError, KeyError):
-                pass
-    return any(name in " ".join(values).casefold() for name in VR_NAMES)
-
+    return identificar_vr(issue)
 
 def inventariar_vr_abertos(*, limite_detalhes: int | None = None) -> dict:
     """Discover all open issues and inspect candidates; no Redmine writes."""
