@@ -9,6 +9,7 @@ from ednna.mysql_snapshot_repository import CHAMADO_FIELDS, JOURNAL_FIELDS
 from ednna.eddy_vr_rule import avaliar_vr
 from ednna.eddy_vr_followup import planejar_followup
 from ednna.eddy_vr_observability import resumir_operacao_vr
+from ednna.eddy_vr_origin import identificar_vr
 
 
 def operacao_vr_mysql() -> dict:
@@ -16,12 +17,15 @@ def operacao_vr_mysql() -> dict:
         with conn.cursor() as cursor:
             cursor.execute(
                 "SELECT " + ", ".join(CHAMADO_FIELDS)
-                + " FROM eddy_chamados WHERE LOWER(COALESCE(origem,'')) LIKE %s"
-                + " ORDER BY id", ("%vr benef%",)
+                + " FROM eddy_chamados ORDER BY id"
             )
             chamados = [dict(zip(CHAMADO_FIELDS, row)) for row in cursor.fetchall()]
             results = []
+            vr_count = 0
             for chamado in chamados:
+                if not identificar_vr(chamado):
+                    continue
+                vr_count += 1
                 cursor.execute(
                     "SELECT " + ", ".join(JOURNAL_FIELDS)
                     + " FROM eddy_journals WHERE chamado_id=%s ORDER BY id",
@@ -44,7 +48,7 @@ def operacao_vr_mysql() -> dict:
         "somente_leitura": True, "chamados": results, "falhas": []
     })
     projection["fonte"] = "mysql"
-    projection["total_snapshots_vr"] = len(chamados)
+    projection["total_snapshots_vr"] = vr_count
     projection["aviso"] = (
         "Somente snapshots já sincronizados no MySQL; não garante cobertura "
         "de todos os chamados abertos no Redmine."
