@@ -143,7 +143,8 @@ with st.expander('🦾 Regra 01 · VR Benefícios · MySQL', expanded=True):
                 'Chamado': row.get('chamado_id'), 'Fila': row.get('fila'),
                 'Fase': row.get('fase'), 'Próxima ação': row.get('proxima_acao'),
                 'Follow-up': row.get('followup'),
-                'Vencimento': row.get('vencimento'),
+                'Prazo do chamado': row.get('prazo_chamado') or 'Não definido',
+                'Próximo follow-up': row.get('vencimento') or 'Não definido',
                 'Redmine': redmine_link(row.get('chamado_id')),
             } for row in vr_rows])
             st.dataframe(vr_table, hide_index=True, width='stretch',
