@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, sqlite3
+import json, sqlite3, os
 from pathlib import Path
 import pandas as pd
 import streamlit as st
@@ -113,6 +113,18 @@ def chamados_ativos_df():
         if row is not None:
             payload = json.loads(row['payload_json'] or '[]')
             if isinstance(payload, list):
+                fonte = 'painel.db/status=open'
+                if os.getenv('EDDY_DB_ENGINE', 'sqlite').lower() == 'mysql' and payload:
+                    try:
+                        from ednna.mysql_active_reader import carregar_carteira_mysql
+                        ids = {int(issue['id']) for issue in payload if isinstance(issue, dict) and issue.get('id') is not None}
+                        if len(ids) == len(payload):
+                            mysql_payload = carregar_carteira_mysql(ids, row['atualizado_em'])
+                            if mysql_payload is not None:
+                                payload = mysql_payload
+                                fonte = 'mysql/eddy_chamados'
+                    except Exception as exc:
+                        print(f'[EDDY] Leitura MySQL indisponível; usando snapshot Painel: {type(exc).__name__}', flush=True)
                 linhas=[]
                 mapa = _mapa_clientes_persistido()
                 mapa_origem = _mapa_custom_persistido(5)
@@ -135,7 +147,7 @@ def chamados_ativos_df():
                         'descricao': issue.get('description') or '',
                         'alterado_em': issue.get('updated_on'),
                         'criado_em': issue.get('created_on'),
-                        '_fonte_operacional': 'painel.db/status=open',
+                        '_fonte_operacional': fonte,
                         '_snapshot_atualizado_em': row['atualizado_em'],
                     })
                 return pd.DataFrame(linhas)
