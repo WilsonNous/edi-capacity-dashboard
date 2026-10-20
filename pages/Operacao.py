@@ -112,6 +112,55 @@ with st.expander('🎓 Escola do EDDY · conhecimento e evolução das regras', 
         st.info('Ainda não encontrei regras de inclusão no inventário persistente. A Escola continuará aprendendo com as evidências disponíveis.')
 
 
+# VR01: mesma tela operacional, leitura MySQL; sem envio ou escrita externa.
+with st.expander('🦾 Regra 01 · VR Benefícios · MySQL', expanded=True):
+    st.caption('Descoberta automática por origem (código ou descrição). A carteira abaixo vem do MySQL; não usa o SQLite legado.')
+    if st.button('🔄 Atualizar VR do Redmine para MySQL', key='eddy_vr01_sync_mysql'):
+        try:
+            from scripts.eddy_vr01_mysql_worker import executar_worker_vr01
+            with st.spinner('EDDY consultando chamados VR e journals do Redmine...'):
+                ciclo_vr = executar_worker_vr01()
+            st.session_state['eddy_vr01_ultimo_ciclo'] = ciclo_vr
+            if ciclo_vr.get('estado') == 'AVALIADO_SOMENTE_LEITURA':
+                st.success('Sincronização e avaliação VR concluídas. Nenhum envio externo realizado.')
+            else:
+                st.warning(f"Ciclo VR não concluído: {ciclo_vr.get('estado', 'desconhecido')}")
+        except Exception as exc:
+            st.error(f'Falha na sincronização VR: {type(exc).__name__}: {exc}')
+    try:
+        from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
+        vr_view = operacao_vr_mysql()
+        vr_ind = vr_view.get('indicadores') or {}
+        v1, v2, v3, v4 = st.columns(4)
+        v1.metric('🔴 Você · VR', vr_ind.get('voce', 0))
+        v2.metric('🟢 EDDY · VR', vr_ind.get('eddy', 0))
+        v3.metric('🤖 Realizado · VR', vr_ind.get('realizado', 0))
+        v4.metric('⚠️ Exceções · VR', vr_ind.get('excecoes', 0))
+        st.caption(f"MySQL: {vr_view.get('total_snapshots_vr', 0)} snapshots VR identificados. Apenas avaliação; execução externa ainda não homologada.")
+        vr_rows = vr_view.get('chamados') or []
+        if vr_rows:
+            vr_table = pd.DataFrame([{
+                'Chamado': row.get('chamado_id'), 'Fila': row.get('fila'),
+                'Fase': row.get('fase'), 'Próxima ação': row.get('proxima_acao'),
+                'Follow-up': row.get('followup'),
+                'Vencimento': row.get('vencimento'),
+                'Redmine': redmine_link(row.get('chamado_id')),
+            } for row in vr_rows])
+            st.dataframe(vr_table, hide_index=True, width='stretch',
+                         column_config={'Redmine': st.column_config.LinkColumn('Redmine')})
+        else:
+            st.info('Nenhum snapshot VR identificado no MySQL. Use Atualizar VR para consultar o Redmine.')
+    except Exception as exc:
+        st.error(f'Operação VR indisponível no MySQL: {type(exc).__name__}: {exc}')
+    ultimo_vr = st.session_state.get('eddy_vr01_ultimo_ciclo')
+    if ultimo_vr:
+        with st.expander('Evidências do último ciclo VR', expanded=False):
+            st.json({'estado': ultimo_vr.get('estado'),
+                     'sincronizacao': ultimo_vr.get('sincronizacao'),
+                     'envios_realizados': ultimo_vr.get('envios_realizados', 0),
+                     'redmine_escritas': ultimo_vr.get('redmine_escritas', 0)})
+
+
 if st.button('🔄 Sincronizar agora', type='primary', width='content', key='op_refresh_3325'):
     try:
         from redmine_api import buscar_chamados_projetos
