@@ -38,7 +38,7 @@ def _snapshot(issue: dict, now: datetime) -> tuple[dict, list[dict]]:
         "criado_em": _timestamp(issue.get("created_on")),
         "alterado_em": _timestamp(issue.get("updated_on")),
         "tempo_aberto_dias": None,
-        "payload_json": issue, "sincronizado_em": now,
+        "payload_json": {**issue, "_eddy_journals_completos": True}, "sincronizado_em": now,
     }
     journals = []
     for journal in issue["journals"]:

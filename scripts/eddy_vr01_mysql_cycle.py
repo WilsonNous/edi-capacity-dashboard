@@ -13,12 +13,23 @@ from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
 def executar_ciclo_vr01() -> dict:
     sync = sincronizar_carteira_vr_mysql()
     if not sync["cobertura_completa"]:
+        # Read-only observability must survive Redmine outages; stale data must
+        # never authorize sends, follow-ups or Redmine writes.
+        try:
+            operation = operacao_vr_mysql()
+        except Exception as exc:
+            return {
+                "estado": "BLOQUEADO_MYSQL_INDISPONIVEL",
+                "sincronizacao": sync, "operacao": None,
+                "erro": type(exc).__name__,
+                "envios_realizados": 0, "redmine_escritas": 0,
+            }
+        operation["carteira_confirmada_agora"] = False
+        operation["aviso"] = "Redmine indisponível ou parcial; leitura MySQL histórica. Ações externas bloqueadas."
         return {
-            "estado": "BLOQUEADO_SINCRONIZACAO_PARCIAL",
-            "sincronizacao": sync,
-            "operacao": None,
-            "envios_realizados": 0,
-            "redmine_escritas": 0,
+            "estado": "DEGRADADO_MYSQL_SOMENTE_LEITURA",
+            "sincronizacao": sync, "operacao": operation,
+            "envios_realizados": 0, "redmine_escritas": 0,
         }
     operation = operacao_vr_mysql()
     imported = set(sync["importados"]) | set(sync.get("reutilizados_mysql", []))
