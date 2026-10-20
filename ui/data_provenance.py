@@ -15,6 +15,7 @@ def fonte_carteira(frame, *, agora=None) -> dict:
     marca = str(frame["_snapshot_atualizado_em"].iloc[0]) if "_snapshot_atualizado_em" in frame else ""
     nome = {
         "painel.db/status=open": "Redmine via snapshot do Painel EDI (SQLite)",
+        "mysql/eddy_chamados": "Redmine via carteira persistida no MySQL",
         "ednna.db/fallback": "Memória histórica SQLite (contingência)",
     }.get(fonte, fonte)
     if not marca or marca.lower() in ("none", "nan", "nat"):
