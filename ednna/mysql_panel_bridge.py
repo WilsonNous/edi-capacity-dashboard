@@ -10,7 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from ednna.mysql_snapshot_repository import salvar_snapshot
+from ednna.mysql_snapshot_repository import CHAMADO_FIELDS, _upsert
+from ednna.mysql_storage import connect
+from time import perf_counter
 
 BR = ZoneInfo("America/Sao_Paulo")
 
@@ -80,15 +82,25 @@ def importar_snapshot_painel_mysql(caminho: str, *, limite: int = 50, aplicar: b
     ids = [row["id"] for row in converted]
     if len(ids) != len(set(ids)):
         raise ValueError("IDs duplicados no snapshot")
-    if aplicar:
-        for row in converted:
-            salvar_snapshot(row)
+    duracao = 0.0
+    if aplicar and converted:
+        inicio = perf_counter()
+        # Uma conexão TLS por importação; transações atômicas em lotes de 50.
+        # Uma falha interrompe a carga, sem confirmar o lote defeituoso.
+        for offset in range(0, len(converted), 50):
+            with connect() as conn:
+                with conn.cursor() as cursor:
+                    for row in converted[offset:offset + 50]:
+                        _upsert(cursor, 'eddy_chamados', CHAMADO_FIELDS, row)
+        duracao = round(perf_counter() - inicio, 3)
     return {
         "origem": "painel.db/status=open",
         "snapshot_em": atualizado_em,
         "total_origem": len(items),
         "selecionados": len(converted),
         "gravados": len(converted) if aplicar else 0,
+        "duracao_gravacao_s": duracao,
+        "lote": 50,
         "modo": "apply" if aplicar else "dry-run",
         "journals": "não importados",
         "automacoes": "suspensas",
