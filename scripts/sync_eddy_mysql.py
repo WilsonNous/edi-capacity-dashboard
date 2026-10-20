@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from ednna.mysql_panel_bridge import importar_snapshot_painel_mysql
+from ednna.mysql_panel_bridge import importar_snapshot_painel_mysql, extrair_snapshot_painel
 
 BR = ZoneInfo("America/Sao_Paulo")
 
@@ -30,9 +30,12 @@ def sincronizar_uma_vez(*, painel="/home/data/painel.db") -> dict:
         raise ValueError("Carteira vazia ou inválida; MySQL preservado")
     if len(chamados) > 500:
         raise ValueError("Carteira excede capacidade do piloto (500); MySQL preservado")
+    items, _ = extrair_snapshot_painel(painel)
+    ids_redmine = [int(x["id"]) for x in chamados]
+    ids_painel = [int(x["id"]) for x in items]
+    if len(ids_redmine) != len(set(ids_redmine)) or sorted(ids_redmine) != sorted(ids_painel):
+        raise RuntimeError("Snapshot diverge da consulta; MySQL preservado")
     resultado = importar_snapshot_painel_mysql(painel, limite=500, aplicar=True)
-    if resultado["selecionados"] != len(chamados):
-        raise RuntimeError("Snapshot diverge da consulta; verificar concorrência")
     resultado["duracao_total_s"] = round(time.monotonic() - inicio, 3)
     resultado["redmine_confirmado"] = True
     return resultado
