@@ -74,6 +74,12 @@ for name, url, accepted in targets:
 PY
 
 # Worker separado da UI: monitoramento não depende de sessões Streamlit.
+if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_MYSQL_SYNC_ENABLED:-true}" == "true" ]]; then
+  echo "[EDDY] Sincronização Redmine -> MySQL observacional ativa; sem envios externos."
+  python -m scripts.sync_eddy_mysql --loop --intervalo "${EDDY_MYSQL_SYNC_INTERVAL_SECONDS:-900}" &
+  pids+=("$!")
+fi
+
 if [[ "${EDNNA_MONITOR_EMAIL_ENABLED:-false}" == "true" ]]; then
   echo "[EDDY] Worker operacional habilitado explicitamente."
   python -m ednna.worker_operacional &
