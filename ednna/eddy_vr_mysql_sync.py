@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from ednna.mysql_snapshot_repository import salvar_snapshot
-from redmine_api import buscar_chamados_projetos, buscar_detalhes_chamado
+from ednna.redmine_resilient_reads import listar_abertos_confirmados, detalhe_com_retomada
 from scripts.eddy_vr01_open_inventory import _is_vr
 
 
@@ -56,29 +56,35 @@ def _snapshot(issue: dict, now: datetime) -> tuple[dict, list[dict]]:
 
 
 def sincronizar_carteira_vr_mysql() -> dict:
-    issues = buscar_chamados_projetos(
-        status_id="open", completar_custom_fields=True, force_refresh=True
-    )
-    if not isinstance(issues, list):
-        raise ValueError("Listagem Redmine indisponível: nenhuma sincronização executada")
+    inventario = listar_abertos_confirmados()
+    if not inventario["confirmado"]:
+        return {"fonte": inventario.get("fonte"), "destino": "mysql",
+                "abertos_consultados": 0, "vr_identificados": 0,
+                "importados": [], "reutilizados_mysql": [], "falhas": [],
+                "cobertura_completa": False, "motivo": inventario.get("motivo"),
+                "redmine_somente_leitura": True, "envios_realizados": 0}
+    issues = inventario["chamados"]
     candidates = [item for item in issues if _is_vr(item)]
-    imported, failures = [], []
+    imported, reused, failures = [], [], []
     for item in sorted(candidates, key=lambda x: int(x["id"])):
         issue_id = int(item["id"])
         try:
-            detail = buscar_detalhes_chamado(
-                issue_id, incluir_journals=True, force_refresh=True
-            )
+            leitura = detalhe_com_retomada(item)
+            detail = leitura["detalhe"]
             if not isinstance(detail, dict) or int(detail.get("id", 0)) != issue_id:
                 raise ValueError("Detalhe Redmine ausente ou divergente")
             row, journals = _snapshot(detail, datetime.now(timezone.utc).replace(tzinfo=None))
-            salvar_snapshot(row, journals)
-            imported.append(issue_id)
+            if leitura["consultou_redmine"]:
+                salvar_snapshot(row, journals)
+                imported.append(issue_id)
+            else:
+                reused.append(issue_id)
         except Exception as exc:
             failures.append({"chamado_id": issue_id, "erro": type(exc).__name__})
     return {
         "fonte": "redmine", "destino": "mysql", "abertos_consultados": len(issues),
         "vr_identificados": len(candidates), "importados": imported,
+        "reutilizados_mysql": reused,
         "falhas": failures, "cobertura_completa": len(failures) == 0 and len(candidates) > 0,
         "redmine_somente_leitura": True, "envios_realizados": 0,
     }
