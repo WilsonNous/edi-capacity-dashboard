@@ -80,6 +80,15 @@ if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_MYSQL_SYNC_ENABLED:-true
   pids+=("$!")
 fi
 
+# VR01 independent MySQL observer. Does not enable legacy SQLite motor,
+# external emails, follow-ups or Redmine writes. Advisory lock protects
+# overlapping cycles across Azure instances.
+if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_VR01_OBSERVER_ENABLED:-true}" == "true" ]]; then
+  echo "[EDDY] VR01 MySQL observer iniciado (somente leitura; sem envios externos)."
+  python -m scripts.eddy_vr01_mysql_scheduler &
+  pids+=("$!")
+fi
+
 if [[ "${EDNNA_MONITOR_EMAIL_ENABLED:-false}" == "true" ]]; then
   echo "[EDDY] Worker operacional habilitado explicitamente."
   python -m ednna.worker_operacional &
