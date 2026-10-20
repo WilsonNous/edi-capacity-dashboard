@@ -21,10 +21,11 @@ class ResilientRedmineTests(unittest.TestCase):
     def test_reuses_unchanged_complete_journals(self, stored, fetch):
         stored.return_value = {"chamado": {
             "alterado_em": "2026-10-20T18:00:00",
-            "payload_json": {"id": 47851, "journals": [{"id": 10, "notes": "evidencia"}]},
-        }}
+            "payload_json": {"id": 47851, "_eddy_journals_completos": True},
+        }, "journals": [{"id": 10, "criado_em": "2026-10-20T17:00:00", "notas": "evidencia", "detalhes_json": "[]"}]}
         result = detalhe_com_retomada({"id": 47851, "updated_on": "2026-10-20T18:00:00Z"})
         self.assertFalse(result["consultou_redmine"])
+        self.assertEqual(result["detalhe"]["journals"][0]["notes"], "evidencia")
         fetch.assert_not_called()
 
     @patch("ednna.redmine_resilient_reads.buscar_detalhes_chamado")
