@@ -7,6 +7,7 @@ external writes, or breaker bypass.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from redmine_api import buscar_chamados_projetos, buscar_detalhes_chamado, obter_diagnostico_redmine
 from ednna.mysql_snapshot_repository import carregar_snapshot
 
@@ -41,14 +42,16 @@ def detalhe_com_retomada(issue: dict, *, force: bool = False) -> dict:
             row = stored["chamado"]
             payload = row.get("payload_json")
             if isinstance(payload, str):
-                import json
                 try:
                     payload = json.loads(payload)
                 except (ValueError, TypeError):
                     payload = None
             updated = issue.get("updated_on")
             stored_updated = row.get("alterado_em")
-            if updated and stored_updated and isinstance(payload, dict) and isinstance(payload.get("journals"), list):
+            # Only snapshots explicitly marked as journal-complete are reusable.
+            # The generic panel import writes issue payloads WITHOUT journals.
+            complete = isinstance(payload, dict) and payload.get("_eddy_journals_completos") is True
+            if updated and stored_updated and complete and isinstance(stored.get("journals"), list):
                 try:
                     current_dt = datetime.fromisoformat(str(updated).replace("Z", "+00:00"))
                     previous_dt = stored_updated if isinstance(stored_updated, datetime) else datetime.fromisoformat(str(stored_updated).replace("Z", "+00:00"))
@@ -57,7 +60,15 @@ def detalhe_com_retomada(issue: dict, *, force: bool = False) -> dict:
                     if previous_dt.tzinfo is None:
                         previous_dt = previous_dt.replace(tzinfo=timezone.utc)
                     if current_dt.astimezone(timezone.utc) <= previous_dt.astimezone(timezone.utc):
-                        return {"detalhe": payload, "fonte": "mysql_sem_alteracao", "consultou_redmine": False}
+                        restored = dict(payload)
+                        restored["journals"] = [
+                            {"id": j["id"], "created_on": j.get("criado_em"),
+                             "notes": j.get("notas") or "",
+                             "details": json.loads(j["detalhes_json"]) if isinstance(j.get("detalhes_json"), str) else (j.get("detalhes_json") or []),
+                             "user": {"name": j.get("autor") or ""}}
+                            for j in stored["journals"]
+                        ]
+                        return {"detalhe": restored, "fonte": "mysql_sem_alteracao", "consultou_redmine": False}
                 except (ValueError, TypeError, OverflowError):
                     pass
     detail = buscar_detalhes_chamado(issue_id, incluir_journals=True, force_refresh=True)
