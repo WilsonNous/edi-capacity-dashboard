@@ -32,6 +32,9 @@ def operacao_vr_mysql() -> dict:
                     (chamado["id"],)
                 )
                 journals = [dict(zip(JOURNAL_FIELDS, row)) for row in cursor.fetchall()]
+                # Redmine evaluator expects original journal notes and timestamp names.
+                journals = [{**j, "notes": j.get("notas") or "",
+                             "created_on": j.get("criado_em")} for j in journals]
                 decision = avaliar_vr(chamado, journals)
                 followup = planejar_followup(decision, journals)
                 results.append({
