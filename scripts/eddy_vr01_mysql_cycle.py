@@ -21,7 +21,7 @@ def executar_ciclo_vr01() -> dict:
             "redmine_escritas": 0,
         }
     operation = operacao_vr_mysql()
-    imported = set(sync["importados"])
+    imported = set(sync["importados"]) | set(sync.get("reutilizados_mysql", []))
     observed = {item["chamado_id"] for item in operation["chamados"]}
     if not imported.issubset(observed):
         return {
