@@ -13,6 +13,7 @@ from ednna.eddy_vr_action_queue import registrar_intencoes
 from ednna.eddy_vr_readiness import verificar_prontidao_vr01
 from ednna.eddy_vr_graph_reconciliation import reconciliar_envios_vr01
 from ednna.eddy_vr_inbox_reconciliation import reconciliar_respostas_vr01
+from ednna.eddy_vr_dispatcher import executar_fila_vr01
 
 
 def executar_ciclo_vr01() -> dict:
@@ -71,15 +72,22 @@ def executar_ciclo_vr01() -> dict:
         return {"estado": "BLOQUEADO_FILA_VR01", "sincronizacao": sync,
                 "operacao": operation, "erro": type(exc).__name__,
                 "envios_realizados": 0, "redmine_escritas": 0}
+    readiness = verificar_prontidao_vr01()
+    if (readiness["pronto"] and evidence.get("estado") == "EVIDENCIAS_RECONCILIADAS"
+            and replies.get("estado") == "RESPOSTAS_RECONCILIADAS"):
+        dispatch = executar_fila_vr01()
+    else:
+        dispatch = {"estado": "BLOQUEADO_PRONTIDAO_OU_RECONCILIACAO", "envios_confirmados": 0}
     return {
+        "execucao": dispatch,
         "fila": queue,
         "evidencias_graph": evidence,
         "respostas_graph": replies,
-        "prontidao_externa": verificar_prontidao_vr01(),
-        "estado": "INTENCOES_PERSISTIDAS_SEM_ENVIO",
+        "prontidao_externa": readiness,
+        "estado": "CICLO_VR01_COM_EXECUTOR_CONTROLADO",
         "sincronizacao": sync,
         "operacao": operation,
-        "envios_realizados": 0,
+        "envios_realizados": dispatch.get("envios_confirmados", 0),
         "redmine_escritas": 0,
     }
 
