@@ -30,7 +30,8 @@ class TestVrGraphEvidence(unittest.TestCase):
         self.assertEqual(result["consultados"], 1)
         self.assertEqual(result["evidencias"], 1)
         self.assertEqual(result["envios_realizados"], 0)
-        self.assertEqual(cursor.execute.call_count, 1)
+        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertIn('REVISAR_ENVIO_EXISTENTE', cursor.execute.call_args_list[-1].args[0])
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,5 +43,14 @@ def reconciliar_envios_vr01(chamado_ids: list[int], *, buscar=None) -> dict:
                        VALUES (%s,%s,%s,%s,%s,%s)""",
                     ("GRAPH", mid, cid, "VR01", "SENT_ITEMS", digest),
                 )
+            # Existing sent mail is not proof that the next planned action was done.
+            # Quarantine rather than automatically sending a possible duplicate.
+            for cid in sorted({cid for cid, _, _ in observed}):
+                cursor.execute(
+                    "UPDATE eddy_vr01_action_queue "
+                    "SET situacao='REVISAR_ENVIO_EXISTENTE' "
+                    "WHERE chamado_id=%s AND situacao='PENDENTE'",
+                    (cid,),
+                )
     return {"estado": "EVIDENCIAS_RECONCILIADAS", "consultados": len(ids),
             "evidencias": len(observed), "envios_realizados": 0}
