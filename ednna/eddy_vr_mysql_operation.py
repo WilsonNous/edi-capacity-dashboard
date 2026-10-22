@@ -21,6 +21,7 @@ def _prazo_redmine(chamado):
 from ednna.mysql_storage import connect
 from ednna.mysql_snapshot_repository import CHAMADO_FIELDS, JOURNAL_FIELDS
 from ednna.eddy_vr_rule import avaliar_vr
+from ednna.eddy_vr_continuity import decidir_continuidade_vr
 from ednna.eddy_vr_followup import planejar_followup
 from ednna.eddy_vr_observability import resumir_operacao_vr
 from ednna.eddy_vr_origin import identificar_vr
@@ -50,9 +51,16 @@ def operacao_vr_mysql() -> dict:
                 journals = [{**j, "notes": j.get("notas") or "",
                              "created_on": j.get("criado_em")} for j in journals]
                 decision = avaliar_vr(chamado, journals)
+                payload = chamado.get('payload_json') or {}
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                continuidade = decidir_continuidade_vr(payload, journals) if isinstance(payload, dict) else {}
                 followup = planejar_followup(decision, journals)
                 results.append({
                     "chamado_id": chamado["id"],
+                    "etapa_continuidade": continuidade.get("etapa"),
+                    "acao_continuidade": continuidade.get("acao"),
+                    "destino_continuidade": continuidade.get("destino"),
                     "fase_eddy": decision.get("estado"),
                     "proxima_acao": decision.get("acao"),
                     "followup": followup.get("situacao"),
