@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      EDNNA_DB_PATH: ${{ runner.temp }}/eddy-test.db
+      EDNNA_DB_PATH: ${{ github.workspace }}/eddy-test.db
       PYTHONPATH: ${{ github.workspace }}
       EDNNA_MONITOR_EMAIL_ENABLED: "false"
       EDNNA_AUTO_EXECUTE: "false"
