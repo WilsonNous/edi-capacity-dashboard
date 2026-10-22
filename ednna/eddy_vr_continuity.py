@@ -24,7 +24,7 @@ def _origin(text: str, email: str) -> str:
 
 
 def _email_from_note(text: str) -> str:
-    match = re.search(r"(?:^|\\n)\\s*(?:De|From):\\s*[^\\n<]*<?([\\w.+-]+@[\\w.-]+)>?", text, re.I)
+    match = re.search(r"(?:^|\n)\s*(?:De|From):\s*[^\n<]*<?([\w.+-]+@[\w.-]+)>?", text, re.I)
     return match.group(1).lower() if match else ""
 
 
@@ -42,10 +42,10 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
     tracker = str((issue.get("tracker") or {}).get("name") or "").casefold()
     entries = _notes(journals)
     body = str(issue.get("description") or "")
-    combined = "\\n".join([body] + [str(j.get("notes") or j.get("notas") or "") for j in entries])
+    combined = "\n".join([body] + [str(j.get("notes") or j.get("notas") or "") for j in entries])
     if any(x in subject or x in tracker for x in ("falta de arquivo", "arquivos faltantes", "salto de nsa")):
         # Never discard the older missing NSA just because a newer gap appeared.
-        missing = sorted(set(re.findall(r"\\bNSA\\s*[:#-]?\\s*(\\d{2,9})\\b", combined, re.I)))
+        missing = sorted(set(re.findall(r"\bNSA\s*[:#-]?\s*(\d{2,9})\b", combined, re.I)))
         return {**base, "etapa": "ARQUIVOS_FALTANTES",
                 "acao": "VALIDAR_E_SOLICITAR_TODOS_NSAS", "destino": "VR",
                 "nsas_mencionados_para_conferencia": missing,
@@ -70,7 +70,7 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
         elif origin == "ADQUIRENTE":
             if "portal" in lower and ("habilita" in lower or "aceite" in lower):
                 vr_portal_required = True
-            if re.search(r"(entram automaticamente|arquivo\\s+vr_netunna|fluxo de arquivos [eé] iniciado|j[aá] est[aã]o credenciados)", lower):
+            if re.search(r"(entram automaticamente|arquivo\s+vr_netunna|fluxo de arquivos [eé] iniciado|j[aá] est[aã]o credenciados)", lower):
                 vr_confirmed = True
 
     if vr_confirmed and customer_movement:
