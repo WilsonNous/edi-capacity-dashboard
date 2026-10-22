@@ -34,8 +34,14 @@ def executar_worker_vr01() -> dict:
         finally:
             # MySQL locks are connection-scoped. Always release before returning
             # the pooled/managed connection; connection closure also releases it.
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT RELEASE_LOCK(%s)", (LOCK_NAME,))
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT RELEASE_LOCK(%s)", (LOCK_NAME,))
+            except Exception as exc:
+                # If MySQL has dropped this connection, its session-scoped
+                # advisory lock has already been released server-side. Do not
+                # mask a completed cycle or its original error on cleanup.
+                LOGGER.warning("[EDDY-VR01] falha ao liberar lock MySQL: %s", type(exc).__name__)
 
 
 if __name__ == "__main__":
