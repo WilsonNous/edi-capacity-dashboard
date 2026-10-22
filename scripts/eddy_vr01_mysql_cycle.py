@@ -8,6 +8,8 @@ import json
 
 from ednna.eddy_vr_mysql_sync import sincronizar_carteira_vr_mysql
 from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
+from ednna.mysql_snapshot_repository import carregar_snapshot
+from ednna.eddy_vr_action_queue import registrar_intencoes
 
 
 def executar_ciclo_vr01() -> dict:
@@ -42,8 +44,29 @@ def executar_ciclo_vr01() -> dict:
             "envios_realizados": 0,
             "redmine_escritas": 0,
         }
+    # Plan intents only after complete Redmine coverage and consistent MySQL snapshots.
+    snapshots = []
+    try:
+        for issue_id in sorted(imported):
+            stored = carregar_snapshot(issue_id)
+            if not stored:
+                raise ValueError("snapshot missing")
+            payload = stored["chamado"].get("payload_json")
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            if not isinstance(payload, dict) or payload.get("_eddy_journals_completos") is not True:
+                raise ValueError("incomplete journal evidence")
+            journals = [{"notes": j.get("notas") or "", "created_on": j.get("criado_em")}
+                        for j in stored["journals"]]
+            snapshots.append((payload, journals))
+        queue = registrar_intencoes(snapshots)
+    except Exception as exc:
+        return {"estado": "BLOQUEADO_FILA_VR01", "sincronizacao": sync,
+                "operacao": operation, "erro": type(exc).__name__,
+                "envios_realizados": 0, "redmine_escritas": 0}
     return {
-        "estado": "AVALIADO_SOMENTE_LEITURA",
+        "fila": queue,
+        "estado": "INTENCOES_PERSISTIDAS_SEM_ENVIO",
         "sincronizacao": sync,
         "operacao": operation,
         "envios_realizados": 0,

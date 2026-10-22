@@ -43,7 +43,9 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
     entries = _notes(journals)
     body = str(issue.get("description") or "")
     combined = "\n".join([body] + [str(j.get("notes") or j.get("notas") or "") for j in entries])
-    if any(x in subject or x in tracker for x in ("falta de arquivo", "arquivos faltantes", "salto de nsa")):
+    # Subject is authoritative when it explicitly says inclusion, even if tracker says falta de arquivo.
+    is_inclusion = "inclus" in subject or "habilita" in subject
+    if not is_inclusion and any(x in subject or x in tracker for x in ("falta de arquivo", "arquivos faltantes", "salto de nsa")):
         # Never discard the older missing NSA just because a newer gap appeared.
         missing = sorted(set(re.findall(r"\bNSA\s*[:#-]?\s*(\d{2,9})\b", combined, re.I)))
         return {**base, "etapa": "ARQUIVOS_FALTANTES",
@@ -51,7 +53,7 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
                 "nsas_mencionados_para_conferencia": missing,
                 "observacao": "NSA citado não equivale a NSA faltante; exigir evidência de lacuna e resolução individual."}
 
-    if "inclus" not in subject and "habilita" not in subject:
+    if not is_inclusion:
         return {**base, "etapa": "REVISAO_HUMANA", "acao": "CLASSIFICAR_SOLICITACAO", "destino": "HUMANO"}
 
     customer_confirmed = False
@@ -60,8 +62,11 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
     customer_movement = False
     for journal in entries:
         note = str(journal.get("notes") or journal.get("notas") or "")
-        origin = _origin(note, _email_from_note(note))
-        lower = note.casefold()
+        # Only the latest message header may identify the sender; quoted email chains
+        # are not independent confirmations. Unknown origin cannot authorize progress.
+        head = note.split("Em ", 1)[0].split("-----Original Message-----", 1)[0]
+        origin = _origin(head, _email_from_note(head))
+        lower = head.casefold()
         if origin == "CLIENTE":
             if re.search(r"(habilita.{0,55}(realizad|conclu|efetuad)|j[aá] est[aã]o aparecendo)", lower):
                 customer_confirmed = True
