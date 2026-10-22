@@ -109,10 +109,19 @@ def connect():
         yield conn
         conn.commit()
     except BaseException:
-        conn.rollback()
+        # A disconnected MySQL session cannot roll back; preserve the original
+        # database exception instead of replacing it with InterfaceError.
+        try:
+            if conn.open:
+                conn.rollback()
+        except pymysql.MySQLError:
+            pass
         raise
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except pymysql.MySQLError:
+            pass
 
 
 def bootstrap() -> None:
