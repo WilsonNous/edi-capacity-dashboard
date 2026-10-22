@@ -11,6 +11,7 @@ from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.eddy_vr_action_queue import registrar_intencoes
 from ednna.eddy_vr_readiness import verificar_prontidao_vr01
+from ednna.eddy_vr_graph_reconciliation import reconciliar_envios_vr01
 
 
 def executar_ciclo_vr01() -> dict:
@@ -61,12 +62,16 @@ def executar_ciclo_vr01() -> dict:
                         for j in stored["journals"]]
             snapshots.append((payload, journals))
         queue = registrar_intencoes(snapshots)
+        # Read historical Graph evidence only after the Redmine/MySQL snapshot
+        # coverage has been verified. Graph failures never authorize a send.
+        evidence = reconciliar_envios_vr01(sorted(imported))
     except Exception as exc:
         return {"estado": "BLOQUEADO_FILA_VR01", "sincronizacao": sync,
                 "operacao": operation, "erro": type(exc).__name__,
                 "envios_realizados": 0, "redmine_escritas": 0}
     return {
         "fila": queue,
+        "evidencias_graph": evidence,
         "prontidao_externa": verificar_prontidao_vr01(),
         "estado": "INTENCOES_PERSISTIDAS_SEM_ENVIO",
         "sincronizacao": sync,
