@@ -44,7 +44,14 @@ def _approved_message(action: dict, approvals: dict) -> dict | None:
     body = str(item.get("body") or "").strip()
     if not subject or not body or f"#{action['chamado_id']}" not in subject:
         return None
-    return {"to": to, "subject": subject[:255], "body": body}
+    # The action approval may carry verified Blueprint participants and the
+    # ticket owner's confirmed address. No addresses are inferred from names.
+    cc = item.get("cc", [])
+    if not isinstance(cc, list) or any(not isinstance(e, str) or not EMAIL.fullmatch(e) or len(e) > 254 for e in cc):
+        return None
+    from ednna.email_policy import aplicar_cc_padrao
+    return {"to": to, "cc": aplicar_cc_padrao([to], cc),
+            "subject": subject[:255], "body": body}
 
 def _claim(action: dict, msg: dict) -> bool:
     # MySQL uniqueness serializes competing workers. The audit row is permanent,
@@ -160,7 +167,7 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
             continue
         try:
             send(remetente=os.environ["EDNNA_EMAIL_FROM"], para=[msg["to"]],
-                          cc=[], assunto=msg["subject"], corpo=msg["body"], chamado_id=cid)
+                          cc=msg["cc"], assunto=msg["subject"], corpo=msg["body"], chamado_id=cid)
             # HTTP 202 is only accepted by Graph, not a durable send receipt.
             provider = lookup(remetente=os.environ["EDNNA_EMAIL_FROM"], assunto=msg["subject"])
             if provider and provider.get("sentDateTime") and (provider.get("internetMessageId") or provider.get("id")):
