@@ -39,6 +39,16 @@ def executar_uma_vez() -> dict:
             "falhas": len(sync.get("falhas") or []),
             "envios_realizados": result.get("envios_realizados", 0),
             "redmine_escritas": result.get("redmine_escritas", 0),
+            "bloqueios_prontidao": (result.get("prontidao_externa") or {}).get("bloqueios", []),
+            "estado_executor": (result.get("execucao") or {}).get("estado"),
+            "acoes_avaliadas": (result.get("execucao") or {}).get("avaliados", 0),
+            "resultados_executor": [
+                {"chamado_id": item.get("chamado_id"), "estado": item.get("estado")}
+                for item in (result.get("execucao") or {}).get("resultados", [])
+            ],
+            "estado_reconciliacao_envios": (result.get("evidencias_graph") or {}).get("estado"),
+            "estado_reconciliacao_respostas": (result.get("respostas_graph") or {}).get("estado"),
+
         }, ensure_ascii=False, default=str),
     )
     return result
@@ -49,7 +59,7 @@ def main() -> None:
     if os.getenv("EDDY_DB_ENGINE", "").lower() != "mysql":
         raise SystemExit("[EDDY-VR01-SCHEDULER] MySQL obrigatório; execução recusada")
     interval = intervalo_segundos(os.getenv("EDDY_VR01_INTERVAL_SECONDS"))
-    LOG.info("[EDDY-VR01-SCHEDULER] iniciado; intervalo_s=%s; somente_leitura=true", interval)
+    LOG.info("[EDDY-VR01-SCHEDULER] iniciado; intervalo_s=%s; execucao_externa_condicionada_a_prontidao=true", interval)
     while True:
         try:
             executar_uma_vez()
