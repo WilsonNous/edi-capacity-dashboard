@@ -14,6 +14,7 @@ from ednna.eddy_vr_readiness import verificar_prontidao_vr01
 from ednna.eddy_vr_graph_reconciliation import reconciliar_envios_vr01
 from ednna.eddy_vr_inbox_reconciliation import reconciliar_respostas_vr01
 from ednna.eddy_vr_dispatcher import executar_fila_vr01
+from ednna.eddy_vr_mysql_followups import listar_followups_vr01
 
 
 def executar_ciclo_vr01() -> dict:
@@ -78,7 +79,9 @@ def executar_ciclo_vr01() -> dict:
         dispatch = executar_fila_vr01()
     else:
         dispatch = {"estado": "BLOQUEADO_PRONTIDAO_OU_RECONCILIACAO", "envios_confirmados": 0}
+    followups = listar_followups_vr01()
     return {
+        "followups": followups,
         "execucao": dispatch,
         "fila": queue,
         "evidencias_graph": evidence,
