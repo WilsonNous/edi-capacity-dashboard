@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from ednna.mysql_storage import connect
+from ednna.eddy_vr_dispatcher import DDL as DISPATCH_AUDIT_DDL
 
 def _utc(value):
     if isinstance(value, str):
@@ -19,6 +20,8 @@ def listar_followups_vr01(*, agora=None, limit=200) -> dict:
     now = _utc(agora) if agora is not None else datetime.now(timezone.utc)
     with connect() as conn:
         with conn.cursor() as cur:
+            # Bootstrap the audit table even when no external dispatch has run.
+            cur.execute(DISPATCH_AUDIT_DDL)
             cur.execute(
                 """SELECT a.chamado_id, MAX(a.updated_at)
                    FROM eddy_vr01_dispatch_audit a
