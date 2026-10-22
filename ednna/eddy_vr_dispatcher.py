@@ -128,7 +128,7 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
             issue = fresh.get("issue") or {}
             if (not fresh.get("ok") or fresh.get("bloquear")
                     or str(issue.get("updated_on") or "") != action["redmine_updated_on"]
-                    or issue.get("_eddy_journals_completos") is False):
+                    or issue.get("_eddy_journals_completos") is not True):
                 results.append({"chamado_id": cid, "estado": "BLOQUEADO_PREFLIGHT_OU_VERSAO"})
                 continue
             # Before claiming, check for any already-sent message with the
@@ -144,7 +144,7 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
             results.append({"chamado_id": cid, "estado": "JA_RESERVADO_OU_SUPERADO"})
             continue
         try:
-            result = send(remetente=os.environ["EDNNA_EMAIL_FROM"], para=[msg["to"]],
+            send(remetente=os.environ["EDNNA_EMAIL_FROM"], para=[msg["to"]],
                           cc=[], assunto=msg["subject"], corpo=msg["body"], chamado_id=cid)
             # HTTP 202 is only accepted by Graph, not a durable send receipt.
             provider = lookup(remetente=os.environ["EDNNA_EMAIL_FROM"], assunto=msg["subject"])
