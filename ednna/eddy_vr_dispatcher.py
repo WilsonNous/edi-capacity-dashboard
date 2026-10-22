@@ -126,9 +126,24 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
         try:
             fresh = preflight(cid)
             issue = fresh.get("issue") or {}
+            # The generic status preflight does not fetch journals or set
+            # _eddy_journals_completos. Verify the current version against a
+            # complete, persisted Redmine snapshot before authorizing dispatch.
+            from ednna.mysql_snapshot_repository import carregar_snapshot
+            stored = carregar_snapshot(cid)
+            snapshot = (stored or {}).get("chamado") or {}
+            payload = snapshot.get("payload_json")
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            journals_complete = (
+                isinstance(payload, dict)
+                and payload.get("_eddy_journals_completos") is True
+                and isinstance((stored or {}).get("journals"), list)
+                and str(payload.get("updated_on") or "") == action["redmine_updated_on"]
+            )
             if (not fresh.get("ok") or fresh.get("bloquear")
                     or str(issue.get("updated_on") or "") != action["redmine_updated_on"]
-                    or issue.get("_eddy_journals_completos") is not True):
+                    or not journals_complete):
                 results.append({"chamado_id": cid, "estado": "BLOQUEADO_PREFLIGHT_OU_VERSAO"})
                 continue
             # Before claiming, check for any already-sent message with the
