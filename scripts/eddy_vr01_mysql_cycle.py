@@ -10,6 +10,7 @@ from ednna.eddy_vr_mysql_sync import sincronizar_carteira_vr_mysql
 from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.eddy_vr_action_queue import registrar_intencoes
+from ednna.eddy_vr_readiness import verificar_prontidao_vr01
 
 
 def executar_ciclo_vr01() -> dict:
@@ -66,6 +67,7 @@ def executar_ciclo_vr01() -> dict:
                 "envios_realizados": 0, "redmine_escritas": 0}
     return {
         "fila": queue,
+        "prontidao_externa": verificar_prontidao_vr01(),
         "estado": "INTENCOES_PERSISTIDAS_SEM_ENVIO",
         "sincronizacao": sync,
         "operacao": operation,
