@@ -49,6 +49,23 @@ def registrar_intencoes(snapshots: list[tuple[dict, list[dict]]]) -> dict:
     with connect() as conn:
         with conn.cursor() as cursor:
             cursor.execute(DDL)
+            # Invalidate unsent actions from previous Redmine revisions.
+            for issue, _ in snapshots:
+                cursor.execute(
+                    "UPDATE eddy_vr01_action_queue SET situacao='SUPERADA' "
+                    "WHERE chamado_id=%s AND situacao='PENDENTE' "
+                    "AND redmine_updated_on <> %s",
+                    (int(issue["id"]), str(issue.get("updated_on") or "")),
+                )
+                state = str((issue.get("status") or {}).get("name") or "").casefold()
+                if (issue.get("status") or {}).get("is_closed") or any(
+                    x in state for x in ("conclu", "fechado", "rejeitad", "cancelad")
+                ):
+                    cursor.execute(
+                        "UPDATE eddy_vr01_action_queue SET situacao='SUPERADA' "
+                        "WHERE chamado_id=%s AND situacao='PENDENTE'",
+                        (int(issue["id"]),),
+                    )
             for item in actionable:
                 cursor.execute(
                     """INSERT IGNORE INTO eddy_vr01_action_queue
