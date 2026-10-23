@@ -6,7 +6,10 @@ before invoking confirm_claim/confirm_return in eddy_ownership.
 """
 from __future__ import annotations
 
-from ednna.eddy_ownership import Ownership, OwnershipError, OwnershipState
+from ednna.eddy_ownership import (
+    Ownership, OwnershipError, OwnershipState, request_claim, confirm_claim,
+    set_work_state, request_return, confirm_return,
+)
 from ednna.mysql_storage import connect
 
 DDL = (
@@ -106,6 +109,30 @@ def save_transition(item: Ownership, *, expected_revision: int | None) -> int:
                     raise OwnershipError("Ownership identities cannot change")
                 if prior == item:
                     raise OwnershipError("No state change to persist")
+                if item.state == OwnershipState.CLAIM_PENDING:
+                    valid = request_claim(prior, current_assignee_id=prior.original_assignee_id, current_version=prior.version) if prior.state == OwnershipState.CAPTURED else None
+                elif item.state == OwnershipState.OWNED and prior.state == OwnershipState.CLAIM_PENDING:
+                    valid = confirm_claim(prior, redmine_assignee_id=prior.eddy_assignee_id, new_version=item.version, evidence=item.last_evidence or "")
+                elif item.state in (OwnershipState.WAITING_THIRD_PARTY, OwnershipState.HUMAN_REQUIRED, OwnershipState.OWNED):
+                    valid = set_work_state(prior, item.state) if prior.state in (OwnershipState.OWNED, OwnershipState.WAITING_THIRD_PARTY) else None
+                elif item.state == OwnershipState.RETURN_PENDING:
+                    valid = request_return(prior, current_assignee_id=prior.eddy_assignee_id, current_version=prior.version) if prior.state == OwnershipState.HUMAN_REQUIRED else None
+                elif item.state == OwnershipState.RETURNED and prior.state == OwnershipState.RETURN_PENDING:
+                    valid = confirm_return(prior, redmine_assignee_id=prior.original_assignee_id, new_version=item.version, evidence=item.last_evidence or "")
+                elif item.state == OwnershipState.CONFLICT:
+                    valid = None
+                    if prior.state == OwnershipState.CAPTURED:
+                        valid = request_claim(prior, current_assignee_id=-1, current_version=prior.version)
+                    elif prior.state == OwnershipState.CLAIM_PENDING:
+                        valid = confirm_claim(prior, redmine_assignee_id=-1, new_version=item.version, evidence=item.last_evidence or "conflict")
+                    elif prior.state == OwnershipState.HUMAN_REQUIRED:
+                        valid = request_return(prior, current_assignee_id=-1, current_version=prior.version)
+                    elif prior.state == OwnershipState.RETURN_PENDING:
+                        valid = confirm_return(prior, redmine_assignee_id=-1, new_version=item.version, evidence=item.last_evidence or "conflict")
+                else:
+                    valid = None
+                if valid != item:
+                    raise OwnershipError("Invalid ownership state transition")
                 revision = expected_revision + 1
                 cursor.execute(
                     """UPDATE eddy_ownership
