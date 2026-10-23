@@ -6,10 +6,6 @@ before invoking confirm_claim/confirm_return in eddy_ownership.
 """
 from __future__ import annotations
 
-import json
-from dataclasses import asdict
-from enum import Enum
-
 from ednna.eddy_ownership import Ownership, OwnershipError, OwnershipState
 from ednna.mysql_storage import connect
 
