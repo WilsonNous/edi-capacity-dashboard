@@ -1,13 +1,16 @@
-"""VR01 worker entrypoint with MySQL advisory lock and fail-closed behavior.
+"""VR01 worker with isolated MySQL advisory-lock session and fail-closed behavior.
 
-Call from EDDY's existing scheduler. Does not schedule itself or send emails.
+The lock session is never used for business transactions and is not committed
+on exit. External dispatch remains guarded by its independent readiness gates.
 """
 from __future__ import annotations
 
 import json
 import logging
 
-from ednna.mysql_storage import connect
+import pymysql
+
+from ednna.mysql_storage import connection_options
 from scripts.eddy_vr01_mysql_cycle import executar_ciclo_vr01
 
 LOGGER = logging.getLogger(__name__)
@@ -15,33 +18,41 @@ LOCK_NAME = "eddy:vr01:mysql:cycle"
 
 
 def executar_worker_vr01() -> dict:
-    """Only one active VR01 cycle across Azure instances."""
-    with connect() as conn:
+    """Acquire an isolated advisory lock; do not commit on a dropped lock session."""
+    options = connection_options()
+    options["autocommit"] = True
+    conn = pymysql.connect(**options)
+    acquired = False
+    try:
         with conn.cursor() as cursor:
+            cursor.execute("SHOW SESSION STATUS LIKE 'Ssl_cipher'")
+            tls = cursor.fetchone()
+            if not tls or not tls[1]:
+                raise RuntimeError("MySQL TLS is required for VR01 advisory lock")
             cursor.execute("SELECT GET_LOCK(%s, %s)", (LOCK_NAME, 0))
             row = cursor.fetchone()
             if not row or row[0] != 1:
                 return {"estado": "IGNORADO_EXECUCAO_CONCORRENTE", "envios_realizados": 0}
-        try:
-            result = executar_ciclo_vr01()
-            LOGGER.info(
-                "[EDDY-VR01] ciclo=%s importados=%s falhas=%s",
-                result["estado"],
-                len(result["sincronizacao"]["importados"]),
-                len(result["sincronizacao"]["falhas"]),
-            )
-            return result
-        finally:
-            # MySQL locks are connection-scoped. Always release before returning
-            # the pooled/managed connection; connection closure also releases it.
+            acquired = True
+        result = executar_ciclo_vr01()
+        LOGGER.info(
+            "[EDDY-VR01] ciclo=%s importados=%s falhas=%s",
+            result["estado"],
+            len(result["sincronizacao"]["importados"]),
+            len(result["sincronizacao"]["falhas"]),
+        )
+        return result
+    finally:
+        if acquired and conn.open:
             try:
                 with conn.cursor() as cursor:
                     cursor.execute("SELECT RELEASE_LOCK(%s)", (LOCK_NAME,))
-            except Exception as exc:
-                # If MySQL has dropped this connection, its session-scoped
-                # advisory lock has already been released server-side. Do not
-                # mask a completed cycle or its original error on cleanup.
+            except pymysql.MySQLError as exc:
                 LOGGER.warning("[EDDY-VR01] falha ao liberar lock MySQL: %s", type(exc).__name__)
+        try:
+            conn.close()
+        except pymysql.MySQLError:
+            pass
 
 
 if __name__ == "__main__":
