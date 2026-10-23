@@ -41,7 +41,17 @@ def executar_uma_vez() -> dict:
             "redmine_escritas": result.get("redmine_escritas", 0),
             "bloqueios_prontidao": (result.get("prontidao_externa") or {}).get("bloqueios", []),
             "estado_executor": (result.get("execucao") or {}).get("estado"),
+            # Dispatcher count differs from planned intents when execution is blocked.
             "acoes_avaliadas": (result.get("execucao") or {}).get("avaliados", 0),
+            "planejamento": {
+                "avaliados": (result.get("fila") or {}).get("avaliados"),
+                "intencoes": (result.get("fila") or {}).get("intencoes"),
+                "bloqueados": (result.get("fila") or {}).get("bloqueados"),
+            },
+            "cobertura_completa": sync.get("cobertura_completa"),
+            "motivo_degradacao": sync.get("motivo"),
+            "erro_ciclo": result.get("erro"),
+            "redmine_confirmado_agora": (result.get("operacao") or {}).get("carteira_confirmada_agora"),
             "resultados_executor": [
                 {"chamado_id": item.get("chamado_id"), "estado": item.get("estado")}
                 for item in (result.get("execucao") or {}).get("resultados", [])
