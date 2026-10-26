@@ -14,11 +14,13 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(d["acao"], "COBRAR_HABILITACAO_PORTAL")
         self.assertEqual(d["destino"], "CLIENTE")
 
-    def test_49227_ask_movement_before_human(self):
+    def test_49227_routes_to_internal_owner_after_vr_confirmation(self):
         d = decidir_continuidade_vr(issue(49227), [
             note("jessica@redesander.com.br", "Todos já estão aparecendo no portal.", "2026-09-29"),
             note("conciliacao@vr.com.br", "Todos os CNPJs entram automaticamente no arquivo VR_NETUNNA_SANDER.", "2026-10-19")])
-        self.assertEqual(d["acao"], "CONSULTAR_MOVIMENTACAO_CLIENTE")
+        self.assertEqual(d["acao"], "COBRAR_VALIDACAO_RECEPCAO")
+        self.assertEqual(d["destino"], "RESPONSAVEL_REDMINE")
+        self.assertFalse(d["execucao_externa"])
 
     def test_movement_confirmation_routes_to_human(self):
         d = decidir_continuidade_vr(issue(49227), [
