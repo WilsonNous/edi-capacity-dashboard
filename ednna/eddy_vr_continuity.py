@@ -78,12 +78,11 @@ def decidir_continuidade_vr(issue: dict, journals: list[dict]) -> dict:
             if re.search(r"(entram automaticamente|arquivo\s+vr_netunna|fluxo de arquivos [eé] iniciado|j[aá] est[aã]o credenciados)", lower):
                 vr_confirmed = True
 
-    if vr_confirmed and customer_movement:
+    # VR confirms automatic file inclusion, not actual receipt of transactions.
+    # Internal owner must validate the files before contacting VR/customer again.
+    if vr_confirmed:
         return {**base, "etapa": "VALIDACAO_HUMANA_PENDENTE",
                 "acao": "COBRAR_VALIDACAO_RECEPCAO", "destino": "RESPONSAVEL_REDMINE"}
-    if vr_confirmed:
-        return {**base, "etapa": "MOVIMENTACAO_NAO_CONFIRMADA",
-                "acao": "CONSULTAR_MOVIMENTACAO_CLIENTE", "destino": "CLIENTE"}
     if vr_portal_required and not customer_confirmed:
         return {**base, "etapa": "HABILITACAO_CLIENTE_PENDENTE",
                 "acao": "COBRAR_HABILITACAO_PORTAL", "destino": "CLIENTE"}
