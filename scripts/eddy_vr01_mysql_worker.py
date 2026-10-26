@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 
 import pymysql
 
@@ -37,7 +38,34 @@ def executar_worker_vr01() -> dict:
             acquired = True
             cursor.execute("SELECT CONNECTION_ID()")
             lock_connection_id = cursor.fetchone()[0]
-        result = executar_ciclo_vr01()
+        # Keep the dedicated advisory-lock connection alive while slow Redmine/Graph
+        # requests run. Only the heartbeat thread touches this connection until joined.
+        stop_heartbeat = threading.Event()
+        heartbeat_errors = []
+
+        def keep_lock_alive():
+            while not stop_heartbeat.wait(20):
+                try:
+                    conn.ping(reconnect=False)
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT CONNECTION_ID(), IS_USED_LOCK(%s)", (LOCK_NAME,))
+                        session_id, holder_id = cursor.fetchone()
+                    if session_id != lock_connection_id or holder_id != lock_connection_id:
+                        raise RuntimeError("VR01 advisory lock ownership lost during cycle")
+                except (pymysql.MySQLError, RuntimeError) as exc:
+                    heartbeat_errors.append(exc)
+                    LOGGER.error("[EDDY-VR01] advisory lock heartbeat failed: %s", type(exc).__name__)
+                    break
+
+        heartbeat = threading.Thread(target=keep_lock_alive, name="vr01-lock-heartbeat", daemon=True)
+        heartbeat.start()
+        try:
+            result = executar_ciclo_vr01()
+        finally:
+            stop_heartbeat.set()
+            heartbeat.join()
+        if heartbeat_errors:
+            raise RuntimeError("VR01 advisory lock session lost during cycle") from heartbeat_errors[0]
         try:
             conn.ping(reconnect=False)
             with conn.cursor() as cursor:
