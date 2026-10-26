@@ -5,6 +5,7 @@ on:
       - 'app.py'
       - 'ednna/**'
       - 'scripts/eddy_vr01_*.py'
+      - 'scripts/sync_eddy_mysql.py'
       - 'pages/Regras.py'
       - 'tests/**'
       - '.github/workflows/validate-motores-eddy.yml'
@@ -32,4 +33,4 @@ jobs:
       - name: Compile Home
         run: python -m py_compile app.py
       - name: Run operational motor regression tests
-        run: python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py tests/test_retry_continuidades_pr63.py tests/test_fila_decisoes_pr64.py tests/test_auditoria_threads_pr65.py tests/test_indicadores_operacionais_pr66.py tests/test_eddy_outbox_worker.py tests/test_mysql_foundation.py tests/test_sqlite_corruption_startup.py tests/test_vr01_pilot_dispatch_safety.py
+        run: python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py tests/test_retry_continuidades_pr63.py tests/test_fila_decisoes_pr64.py tests/test_auditoria_threads_pr65.py tests/test_indicadores_operacionais_pr66.py tests/test_eddy_outbox_worker.py tests/test_mysql_foundation.py tests/test_sqlite_corruption_startup.py tests/test_vr01_pilot_dispatch_safety.py tests/test_sync_eddy_mysql_direct.py
