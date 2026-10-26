@@ -47,7 +47,7 @@ def _upsert(cursor, table: str, fields: tuple[str, ...], row: dict) -> None:
     )
 
 
-def salvar_snapshot(chamado: dict, journals: list[dict] | None = None) -> None:
+def salvar_snapshot(chamado: dict, journals: list[dict] | None = None, *, cursor=None) -> None:
     """Atomically upsert a Redmine issue and its journals; never send emails."""
     journals = journals or []
     chamado_id = chamado.get("id")
@@ -56,8 +56,15 @@ def salvar_snapshot(chamado: dict, journals: list[dict] | None = None) -> None:
     for journal in journals:
         if journal.get("chamado_id") != chamado_id:
             raise ValueError("journal belongs to a different chamado")
+    if cursor is not None:
+        _salvar_snapshot_cursor(cursor, chamado, journals)
+        return
     with connect() as conn:
-        with conn.cursor() as cursor:
+        with conn.cursor() as own_cursor:
+            _salvar_snapshot_cursor(own_cursor, chamado, journals)
+
+
+def _salvar_snapshot_cursor(cursor, chamado: dict, journals: list[dict]) -> None:
             # Generic issue-only refreshes must not erase a newer, journal-complete
             # Redmine snapshot used by rule engines for safe resume.
             incoming = chamado.get("payload_json") or {}
