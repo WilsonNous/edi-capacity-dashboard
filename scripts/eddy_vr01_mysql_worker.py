@@ -23,6 +23,7 @@ def executar_worker_vr01() -> dict:
     options["autocommit"] = True
     conn = pymysql.connect(**options)
     acquired = False
+    lock_connection_id = None
     try:
         with conn.cursor() as cursor:
             cursor.execute("SHOW SESSION STATUS LIKE 'Ssl_cipher'")
@@ -34,7 +35,18 @@ def executar_worker_vr01() -> dict:
             if not row or row[0] != 1:
                 return {"estado": "IGNORADO_EXECUCAO_CONCORRENTE", "envios_realizados": 0}
             acquired = True
+            cursor.execute("SELECT CONNECTION_ID()")
+            lock_connection_id = cursor.fetchone()[0]
         result = executar_ciclo_vr01()
+        try:
+            conn.ping(reconnect=False)
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT CONNECTION_ID(), IS_USED_LOCK(%s)", (LOCK_NAME,))
+                session_id, holder_id = cursor.fetchone()
+            if session_id != lock_connection_id or holder_id != lock_connection_id:
+                raise RuntimeError("VR01 advisory lock ownership lost during cycle")
+        except pymysql.MySQLError as exc:
+            raise RuntimeError("VR01 advisory lock session lost during cycle") from exc
         LOGGER.info(
             "[EDDY-VR01] ciclo=%s importados=%s falhas=%s",
             result["estado"],
@@ -48,7 +60,7 @@ def executar_worker_vr01() -> dict:
                 with conn.cursor() as cursor:
                     cursor.execute("SELECT RELEASE_LOCK(%s)", (LOCK_NAME,))
             except pymysql.MySQLError as exc:
-                LOGGER.warning("[EDDY-VR01] falha ao liberar lock MySQL: %s", type(exc).__name__)
+                LOGGER.warning("[EDDY-VR01] falha ao liberar lock MySQL: tipo=%s errno=%s conexao=%s", type(exc).__name__, exc.args[0] if exc.args else None, lock_connection_id)
         try:
             conn.close()
         except pymysql.MySQLError:

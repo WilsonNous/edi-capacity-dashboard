@@ -29,7 +29,7 @@ def test_approved_message_rejects_invalid_cc():
 
 def _lock_connection():
     cursor = MagicMock()
-    cursor.fetchone.side_effect = [("Ssl_cipher", "TLS_AES_256_GCM_SHA384"), (1,)]
+    cursor.fetchone.side_effect = [("Ssl_cipher", "TLS_AES_256_GCM_SHA384"), (1,), (123,), (123, 123)]
     cursor_cm = MagicMock()
     cursor_cm.__enter__.return_value = cursor
     conn = MagicMock()
@@ -40,7 +40,7 @@ def _lock_connection():
 
 def test_lost_connection_during_release_does_not_hide_completed_cycle():
     conn, cursor = _lock_connection()
-    cursor.execute.side_effect = [None, None, pymysql.err.OperationalError(2006, "gone away")]
+    cursor.execute.side_effect = [None, None, None, None, pymysql.err.OperationalError(2006, "gone away")]
     result = {"estado": "OK", "sincronizacao": {"importados": [], "falhas": []}}
     with patch("scripts.eddy_vr01_mysql_worker.connection_options", return_value={"autocommit": False}), patch(
         "scripts.eddy_vr01_mysql_worker.pymysql.connect", return_value=conn
@@ -71,4 +71,29 @@ def test_existing_lock_prevents_second_cycle():
     ), patch("scripts.eddy_vr01_mysql_worker.executar_ciclo_vr01") as cycle:
         assert executar_worker_vr01()["estado"] == "IGNORADO_EXECUCAO_CONCORRENTE"
     cycle.assert_not_called()
+    conn.close.assert_called_once()
+
+
+def test_lost_lock_ownership_fails_closed():
+    conn, cursor = _lock_connection()
+    cursor.fetchone.side_effect = [("Ssl_cipher", "TLS_AES_256_GCM_SHA384"), (1,), (123,), (123, 456)]
+    result = {"estado": "OK", "sincronizacao": {"importados": [], "falhas": []}}
+    with patch("scripts.eddy_vr01_mysql_worker.connection_options", return_value={}), patch(
+        "scripts.eddy_vr01_mysql_worker.pymysql.connect", return_value=conn
+    ), patch("scripts.eddy_vr01_mysql_worker.executar_ciclo_vr01", return_value=result):
+        with pytest.raises(RuntimeError, match="ownership lost"):
+            executar_worker_vr01()
+    conn.close.assert_called_once()
+
+
+def test_lost_mysql_session_fails_closed():
+    conn, cursor = _lock_connection()
+    cursor.fetchone.side_effect = [("Ssl_cipher", "TLS_AES_256_GCM_SHA384"), (1,), (123,)]
+    conn.ping.side_effect = pymysql.err.OperationalError(2006, "gone away")
+    result = {"estado": "OK", "sincronizacao": {"importados": [], "falhas": []}}
+    with patch("scripts.eddy_vr01_mysql_worker.connection_options", return_value={}), patch(
+        "scripts.eddy_vr01_mysql_worker.pymysql.connect", return_value=conn
+    ), patch("scripts.eddy_vr01_mysql_worker.executar_ciclo_vr01", return_value=result):
+        with pytest.raises(RuntimeError, match="session lost"):
+            executar_worker_vr01()
     conn.close.assert_called_once()
