@@ -50,3 +50,26 @@ def preparar_validacao_interna(issue: dict, decision: dict, *, approved_email: s
             "destinatario": approved_email.strip().lower(),
             "assunto": SUBJECT, "corpo": BODY,
             "envios_realizados": 0, "redmine_escritas": 0}
+
+
+def aprovar_acao_interna(action: dict, issue: dict, *, approved_email: str = "") -> dict:
+    """Generate the exact versioned approval payload consumed by VR01 dispatcher.
+
+    This does not grant send permission: dispatcher still checks MySQL claim,
+    live Redmine preflight, Sent Items and readiness flags.
+    """
+    if int(action.get("chamado_id") or 0) != PILOT_ISSUE:
+        return {"estado": "BLOQUEADO_FORA_PILOTO"}
+    if action.get("acao") != VALIDATION_ACTION or action.get("destino") != "RESPONSAVEL_REDMINE":
+        return {"estado": "BLOQUEADO_ACAO"}
+    if not action.get("action_key") or action.get("redmine_updated_on") != issue.get("updated_on"):
+        return {"estado": "BLOQUEADO_VERSAO"}
+    prepared = preparar_validacao_interna(issue, action, approved_email=approved_email)
+    if prepared["estado"] != "PRONTO_PARA_APROVACAO_ENVIO_INTERNO":
+        return prepared
+    return {"estado": "APROVACAO_PREPARADA", "action_key": action["action_key"],
+            "approval": {"redmine_updated_on": action["redmine_updated_on"],
+                         "acao": VALIDATION_ACTION,
+                         "to": prepared["destinatario"], "cc": [],
+                         "subject": prepared["assunto"], "body": prepared["corpo"]},
+            "envios_realizados": 0}
