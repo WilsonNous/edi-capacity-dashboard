@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from datetime import datetime, timezone
 from ednna.mysql_snapshot_repository import salvar_snapshot
+from ednna.mysql_storage import connect
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
 
 BR = ZoneInfo("America/Sao_Paulo")
@@ -33,6 +34,7 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     """
     inicio = time.monotonic()
     inventory = listar_abertos_confirmados()
+    duracao_redmine_s = round(time.monotonic() - inicio, 3)
     if not inventory["confirmado"]:
         raise RuntimeError("Redmine não confirmou refresh remoto; MySQL preservado")
     chamados = inventory["chamados"]
@@ -45,7 +47,11 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
         raise ValueError("IDs duplicados no Redmine; MySQL preservado")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     gravados = 0
-    for issue in chamados:
+    inicio_mysql = time.monotonic()
+    with connect() as conn:
+      duracao_conexao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
+      with conn.cursor() as cursor:
+       for issue in chamados:
         row = {
             "id": int(issue["id"]),
             "cliente": None,
@@ -62,14 +68,18 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
             "payload_json": issue,
             "sincronizado_em": now,
         }
-        salvar_snapshot(row)
+        salvar_snapshot(row, cursor=cursor)
         gravados += 1
+    duracao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
     return {
         "origem": "redmine/status=open", "destino": "mysql",
         "total_origem": len(chamados), "gravados": gravados,
         "journals": "sincronizados apenas pelo fluxo dedicado VR01",
         "automacoes": "suspensas", "modo": "apply",
         "duracao_total_s": round(time.monotonic() - inicio, 3),
+        "duracao_redmine_s": duracao_redmine_s,
+        "duracao_mysql_s": duracao_mysql_s,
+        "duracao_conexao_mysql_s": duracao_conexao_mysql_s,
         "redmine_confirmado": True,
     }
 
