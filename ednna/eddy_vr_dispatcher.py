@@ -37,7 +37,12 @@ def _approved_message(action: dict, approvals: dict) -> dict | None:
         return None
     if item.get("acao") != action["acao"]:
         return None
-    # Human handoff: the approved original owner must be explicit and verified\n    # against the live Redmine assignee before any notification is sent.\n    owner_id = item.get("original_owner_id")\n    if type(owner_id) is not int or owner_id <= 0:\n        return None\n    to = item.get("to")
+    # Human handoff: the approved original owner must be explicit and verified
+    # against the live Redmine assignee before any notification is sent.
+    owner_id = item.get("original_owner_id")
+    if type(owner_id) is not int or owner_id <= 0:
+        return None
+    to = item.get("to")
     if not isinstance(to, str) or not EMAIL.fullmatch(to) or len(to) > 254:
         return None
     subject = str(item.get("subject") or "").strip()
@@ -153,7 +158,13 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
                     or not journals_complete):
                 results.append({"chamado_id": cid, "estado": "BLOQUEADO_PREFLIGHT_OU_VERSAO"})
                 continue
-            # Do not notify a human while the ticket is still assigned to EDNNA.\n            # A verified Redmine handoff is mandatory, not merely an intent.\n            assigned = issue.get("assigned_to") or {}\n            if not isinstance(assigned, dict) or assigned.get("id") != msg["original_owner_id"]:\n                results.append({"chamado_id": cid, "estado": "AGUARDA_DEVOLUCAO_REDMINE"})\n                continue\n            # Before claiming, check for any already-sent message with the
+            # Do not notify a human while the ticket is still assigned to EDNNA.
+            # A verified Redmine handoff is mandatory, not merely an intent.
+            assigned = issue.get("assigned_to") or {}
+            if not isinstance(assigned, dict) or assigned.get("id") != msg["original_owner_id"]:
+                results.append({"chamado_id": cid, "estado": "AGUARDA_DEVOLUCAO_REDMINE"})
+                continue
+            # Before claiming, check for any already-sent message with the
             # action-specific subject. Lookup failure is not proof of absence.
             previous = lookup(remetente=os.environ["EDNNA_EMAIL_FROM"], assunto=msg["subject"])
             if previous:
