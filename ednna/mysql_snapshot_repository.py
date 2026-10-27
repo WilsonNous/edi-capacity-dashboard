@@ -65,6 +65,7 @@ def salvar_snapshot(chamado: dict, journals: list[dict] | None = None, *, cursor
 
 
 def _salvar_snapshot_cursor(cursor, chamado: dict, journals: list[dict]) -> None:
+    chamado_id = chamado["id"]
             # Generic issue-only refreshes must not erase a newer, journal-complete
             # Redmine snapshot used by rule engines for safe resume.
             incoming = chamado.get("payload_json") or {}
