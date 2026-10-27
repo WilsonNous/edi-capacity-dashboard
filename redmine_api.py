@@ -235,6 +235,18 @@ def _get(
                     f"| probe_recuperacao={probe_owner is not None}",
                     flush=True,
                 )
+                # A connection timeout is not an HTTP error. Report the connection
+                # phase without making another request or exposing API credentials.
+                if tentativa >= tentativas:
+                    from urllib.parse import urlsplit
+                    host = urlsplit(REDMINE_URL).hostname or "desconhecido"
+                    print(
+                        f"[REDMINE-CONNECTIVITY] host={host} | fase=conexao_https "
+                        f"| resultado={tipo_falha} | resposta_http=nao_obtida "
+                        f"| gateway_espera_s={espera_gateway:.2f} "
+                        f"| acao=preservar_snapshot_e_bloquear_escritas",
+                        flush=True,
+                    )
                 from ednna.telemetria_redmine import registrar_resultado
                 registrar_resultado(tipo_falha, monotonic() - inicio)
                 if tentativa >= tentativas:

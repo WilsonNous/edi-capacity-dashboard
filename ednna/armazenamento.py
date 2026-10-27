@@ -1427,6 +1427,6 @@ def obter_diagnostico_banco() -> dict:
 try:
     inicializar_banco()
 except sqlite3.DatabaseError as exc:
-    print(f"[EDDY] SQLite indisponivel na inicializacao: {type(exc).__name__}", flush=True)
+    print(f"[EDDY] SQLite indisponivel na inicializacao: {type(exc).__name__} | detalhe={str(exc)[:240]} | arquivo={DB_PATH}", flush=True)
 else:
     print(f"[EDDY] SQLite inicializado | arquivo={DB_PATH}", flush=True)
