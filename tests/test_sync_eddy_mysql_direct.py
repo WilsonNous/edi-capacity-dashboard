@@ -13,7 +13,16 @@ def test_direct_sync_does_not_read_sqlite(monkeypatch):
     writes = []
     monkeypatch.setattr(sync, "listar_abertos_confirmados",
                         lambda: {"confirmado": True, "chamados": [issue(1), issue(2)]})
-    monkeypatch.setattr(sync, "salvar_snapshot", lambda row: writes.append(row))
+    from contextlib import contextmanager
+    @contextmanager
+    def fake_connect():
+        class Connection:
+            @contextmanager
+            def cursor(self):
+                yield object()
+        yield Connection()
+    monkeypatch.setattr(sync, "connect", fake_connect)
+    monkeypatch.setattr(sync, "salvar_snapshot", lambda row, *, cursor=None: writes.append(row))
     result = sync.sincronizar_uma_vez(painel="/nonexistent/legacy.db")
     assert result["origem"] == "redmine/status=open"
     assert result["gravados"] == 2
