@@ -37,6 +37,11 @@ def _approved_message(action: dict, approvals: dict) -> dict | None:
         return None
     if item.get("acao") != action["acao"]:
         return None
+    # Human handoff: the approved original owner must be explicit and verified
+    # against the live Redmine assignee before any notification is sent.
+    owner_id = item.get("original_owner_id")
+    if type(owner_id) is not int or owner_id <= 0:
+        return None
     to = item.get("to")
     if not isinstance(to, str) or not EMAIL.fullmatch(to) or len(to) > 254:
         return None
@@ -50,7 +55,7 @@ def _approved_message(action: dict, approvals: dict) -> dict | None:
     if not isinstance(cc, list) or any(not isinstance(e, str) or not EMAIL.fullmatch(e) or len(e) > 254 for e in cc):
         return None
     from ednna.email_policy import aplicar_cc_padrao
-    return {"to": to, "cc": aplicar_cc_padrao([to], cc),
+    return {"to": to, "original_owner_id": owner_id, "cc": aplicar_cc_padrao([to], cc),
             "subject": subject[:255], "body": body}
 
 def _claim(action: dict, msg: dict) -> bool:
@@ -152,6 +157,12 @@ def executar_fila_vr01(*, approvals: dict | None = None, limit: int = 25,
                     or str(issue.get("updated_on") or "") != action["redmine_updated_on"]
                     or not journals_complete):
                 results.append({"chamado_id": cid, "estado": "BLOQUEADO_PREFLIGHT_OU_VERSAO"})
+                continue
+            # Do not notify a human while the ticket is still assigned to EDNNA.
+            # A verified Redmine handoff is mandatory, not merely an intent.
+            assigned = issue.get("assigned_to") or {}
+            if not isinstance(assigned, dict) or assigned.get("id") != msg["original_owner_id"]:
+                results.append({"chamado_id": cid, "estado": "AGUARDA_DEVOLUCAO_REDMINE"})
                 continue
             # Before claiming, check for any already-sent message with the
             # action-specific subject. Lookup failure is not proof of absence.

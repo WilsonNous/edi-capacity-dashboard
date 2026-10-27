@@ -6,7 +6,7 @@ ACTION = {"action_key": "a" * 64, "chamado_id": 49227,
           "redmine_updated_on": "2026-10-21T12:00:00Z",
           "acao": "CONSULTAR_MOVIMENTACAO_CLIENTE"}
 APPROVED = {"redmine_updated_on": ACTION["redmine_updated_on"],
-            "acao": ACTION["acao"], "to": "cliente@example.com",
+            "acao": ACTION["acao"], "original_owner_id": 42, "to": "cliente@example.com",
             "subject": "VR #49227 acompanhamento", "body": "Solicitamos confirmacao."}
 
 class TestVR01Dispatcher(unittest.TestCase):
@@ -14,7 +14,7 @@ class TestVR01Dispatcher(unittest.TestCase):
         self.assertIsNone(_approved_message(ACTION, {}))
         self.assertIsNone(_approved_message(ACTION, {ACTION["action_key"]: {**APPROVED, "to": "invalid"}}))
         self.assertIsNone(_approved_message(ACTION, {ACTION["action_key"]: {**APPROVED, "redmine_updated_on": "old"}}))
-        self.assertEqual(_approved_message(ACTION, {ACTION["action_key"]: APPROVED})["to"], "cliente@example.com")
+        self.assertIsNone(_approved_message(ACTION, {ACTION["action_key"]: {**APPROVED, "original_owner_id": None}}))\n        self.assertIsNone(_approved_message(ACTION, {ACTION["action_key"]: {**APPROVED, "original_owner_id": "42"}}))\n        self.assertEqual(_approved_message(ACTION, {ACTION["action_key"]: APPROVED})["to"], "cliente@example.com")
 
     def test_readiness_blocks_without_mysql_or_graph(self):
         with patch("ednna.eddy_vr_dispatcher.verificar_prontidao_vr01",

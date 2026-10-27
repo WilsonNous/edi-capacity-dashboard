@@ -12,7 +12,7 @@ def test_approved_message_adds_institutional_cc(monkeypatch):
     monkeypatch.delenv("EDNNA_EMAIL_CC_PADRAO", raising=False)
     action = {"action_key": "a", "redmine_updated_on": "v1", "acao": "VALIDAR_E_SOLICITAR_TODOS_NSAS", "chamado_id": 47851}
     approved = {"a": {"redmine_updated_on": "v1", "acao": action["acao"],
-                      "to": "vr@example.com", "cc": ["owner@netunna.com.br"],
+                      "original_owner_id": 42, "to": "vr@example.com", "cc": ["owner@netunna.com.br"],
                       "subject": "Solicitacao #47851", "body": "NSAs 339 e 355"}}
     msg = _approved_message(action, approved)
     assert msg["to"] == "vr@example.com"
