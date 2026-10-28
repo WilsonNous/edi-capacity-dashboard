@@ -12,7 +12,7 @@ from redmine_api import buscar_chamados_projetos, buscar_detalhes_chamado, obter
 from ednna.mysql_snapshot_repository import carregar_snapshot
 
 
-def listar_abertos_confirmados() -> dict:
+def _listar_abertos_confirmados_remoto() -> dict:
     """Never interpret panel's stale fallback as a fresh Redmine discovery."""
     try:
         issues = buscar_chamados_projetos(
@@ -27,6 +27,12 @@ def listar_abertos_confirmados() -> dict:
     except Exception as exc:
         return {"confirmado": False, "chamados": [],
                 "motivo": type(exc).__name__, "fonte": "redmine_indisponivel"}
+
+
+def listar_abertos_confirmados() -> dict:
+    """One remote full listing at a time across VR01 and MySQL processes."""
+    from ednna.redmine_shared_inventory import serialized_redmine_listing
+    return serialized_redmine_listing(_listar_abertos_confirmados_remoto)
 
 
 def detalhe_com_retomada(issue: dict, *, force: bool = False) -> dict:

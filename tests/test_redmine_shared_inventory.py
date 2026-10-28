@@ -47,6 +47,28 @@ class SharedInventoryTests(unittest.TestCase):
                 module.confirmed_inventory_for_mysql(fetch, now=lambda: 1001)
                 self.assertEqual(len(calls), 2)
 
+    def test_serialized_listing_calls_remote_and_never_reuses_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(module, "CACHE", Path(directory) / "inventory.json"):
+                calls = []
+                def fetch():
+                    calls.append(1)
+                    return {"confirmado": True, "fonte": "redmine", "chamados": [{"id": 50318}]}
+                module.serialized_redmine_listing(fetch)
+                module.serialized_redmine_listing(fetch)
+                self.assertEqual(len(calls), 2)
+
+    def test_serialized_listing_does_not_retry_failed_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(module, "CACHE", Path(directory) / "inventory.json"):
+                calls = []
+                def fetch():
+                    calls.append(1)
+                    raise OSError("remote unavailable")
+                with self.assertRaises(OSError):
+                    module.serialized_redmine_listing(fetch)
+                self.assertEqual(len(calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
