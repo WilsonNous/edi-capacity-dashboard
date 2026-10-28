@@ -1,11 +1,11 @@
-"""VR01 pilot #49227 homologation evidence gate; no external actions.
+"""VR01 pilot #50318 homologation evidence gate; no external actions.
 
 Explicit evidence is required for each prerequisite. This is a review artifact,
 not an authorization to dispatch or modify Redmine.
 """
 from __future__ import annotations
 
-PILOT = 49227
+PILOT = 50318
 REQUIRED = (
     "redmine_snapshot_fresco",
     "mysql_snapshot_journals_conciliados",
