@@ -19,8 +19,14 @@ MAX_AGE_SECONDS = 90
 def confirmed_inventory_for_mysql(fetch, *, now=None):
     """Reuse recent confirmed inventory exclusively for observational MySQL sync."""
     clock = time.time if now is None else now
-    CACHE.parent.mkdir(parents=True, exist_ok=True)
-    with open(str(CACHE) + ".lock", "a+") as lock:
+    try:
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = open(str(CACHE) + ".lock", "a+")
+    except OSError:
+        # CI or read-only filesystem: never fail the direct confirmed fetch.
+        # No shared cache is used when locking cannot be guaranteed.
+        return fetch()
+    with lock_file as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         try:
             try:
