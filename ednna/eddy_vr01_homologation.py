@@ -36,3 +36,27 @@ def avaliar_homologacao_vr01(evidencias: dict) -> dict:
         "pendencias": pendencias,
         "observacao": "Checklist completo nao homologa automaticamente nem habilita efeitos externos.",
     }
+
+
+def homologar_observacao_vr01(evidencias: dict, *, autorizacao_explicita: bool = False) -> dict:
+    """Approve the pilot's observational rule, never its external execution.
+
+    Operator acceptance may authorize an observable pilot before all external
+    integrations are validated. It does not assert that missing evidence exists.
+    """
+    avaliacao = avaliar_homologacao_vr01(evidencias)
+    if avaliacao["estado"] == "BLOQUEADO_ESCOPO" or autorizacao_explicita is not True:
+        return {**avaliacao, "estado": "HOMOLOGACAO_OBSERVACIONAL_BLOQUEADA",
+                "modo": "SOMENTE_LEITURA", "envios_autorizados": False,
+                "redmine_escritas_autorizadas": False}
+    return {
+        **avaliacao,
+        "estado": "HOMOLOGADA_SOMENTE_OBSERVACAO",
+        "homologada": True,
+        "escopo_homologado": "REGRA_VR01_PILOTO_OBSERVACIONAL",
+        "modo": "SOMENTE_LEITURA",
+        "envios_autorizados": False,
+        "redmine_escritas_autorizadas": False,
+        "pendencias_execucao_externa": avaliacao["pendencias"],
+        "observacao": "Aceite explicito limitado ao piloto observacional; prontidao externa continua independente.",
+    }
