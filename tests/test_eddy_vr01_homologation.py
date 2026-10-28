@@ -1,6 +1,15 @@
 import unittest
 
-from ednna.eddy_vr01_homologation import REQUIRED, avaliar_homologacao_vr01
+import importlib.util
+from pathlib import Path
+
+# Load pure homologation gate without importing legacy ednna package side effects.
+module_path = Path(__file__).resolve().parents[1] / 'ednna' / 'eddy_vr01_homologation.py'
+spec = importlib.util.spec_from_file_location('eddy_vr01_homologation_isolated', module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+REQUIRED = module.REQUIRED
+avaliar_homologacao_vr01 = module.avaliar_homologacao_vr01
 
 
 class VR01HomologationTests(unittest.TestCase):
