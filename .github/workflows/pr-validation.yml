@@ -82,6 +82,14 @@ jobs:
         run: |
           python -m pytest -q tests/test_motores_abertura_falta_arquivo.py tests/test_simrede_francimar_classificacao.py tests/test_observabilidade_motores.py tests/test_redmine_gateway_resiliencia.py tests/test_correlacao_historico.py tests/test_journals_idempotencia.py
 
+      - name: Validate VR01 assisted pilot safety contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          EDNNA_MONITOR_EMAIL_ENABLED: "false"
+          EDNNA_AUTO_EXECUTE: "false"
+        run: |
+          python -m pytest -q tests/test_eddy_vr01_assisted_pilot.py tests/test_eddy_vr_original_owner.py tests/test_eddy_ownership_mysql.py
+
       - name: Validate EDDY Intelligence Contract v1
         env:
           PYTHONPATH: ${{ github.workspace }}
