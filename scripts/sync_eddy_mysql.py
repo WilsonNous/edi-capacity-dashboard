@@ -48,10 +48,14 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     gravados = 0
     inicio_mysql = time.monotonic()
+    duracao_preparacao_mysql_s = 0.0
+    duracao_upsert_mysql_s = 0.0
+    inicio_fechamento_mysql = None
     with connect() as conn:
       duracao_conexao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
       with conn.cursor() as cursor:
        for issue in chamados:
+        inicio_preparacao = time.monotonic()
         row = {
             "id": int(issue["id"]),
             "cliente": None,
@@ -68,9 +72,15 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
             "payload_json": issue,
             "sincronizado_em": now,
         }
+        duracao_preparacao_mysql_s += time.monotonic() - inicio_preparacao
+        inicio_upsert = time.monotonic()
         salvar_snapshot(row, cursor=cursor)
+        duracao_upsert_mysql_s += time.monotonic() - inicio_upsert
         gravados += 1
-    duracao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
+      inicio_fechamento_mysql = time.monotonic()
+    fim_mysql = time.monotonic()
+    duracao_mysql_s = round(fim_mysql - inicio_mysql, 3)
+    duracao_fechamento_mysql_s = round(fim_mysql - inicio_fechamento_mysql, 3)
     return {
         "origem": "redmine/status=open", "destino": "mysql",
         "total_origem": len(chamados), "gravados": gravados,
@@ -80,6 +90,9 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
         "duracao_redmine_s": duracao_redmine_s,
         "duracao_mysql_s": duracao_mysql_s,
         "duracao_conexao_mysql_s": duracao_conexao_mysql_s,
+        "duracao_preparacao_mysql_s": round(duracao_preparacao_mysql_s, 3),
+        "duracao_upsert_mysql_s": round(duracao_upsert_mysql_s, 3),
+        "duracao_fechamento_mysql_s": duracao_fechamento_mysql_s,
         "redmine_confirmado": True,
     }
 
