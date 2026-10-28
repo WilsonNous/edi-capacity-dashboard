@@ -53,7 +53,7 @@ class ConfirmationTests(unittest.TestCase):
 
     def test_missing_evidence_blocks(self):
         with self.assertRaisesRegex(OwnershipError, "EVIDENCIA_AUSENTE"):
-            confirmar_atribuicao_observada({}, evidencia="")
+            confirmar_atribuicao_observada({"id": 49227}, evidencia="")
 
 
 if __name__ == "__main__":
