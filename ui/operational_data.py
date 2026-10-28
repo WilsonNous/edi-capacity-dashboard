@@ -154,8 +154,14 @@ def chamados_ativos_df():
     except Exception as exc:
         print(f'[EDNNA] Carteira ativa | painel.db indisponível | fallback ednna.db | {type(exc).__name__}: {exc}', flush=True)
 
-    # Contingência somente para não derrubar a interface durante uma carga inicial.
-    # O rótulo permite distinguir que não é a fonte oficial da carteira ativa.
+    # MySQL-first: never silently use historical ednna.db as active portfolio.
+    # A missing current snapshot is an unavailable view, not permission to
+    # present stale legacy records as operational truth.
+    if os.getenv('EDDY_DB_ENGINE', 'sqlite').strip().lower() == 'mysql':
+        print('[EDDY] Carteira ativa indisponivel: fallback legado ednna.db bloqueado em modo MySQL', flush=True)
+        return pd.DataFrame()
+
+    # Legacy SQLite deployments retain their historical compatibility path.
     df=chamados_df()
     if not df.empty:
         df=df.copy(); df['_fonte_operacional']='ednna.db/fallback'
