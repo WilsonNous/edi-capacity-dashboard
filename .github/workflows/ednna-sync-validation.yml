@@ -1,0 +1,18 @@
+name: EDNNA - Sync Diagnostics Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt pytest
+      - run: python -m compileall -q scripts/sync_eddy_mysql.py ednna/sync_timings.py
+      - run: python -m pytest -q tests/test_sync_timings.py tests/test_sync_eddy_mysql_direct.py
