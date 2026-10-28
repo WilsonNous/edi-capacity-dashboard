@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from ednna.mysql_snapshot_repository import salvar_snapshot
 from ednna.mysql_storage import connect
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
+from ednna.redmine_shared_inventory import confirmed_inventory_for_mysql
 
 BR = ZoneInfo("America/Sao_Paulo")
 
@@ -33,7 +34,7 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     It is deliberately never read.
     """
     inicio = time.monotonic()
-    inventory = listar_abertos_confirmados()
+    inventory = confirmed_inventory_for_mysql(listar_abertos_confirmados)
     duracao_redmine_s = round(time.monotonic() - inicio, 3)
     if not inventory["confirmado"]:
         raise RuntimeError("Redmine não confirmou refresh remoto; MySQL preservado")
@@ -94,6 +95,9 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
         "duracao_upsert_mysql_s": round(duracao_upsert_mysql_s, 3),
         "duracao_fechamento_mysql_s": duracao_fechamento_mysql_s,
         "redmine_confirmado": True,
+        "origem_confirmacao": inventory.get("fonte"),
+        "idade_confirmacao_s": inventory.get("idade_s", 0),
+        "cache_apenas_observacional": inventory.get("somente_observacao", False),
     }
 
 
