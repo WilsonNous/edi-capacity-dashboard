@@ -56,3 +56,6 @@ def test_return_requires_persisted_audited_state():
         assert not pilot.avaliar_devolucao_assistida(
             {**ISSUE, "assigned_to": {"id": 99}}
         )["confirmado"]
+        assert pilot.avaliar_devolucao_assistida(
+            {**ISSUE, "updated_on": "changed"}
+        )["motivo"] == "VERSAO_REDMINE_DIVERGENTE"
