@@ -34,3 +34,14 @@ Não autorizar envio Graph, follow-up automático, assunção/devolução de res
 5. Submeter evidências ao gate e obter **aceite explícito individual** para homologação somente observacional; nenhum aceite para execução externa está implícito.
 
 **Conclusão:** desenvolvimento do gate integrado; acompanhamento observacional com evidência de ciclo agregado e monitor do ID; **homologação individual e produção externa não concluídas**.
+
+## Evidência individual Redmine — PDF apresentado pelo operador (28/10/2026)
+
+Documento: `EDI - Inclusão de EC_Domc #50318_ MAMBO-VR BENEFICIO- Inclusão de ec 71676316003323 - EDI Card - Chamados Netunna.pdf`, 1 página. A captura não traz timestamp absoluto da consulta; a referência de data é a apresentação pelo operador em 28/10/2026.
+
+- **Estado exibido:** ABERTO; **0% completo**; **prioridade:** Normal; **atribuído:** Wilson Martins; **origem:** VR BENEFICIO; **cliente:** SUPERMERCADOS MAMBO; **consultor:** Raul; **BPO:** ANA PAULA.
+- **Objeto:** inclusão do EC **71676316003323**, CNPJ **71.676.316/0033-23**, código **221**, fantasia **TATUAPÉ-2**.
+- **Histórico visível:** #1 copiado de SUP #50256; #2 referência de cópia de #50256 removida; #3 vinculado ao Blueprint Card **#39892 — BP - Novo Cliente: SUPERMERCADOS MAMBO**, exibido como Em Andamento.
+- **Não evidenciado na página:** envio à VR, confirmação de habilitação, retorno da adquirente, assunção/devolução do responsável pelo EDDY, journals completos via API ou conciliação MySQL individual. Não interpretar ausência de anotação visível como prova definitiva de que tais eventos nunca ocorreram.
+
+**Decisão documental:** evidência de estado individual e escopo **recebida**; piloto #50318 permanece **EM ACOMPANHAMENTO OBSERVACIONAL**, com **aceite/homologação individual pendente**. A captura não substitui snapshot datado via API nem demonstra versão Azure. **Zero autorização de envios ou escritas Redmine.**
