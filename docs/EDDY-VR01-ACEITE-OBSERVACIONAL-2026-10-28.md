@@ -1,5 +1,7 @@
 # VR01 — termo de aceite observacional (28/10/2026)
 
+> **Atualização de escopo — 28/10/2026:** o chamado #49227 consta como **CONCLUÍDO (100%) desde 26/10/2026**, conforme exportação PDF do Redmine apresentada pelo operador. Este aceite é preservado como **registro histórico da decisão observacional**, mas **#49227 está inelegível para novos ciclos de piloto ativo**. Nenhum outro chamado foi automaticamente homologado ou autorizado. A escolha de um novo piloto requer ID, status aberto atualizado, origem VR Benefício, pendência operacional e evidências individuais de responsável/journals. O gate de código ainda fixa #49227; não o invocar como aprovação operacional de um novo piloto até sua atualização e novos testes.
+
 **Decisão:** aceite explícito do responsável pelo projeto para avançar ao máximo com a homologação da VR01, limitado ao piloto Redmine **#49227** e ao modo **SOMENTE_LEITURA**.
 
 **Escopo aceito:** regra VR01 piloto observacional. Este registro não é evidência de implantação Azure nem de execução externa.
