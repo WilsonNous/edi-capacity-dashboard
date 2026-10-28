@@ -5,6 +5,9 @@ Sync Redmine to MySQL, then assess stored snapshots. Never use SQLite or send ma
 from __future__ import annotations
 
 import json
+import os
+
+from ednna.eddy_vr01_local_cycle import executar_ciclo_local_vr01
 
 from ednna.eddy_vr_mysql_sync import sincronizar_carteira_vr_mysql
 from ednna.eddy_vr_mysql_operation import operacao_vr_mysql
@@ -18,6 +21,10 @@ from ednna.eddy_vr_mysql_followups import listar_followups_vr01
 
 
 def executar_ciclo_vr01() -> dict:
+    # Explicit opt-in: preserve legacy behavior until operational validation.
+    # Offline-first never reads Redmine, Graph or SQLite, and never dispatches.
+    if os.getenv("EDDY_VR01_OFFLINE_FIRST", "false").lower() == "true":
+        return executar_ciclo_local_vr01()
     sync = sincronizar_carteira_vr_mysql()
     if not sync["cobertura_completa"]:
         # Read-only observability must survive Redmine outages; stale data must
