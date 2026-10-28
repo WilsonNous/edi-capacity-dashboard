@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -118,8 +119,9 @@ def _get(
     Executa GET no Redmine com tentativas controladas para falhas transitórias.
 
     Regras:
-    - ConnectTimeout / ReadTimeout / ConnectionError: até 3 tentativas.
-    - Espera progressiva: 0s, 2s e 5s.
+    - Listagens issues.json: até 5 tentativas, timeout TCP 8s por padrão.
+    - Outras leituras mantêm seus limites explícitos ou padrão anterior.
+    - Espera progressiva limitada, com jitter apenas nas listagens.
     - Saturação do semáforo local não abre o circuit breaker do Redmine.
     - Erros HTTP (401, 403, 404, 500...) não são mascarados nem repetidos aqui.
     - O HTTPAdapter continua com max_retries=0 para evitar tentativas ocultas.
@@ -151,11 +153,22 @@ def _get(
 
     try:
         url = f"{REDMINE_URL}/{path.lstrip('/')}"
-        esperas = [0, 2, 5]
+        # Experimental: only full/paginated issue listings. Explicit overrides
+        # (e.g. individual detail preflight) keep their original semantics.
+        is_listing = path.lstrip("/") == "issues.json"
+        if is_listing and tentativas == 3:
+            tentativas = max(1, min(5, int(os.getenv("REDMINE_LIST_RETRIES", "5"))))
+        if is_listing and timeout == (20, 60):
+            connect_timeout = max(3, min(20, int(os.getenv("REDMINE_LIST_CONNECT_TIMEOUT", "8"))))
+            timeout = (connect_timeout, 60)
+        esperas = [0, 2, 4, 6, 8] if is_listing else [0, 2, 5]
+        print(f"[REDMINE-RETRY-CONFIG] listagem={is_listing} tentativas={tentativas} timeout={timeout}", flush=True)
 
         for tentativa in range(1, tentativas + 1):
             if tentativa > 1:
                 espera = esperas[min(tentativa - 1, len(esperas) - 1)]
+                if is_listing:
+                    espera += random.uniform(0, 0.5)
                 print(
                     f"[REDMINE] Nova tentativa em {espera}s | "
                     f"{path} | tentativa {tentativa}/{tentativas}",
