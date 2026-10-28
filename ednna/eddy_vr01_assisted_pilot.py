@@ -57,6 +57,8 @@ def avaliar_devolucao_assistida(issue: dict) -> dict:
     item, revision = stored
     if item.state != OwnershipState.RETURNED or not item.last_evidence:
         return {"confirmado": False, "motivo": "DEVOLUCAO_NAO_AUDITADA", "revision": revision}
+    if str(issue.get("updated_on") or "") != item.version:
+        return {"confirmado": False, "motivo": "VERSAO_REDMINE_DIVERGENTE", "revision": revision}
     result = verificar_devolucao(issue, {
         "chamado_id": item.issue_id,
         "original_owner_id": item.original_assignee_id,
