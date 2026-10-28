@@ -10,9 +10,26 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 REQUIRED = module.REQUIRED
 avaliar_homologacao_vr01 = module.avaliar_homologacao_vr01
+homologar_observacao_vr01 = module.homologar_observacao_vr01
 
 
 class VR01HomologationTests(unittest.TestCase):
+    def test_explicit_pilot_observation_approval_preserves_external_blocks(self):
+        result = homologar_observacao_vr01({"chamado_id": 49227}, autorizacao_explicita=True)
+        self.assertTrue(result["homologada"])
+        self.assertEqual(result["estado"], "HOMOLOGADA_SOMENTE_OBSERVACAO")
+        self.assertFalse(result["envios_autorizados"])
+        self.assertFalse(result["redmine_escritas_autorizadas"])
+        self.assertEqual(set(result["pendencias_execucao_externa"]), set(REQUIRED))
+
+    def test_observation_requires_explicit_authorization(self):
+        result = homologar_observacao_vr01({"chamado_id": 49227})
+        self.assertFalse(result["homologada"])
+
+    def test_observation_cannot_approve_another_issue(self):
+        result = homologar_observacao_vr01({"chamado_id": 123}, autorizacao_explicita=True)
+        self.assertFalse(result["homologada"])
+
     def test_missing_evidence_fails_closed(self):
         result = avaliar_homologacao_vr01({"chamado_id": 49227})
         self.assertEqual(result["estado"], "HOMOLOGACAO_PENDENTE")
