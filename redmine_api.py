@@ -520,82 +520,58 @@ def traduzir_valor_catalogo(valor, mapa: dict[str, str]):
     return (" / ".join(nomes) if nomes else None), nomes
 
 
+def _validar_paginas_redmine(paginas: dict[int, dict], total: int, limit: int) -> list[dict]:
+    """Fail closed if a paginated Redmine listing is incomplete or inconsistent."""
+    if total < 0 or limit < 1:
+        raise ValueError("Redmine retornou paginacao invalida")
+    offsets = list(range(0, max(total, 1), limit))
+    if set(paginas) != set(offsets):
+        raise ValueError("Redmine retornou paginas incompletas")
+    ids = set()
+    result = []
+    for offset in offsets:
+        payload = paginas[offset]
+        if not isinstance(payload, dict) or int(payload.get("total_count", -1)) != total:
+            raise ValueError("Redmine alterou total_count durante a coleta")
+        issues = payload.get("issues")
+        expected = min(limit, total - offset)
+        if not isinstance(issues, list) or len(issues) != expected:
+            raise ValueError("Redmine retornou pagina incompleta")
+        for issue in issues:
+            if not isinstance(issue, dict) or type(issue.get("id")) is not int or issue["id"] in ids:
+                raise ValueError("Redmine retornou ID ausente ou duplicado")
+            ids.add(issue["id"])
+        result.extend(issues)
+    if len(result) != total:
+        raise ValueError("Redmine retornou cobertura inconsistente")
+    return result
+
+
 def buscar_chamados_projeto(
     project_id: int,
     status_id: str = "open",
     max_workers_paginas: int = 4,
 ) -> list[dict]:
-    """
-    Busca todos os chamados de um projeto.
+    """Complete one Redmine project listing before publishing any result.
 
-    V3.5.4b:
-    - consulta a primeira página para descobrir total_count;
-    - consulta páginas seguintes em paralelo;
-    - preserva a ordem por offset.
+    Pages are collected sequentially to favor connection reuse and avoid
+    concurrent TCP handshakes. _get retries each failed page independently.
+    The entire listing fails closed on missing, duplicate or inconsistent data.
     """
     limit = 100
-
-    primeiro = _get(
-        "issues.json",
-        {
-            "project_id": project_id,
-            "status_id": status_id,
-            "limit": limit,
-            "offset": 0,
-        },
-    )
-
-    primeira_pagina = primeiro.get("issues", [])
-    total = int(primeiro.get("total_count", 0))
-
-    if total <= limit or not primeira_pagina:
-        return primeira_pagina
-
-    offsets = list(range(limit, total, limit))
-    paginas: dict[int, list[dict]] = {0: primeira_pagina}
-
-    with ThreadPoolExecutor(max_workers=max_workers_paginas) as executor:
-        futures = {
-            executor.submit(
-                _get,
-                "issues.json",
-                {
-                    "project_id": project_id,
-                    "status_id": status_id,
-                    "limit": limit,
-                    "offset": offset,
-                },
-            ): offset
-            for offset in offsets
-        }
-
-        offsets_com_falha = []
-        for future in as_completed(futures):
-            offset = futures[future]
-            try:
-                dados = future.result()
-                paginas[offset] = dados.get("issues", [])
-            except Exception:
-                offsets_com_falha.append(offset)
-
-    # Se alguma página paralela falhar, tenta novamente de forma sequencial.
-    for offset in offsets_com_falha:
-        dados = _get(
-            "issues.json",
-            {
-                "project_id": project_id,
-                "status_id": status_id,
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-        paginas[offset] = dados.get("issues", [])
-
-    chamados: list[dict] = []
-    for offset in sorted(paginas):
-        chamados.extend(paginas[offset])
-
-    return chamados
+    params = {"project_id": project_id, "status_id": status_id, "limit": limit}
+    primeiro = _get("issues.json", {**params, "offset": 0})
+    if not isinstance(primeiro, dict):
+        raise ValueError("Redmine retornou primeira pagina invalida")
+    total = int(primeiro.get("total_count", -1))
+    if total < 0:
+        raise ValueError("Redmine retornou total_count invalido")
+    paginas = {0: primeiro}
+    for offset in range(limit, total, limit):
+        paginas[offset] = _get("issues.json", {**params, "offset": offset})
+    resultado = _validar_paginas_redmine(paginas, total, limit)
+    print(f"[REDMINE-COLETA] projeto={project_id} cobertura_completa=True total={total}", flush=True)
+    return resultado
 
 def buscar_detalhes_chamado(
     chamado_id: int,
