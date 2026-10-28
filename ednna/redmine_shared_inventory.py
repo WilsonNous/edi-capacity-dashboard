@@ -55,3 +55,23 @@ def confirmed_inventory_for_mysql(fetch, *, now=None):
             return result
         finally:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+# Shared across panel-independent workers. Serializes remote full-listing reads
+# without converting a cached observation into fresh authorization evidence.
+def serialized_redmine_listing(fetch):
+    """Prevent simultaneous VR01/MySQL full-listing fetches across processes.
+
+    A lock failure falls back to the original fetch, never to stale data.
+    This is advisory only; panel refreshes use their own synchronization.
+    """
+    try:
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        with open(str(CACHE) + ".listing.lock", "a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                return fetch()
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        return fetch()
