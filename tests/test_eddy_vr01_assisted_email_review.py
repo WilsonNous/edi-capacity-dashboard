@@ -32,16 +32,43 @@ def test_drafts_only_reconciled_customer_habilitation_without_recipient():
 
 def test_candidates_from_existing_extractor_exclude_internal_and_vr():
     issue = {"id": 50318, "subject": "Habilitação", "description": "Contato", "updated_on": "2026-10-27"}
-    stored = {"chamado": {"payload_json": __import__("json").dumps(issue)}}
+    stored = {"chamado": {"payload_json": __import__("json").dumps(issue), "cliente": "CLIENTE TESTE"}}
     with patch.object(module, "carregar_snapshot", return_value=stored), \
+         patch.object(module, "selecionar_contatos_cliente", return_value=[]), \
          patch.object(module, "_extrair_dados", return_value={
              "emails": ["cliente@example.com", "vr@vr.com.br",
                         "edi@netunna.com.br", "cliente@example.com"]}):
         result = module.candidatos_destinatarios(50318)
     assert result["candidatos"] == ["cliente@example.com"]
-    assert result["fonte"] == "EXTRATOR_OPERACIONAL_SNAPSHOT"
+    assert result["fonte"] == "BLUEPRINT_E_EXTRATOR_OPERACIONAL"
 
 
 def test_candidates_fail_closed_on_missing_snapshot():
     with patch.object(module, "carregar_snapshot", return_value=None):
         assert module.candidatos_destinatarios(50318)["candidatos"] == []
+
+def test_blueprint_priority_and_provenance():
+    issue = {"id": 50318, "subject": "Habilitação", "description": ""}
+    stored = {"chamado": {"payload_json": issue, "cliente": "MAMBO"}}
+    bp = [{"email": "financeiro@cliente.com"}, {"email": "gerente@cliente.com"},
+          {"email": "interno@netunna.com.br"}]
+    with patch.object(module, "carregar_snapshot", return_value=stored), \
+         patch.object(module, "selecionar_contatos_cliente", return_value=bp) as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": ["outro@cliente.com"]}):
+        result = module.candidatos_destinatarios(50318)
+    selector.assert_called_once_with("MAMBO", limite=10)
+    assert result["candidatos"] == [
+        "financeiro@cliente.com", "gerente@cliente.com", "outro@cliente.com"]
+    assert result["fontes_por_destinatario"]["gerente@cliente.com"] == "BLUEPRINT_PARTICIPANTES"
+    assert result["estado_blueprint"] == "CONSULTADO"
+
+
+def test_blueprint_sqlite_failure_falls_back_without_authorizing():
+    issue = {"id": 48786, "subject": "Habilitação", "description": ""}
+    stored = {"chamado": {"payload_json": issue, "cliente": "ANDREAZZA"}}
+    with patch.object(module, "carregar_snapshot", return_value=stored), \
+         patch.object(module, "selecionar_contatos_cliente", side_effect=RuntimeError("db corrupt")), \
+         patch.object(module, "_extrair_dados", return_value={"emails": ["cliente@exemplo.com"]}):
+        result = module.candidatos_destinatarios(48786)
+    assert result["candidatos"] == ["cliente@exemplo.com"]
+    assert result["estado_blueprint"] == "INDISPONIVEL_RuntimeError"
