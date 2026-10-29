@@ -39,6 +39,15 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
         if not isinstance(issue, dict) or int(issue.get("id") or 0) != chamado_id:
             return {"candidatos": [], "fonte": "SNAPSHOT_INDISPONIVEL"}
         cliente = str((stored or {}).get("chamado", {}).get("cliente") or "").strip()
+        if not cliente:
+            # Older VR snapshots stored cliente=None. Read canonical Redmine
+            # custom field 1 from the already persisted payload, without writes.
+            cliente = next((
+                str(field.get("value")).strip()
+                for field in issue.get("custom_fields", [])
+                if isinstance(field, dict) and str(field.get("id")) == "1"
+                and isinstance(field.get("value"), str) and field["value"].strip()
+            ), "")
         # The existing Blueprint selector prioritizes Finance, project management,
         # and andamento/status contacts. It may be unavailable while SQLite is damaged.
         bp_contatos = []
@@ -100,6 +109,7 @@ def preparar_revisao(ids=PILOT_IDS) -> dict:
             "fonte_destinatarios": destinatarios["fonte"],
             "fontes_por_destinatario": destinatarios.get("fontes_por_destinatario", {}),
             "estado_blueprint": destinatarios.get("estado_blueprint", "NAO_CONSULTADO"),
+            "cliente_blueprint": destinatarios.get("cliente_blueprint", ""),
             "destinatario_validado": False,
             "assunto": f"[EDI Netunna] Chamado #{item['chamado_id']} - {assunto}",
             "corpo": corpo.format(id=item["chamado_id"]),
