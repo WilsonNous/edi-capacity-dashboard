@@ -18,6 +18,20 @@ def _timestamp(value):
     return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
 
 
+
+def clientes_do_redmine(issue: dict) -> list[str]:
+    """Parse the Redmine Clientes multi-select field without guessing a client."""
+    names = []
+    for field in issue.get("custom_fields") or []:
+        if not isinstance(field, dict) or str(field.get("id")) != "1":
+            continue
+        value = field.get("value")
+        for item in (value if isinstance(value, list) else [value]):
+            if isinstance(item, str) and item.strip() and item.strip() not in names:
+                names.append(item.strip())
+    return names
+
+
 def _snapshot(issue: dict, now: datetime) -> tuple[dict, list[dict]]:
     issue_id = int(issue["id"])
     if not isinstance(issue.get("journals"), list):
@@ -28,7 +42,7 @@ def _snapshot(issue: dict, now: datetime) -> tuple[dict, list[dict]]:
     if not status:
         raise ValueError("Status Redmine ausente")
     row = {
-        "id": issue_id, "cliente": next((str(f.get("value")).strip() for f in issue.get("custom_fields", []) if isinstance(f, dict) and str(f.get("id")) == "1" and f.get("value") not in (None, "")), None), "origem": next((str(f.get("value")) for f in issue.get("custom_fields", []) if str(f.get("id")) == "5" and f.get("value") not in (None, "")), "VR BENEFICIOS"),
+        "id": issue_id, "cliente": (clientes_do_redmine(issue)[0] if len(clientes_do_redmine(issue)) == 1 else None), "origem": next((str(f.get("value")) for f in issue.get("custom_fields", []) if str(f.get("id")) == "5" and f.get("value") not in (None, "")), "VR BENEFICIOS"),
         "responsavel": (issue.get("assigned_to") or {}).get("name"),
         "projeto": (issue.get("project") or {}).get("name"),
         "tipo": (issue.get("tracker") or {}).get("name"),
