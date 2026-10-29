@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from ednna.eddy_vr01_offline_proposals import PILOT_IDS
+from ednna.eddy_vr01_offline_proposals import PILOT_IDS, chave_observacional
 from ednna.eddy_vr_action_queue import criar_intencao
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.mysql_storage import connect
@@ -58,7 +58,7 @@ def validar_pilotos(ids=PILOT_IDS) -> dict:
                     """SELECT action_key, redmine_updated_on, etapa, acao, situacao
                        FROM eddy_vr01_action_queue
                        WHERE chamado_id=%s AND action_key=%s""",
-                    (issue_id, proposal["action_key"]),
+                    (issue_id, chave_observacional(proposal["action_key"])),
                 )
                 row = cursor.fetchone()
                 if row is None:
@@ -70,7 +70,7 @@ def validar_pilotos(ids=PILOT_IDS) -> dict:
                     item["decisao_coincide"] = stage == proposal["etapa"] and action == proposal["acao"]
                     item["estado"] = (
                         "PROPOSTA_OBSERVACIONAL_CONFERIDA"
-                        if key == proposal["action_key"] and status == "OBSERVACIONAL"
+                        if key == chave_observacional(proposal["action_key"]) and status == "OBSERVACIONAL"
                         and item["versao_coincide"] and item["decisao_coincide"]
                         else "PROPOSTA_DIVERGENTE_OU_NAO_OBSERVACIONAL"
                     )

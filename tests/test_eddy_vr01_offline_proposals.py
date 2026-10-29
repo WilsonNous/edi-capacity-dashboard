@@ -48,3 +48,29 @@ def test_incomplete_history_cannot_generate_intent():
         result = module.preparar_intencoes_locais(ids=(48786,))
     assert result["propostas"] == 0
     assert result["bloqueados"][0]["motivo"] == "BLOQUEADO_HISTORICO_INCOMPLETO"
+
+
+def test_observational_key_is_separate_and_idempotent():
+    assert module.chave_observacional("a" * 64) != "a" * 64
+    assert module.chave_observacional("a" * 64) == module.chave_observacional("a" * 64)
+    assert len(module.chave_observacional("a" * 64)) == 64
+
+
+def test_insert_ignore_reports_existing_row_without_overwriting():
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.rowcount = 0
+    snapshot = {"chamado": {"payload_json": issue(50318)}, "journals": []}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \\
+         patch.object(module, "connect", return_value=conn):
+        result = module.preparar_intencoes_locais(ids=(50318,))
+    assert result["propostas"] == 1
+    assert result["inseridas"] == 0
+    assert result["ja_existentes"] == 1
+    sql_calls = [c for c in cursor.execute.call_args_list if "INSERT IGNORE" in c.args[0]]
+    assert len(sql_calls) == 1
+    assert sql_calls[0].args[1][0] == module.chave_observacional(
+        module.criar_intencao(issue(50318), [])["action_key"]
+    )
+    assert all("UPDATE" not in c.args[0] for c in cursor.execute.call_args_list)
