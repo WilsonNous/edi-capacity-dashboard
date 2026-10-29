@@ -6,6 +6,7 @@ on:
       - 'ednna/**'
       - 'scripts/eddy_vr01_*.py'
       - 'scripts/sync_eddy_mysql.py'
+      - 'scripts/eddy_mysql_cutover_readiness.py'
       - 'pages/Regras.py'
       - 'tests/**'
       - '.github/workflows/validate-motores-eddy.yml'
