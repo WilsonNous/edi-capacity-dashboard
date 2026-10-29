@@ -78,8 +78,8 @@ def executar_worker_vr01() -> dict:
         LOGGER.info(
             "[EDDY-VR01] ciclo=%s importados=%s falhas=%s",
             result["estado"],
-            len(result["sincronizacao"]["importados"]),
-            len(result["sincronizacao"]["falhas"]),
+            len((result.get("sincronizacao") or {}).get("importados") or []),
+            len((result.get("sincronizacao") or {}).get("falhas") or []),
         )
         return result
     finally:
