@@ -13,6 +13,7 @@ from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.planejador_inclusoes import _extrair_dados
 from ednna.blueprint_knowledge import selecionar_contatos_cliente
 from ednna.eddy_vr_mysql_sync import clientes_do_redmine
+from ednna.mysql_redmine_catalog import mapa_persistido
 from scripts.eddy_vr01_validation_report import validar_pilotos
 
 REMETENTE = "edi@netunna.com.br"
@@ -50,6 +51,24 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
         else:
             cliente = cliente_mysql
             cliente_estado = "CLIENTE_IDENTIFICADO" if cliente else "CLIENTE_NAO_IDENTIFICADO"
+        # Numeric values in Redmine's multi-select are option IDs, not names.
+        # Only a durable, verified MySQL catalog can resolve them.
+        catalogo_estado = "NAO_NECESSARIO"
+        if cliente and cliente.isdecimal():
+            try:
+                mapa = mapa_persistido(1)
+                nome = str(mapa.get(cliente) or "").strip()
+                if nome and nome != cliente:
+                    cliente = nome
+                    catalogo_estado = "RESOLVIDO_MYSQL"
+                else:
+                    cliente = ""
+                    cliente_estado = "CLIENTE_ID_SEM_CATALOGO"
+                    catalogo_estado = "ID_NAO_RESOLVIDO"
+            except Exception as catalogo_exc:
+                cliente = ""
+                cliente_estado = "CLIENTE_CATALOGO_INDISPONIVEL"
+                catalogo_estado = "INDISPONIVEL_" + type(catalogo_exc).__name__
         # The existing Blueprint selector prioritizes Finance, project management,
         # and andamento/status contacts. It may be unavailable while SQLite is damaged.
         bp_contatos = []
@@ -85,6 +104,7 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
             "estado_blueprint": bp_estado,
             "cliente_blueprint": cliente,
             "clientes_redmine": clientes,
+            "estado_catalogo_clientes": catalogo_estado,
         }
     except Exception as exc:
         return {"candidatos": [], "fonte": "EXTRACAO_INDISPONIVEL",
@@ -114,6 +134,7 @@ def preparar_revisao(ids=PILOT_IDS) -> dict:
             "estado_blueprint": destinatarios.get("estado_blueprint", "NAO_CONSULTADO"),
             "cliente_blueprint": destinatarios.get("cliente_blueprint", ""),
             "clientes_redmine": destinatarios.get("clientes_redmine", []),
+            "estado_catalogo_clientes": destinatarios.get("estado_catalogo_clientes", "NAO_CONSULTADO"),
             "destinatario_validado": False,
             "assunto": f"[EDI Netunna] Chamado #{item['chamado_id']} - {assunto}",
             "corpo": corpo.format(id=item["chamado_id"]),
