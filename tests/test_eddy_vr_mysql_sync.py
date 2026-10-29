@@ -14,6 +14,21 @@ class TestVRMySQLSync(unittest.TestCase):
         row, _ = _snapshot(issue, datetime.now(timezone.utc))
         self.assertEqual(row["cliente"], "SUPERMERCADOS MAMBO")
 
+    def test_multiselect_client_is_persisted(self):
+        issue = {"id": 50318, "subject": "VR Beneficios",
+                 "status": {"name": "Novo"}, "journals": [],
+                 "custom_fields": [{"id": 1, "value": ["SUPERMERCADOS MAMBO"]},
+                                   {"id": 5, "value": ["VR BENEFICIOS"]}]}
+        row, _ = _snapshot(issue, datetime.now(timezone.utc))
+        self.assertEqual(row["cliente"], "SUPERMERCADOS MAMBO")
+
+    def test_ambiguous_multiselect_does_not_choose_client(self):
+        issue = {"id": 50318, "subject": "VR Beneficios",
+                 "status": {"name": "Novo"}, "journals": [],
+                 "custom_fields": [{"id": 1, "value": ["A", "B"]}]}
+        row, _ = _snapshot(issue, datetime.now(timezone.utc))
+        self.assertIsNone(row["cliente"])
+
     def test_validates_journal_history(self):
         with self.assertRaises(ValueError):
             _snapshot({"id": 1, "subject": "VR Beneficios", "status": {"name": "Novo"}},

@@ -85,3 +85,25 @@ def test_old_mysql_snapshot_resolves_client_from_redmine_custom_field():
     selector.assert_called_once_with("SUPERMERCADOS MAMBO", limite=10)
     assert result["cliente_blueprint"] == "SUPERMERCADOS MAMBO"
     assert result["candidatos"] == ["gerente@cliente.com"]
+
+def test_multiselect_client_uses_blueprint_selector():
+    issue = {"id": 50318, "subject": "VR Beneficios", "description": "",
+             "custom_fields": [{"id": 1, "value": ["SUPERMERCADOS MAMBO"]}]}
+    with patch.object(module, "carregar_snapshot", return_value={"chamado": {"payload_json": issue, "cliente": None}}), \
+         patch.object(module, "selecionar_contatos_cliente", return_value=[]) as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": []}):
+        result = module.candidatos_destinatarios(50318)
+    selector.assert_called_once_with("SUPERMERCADOS MAMBO", limite=10)
+    assert result["cliente_blueprint"] == "SUPERMERCADOS MAMBO"
+
+
+def test_ambiguous_multiselect_blocks_blueprint_lookup():
+    issue = {"id": 50318, "subject": "VR Beneficios", "description": "",
+             "custom_fields": [{"id": 1, "value": ["A", "B"]}]}
+    with patch.object(module, "carregar_snapshot", return_value={"chamado": {"payload_json": issue, "cliente": None}}), \
+         patch.object(module, "selecionar_contatos_cliente") as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": []}):
+        result = module.candidatos_destinatarios(50318)
+    selector.assert_not_called()
+    assert result["estado_blueprint"] == "MULTIPLOS_CLIENTES_REVISAO_HUMANA"
+    assert result["cliente_blueprint"] == ""

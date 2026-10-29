@@ -12,6 +12,7 @@ from ednna.eddy_vr01_offline_proposals import PILOT_IDS
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.planejador_inclusoes import _extrair_dados
 from ednna.blueprint_knowledge import selecionar_contatos_cliente
+from ednna.eddy_vr_mysql_sync import clientes_do_redmine
 from scripts.eddy_vr01_validation_report import validar_pilotos
 
 REMETENTE = "edi@netunna.com.br"
@@ -38,20 +39,21 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
         issue = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(issue, dict) or int(issue.get("id") or 0) != chamado_id:
             return {"candidatos": [], "fonte": "SNAPSHOT_INDISPONIVEL"}
-        cliente = str((stored or {}).get("chamado", {}).get("cliente") or "").strip()
-        if not cliente:
-            # Older VR snapshots stored cliente=None. Read canonical Redmine
-            # custom field 1 from the already persisted payload, without writes.
-            cliente = next((
-                str(field.get("value")).strip()
-                for field in issue.get("custom_fields", [])
-                if isinstance(field, dict) and str(field.get("id")) == "1"
-                and isinstance(field.get("value"), str) and field["value"].strip()
-            ), "")
+        clientes = clientes_do_redmine(issue)
+        cliente_mysql = str((stored or {}).get("chamado", {}).get("cliente") or "").strip()
+        if len(clientes) > 1:
+            cliente = ""
+            cliente_estado = "MULTIPLOS_CLIENTES_REVISAO_HUMANA"
+        elif len(clientes) == 1:
+            cliente = clientes[0]
+            cliente_estado = "CLIENTE_IDENTIFICADO"
+        else:
+            cliente = cliente_mysql
+            cliente_estado = "CLIENTE_IDENTIFICADO" if cliente else "CLIENTE_NAO_IDENTIFICADO"
         # The existing Blueprint selector prioritizes Finance, project management,
         # and andamento/status contacts. It may be unavailable while SQLite is damaged.
         bp_contatos = []
-        bp_estado = "CLIENTE_NAO_IDENTIFICADO"
+        bp_estado = cliente_estado
         if cliente:
             try:
                 bp_contatos = selecionar_contatos_cliente(cliente, limite=10)
@@ -82,6 +84,7 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
             "fontes_por_destinatario": fontes,
             "estado_blueprint": bp_estado,
             "cliente_blueprint": cliente,
+            "clientes_redmine": clientes,
         }
     except Exception as exc:
         return {"candidatos": [], "fonte": "EXTRACAO_INDISPONIVEL",
@@ -110,6 +113,7 @@ def preparar_revisao(ids=PILOT_IDS) -> dict:
             "fontes_por_destinatario": destinatarios.get("fontes_por_destinatario", {}),
             "estado_blueprint": destinatarios.get("estado_blueprint", "NAO_CONSULTADO"),
             "cliente_blueprint": destinatarios.get("cliente_blueprint", ""),
+            "clientes_redmine": destinatarios.get("clientes_redmine", []),
             "destinatario_validado": False,
             "assunto": f"[EDI Netunna] Chamado #{item['chamado_id']} - {assunto}",
             "corpo": corpo.format(id=item["chamado_id"]),
