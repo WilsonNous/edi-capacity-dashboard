@@ -1418,15 +1418,7 @@ def obter_diagnostico_banco() -> dict:
     }
 
 
-# ============================================================
-# INICIALIZAÇÃO AUTOMÁTICA
-# ============================================================
-
-# Importing EDNNA must not make the entire API unavailable when persistent
-# storage is damaged. Database operations still fail closed at point of use.
-try:
-    inicializar_banco()
-except sqlite3.DatabaseError as exc:
-    print(f"[EDDY] SQLite indisponivel na inicializacao: {type(exc).__name__} | detalhe={str(exc)[:240]} | arquivo={DB_PATH}", flush=True)
-else:
-    print(f"[EDDY] SQLite inicializado | arquivo={DB_PATH}", flush=True)
+# The legacy SQLite database is not initialized on import. It is retained
+# solely for explicit, read-only recovery; operational MySQL callers must not
+# trigger creation or repair of the damaged /home/data/ednna.db.
+# Legacy SQLite functions remain available only for controlled migration.
