@@ -11,6 +11,7 @@ import re
 from ednna.eddy_vr01_offline_proposals import PILOT_IDS
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.planejador_inclusoes import _extrair_dados
+from ednna.blueprint_knowledge import selecionar_contatos_cliente
 from scripts.eddy_vr01_validation_report import validar_pilotos
 
 REMETENTE = "edi@netunna.com.br"
@@ -37,19 +38,42 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
         issue = json.loads(raw) if isinstance(raw, str) else raw
         if not isinstance(issue, dict) or int(issue.get("id") or 0) != chamado_id:
             return {"candidatos": [], "fonte": "SNAPSHOT_INDISPONIVEL"}
+        cliente = str((stored or {}).get("chamado", {}).get("cliente") or "").strip()
+        # The existing Blueprint selector prioritizes Finance, project management,
+        # and andamento/status contacts. It may be unavailable while SQLite is damaged.
+        bp_contatos = []
+        bp_estado = "CLIENTE_NAO_IDENTIFICADO"
+        if cliente:
+            try:
+                bp_contatos = selecionar_contatos_cliente(cliente, limite=10)
+                bp_estado = "CONSULTADO" if bp_contatos else "SEM_PARTICIPANTES"
+            except Exception as bp_exc:
+                bp_estado = "INDISPONIVEL_" + type(bp_exc).__name__
         dados = _extrair_dados({
             "subject": issue.get("subject") or "",
             "description": issue.get("description") or "",
             "journals": [],
         })
         encontrados = []
-        for email in dados.get("emails") or []:
+        fontes = {}
+        def incluir(email, fonte):
             email = str(email or "").strip().lower()
             if (re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", email)
                     and not email.endswith(("@vr.com.br", "@netunna.com.br"))
                     and email not in encontrados):
                 encontrados.append(email)
-        return {"candidatos": encontrados, "fonte": "EXTRATOR_OPERACIONAL_SNAPSHOT"}
+                fontes[email] = fonte
+        for contato in bp_contatos:
+            incluir(contato.get("email"), "BLUEPRINT_PARTICIPANTES")
+        for email in dados.get("emails") or []:
+            incluir(email, "EXTRATOR_OPERACIONAL_SNAPSHOT")
+        return {
+            "candidatos": encontrados,
+            "fonte": "BLUEPRINT_E_EXTRATOR_OPERACIONAL",
+            "fontes_por_destinatario": fontes,
+            "estado_blueprint": bp_estado,
+            "cliente_blueprint": cliente,
+        }
     except Exception as exc:
         return {"candidatos": [], "fonte": "EXTRACAO_INDISPONIVEL",
                 "erro_tipo": type(exc).__name__}
@@ -74,6 +98,8 @@ def preparar_revisao(ids=PILOT_IDS) -> dict:
             "destinatario": None,
             "candidatos_destinatarios": destinatarios["candidatos"],
             "fonte_destinatarios": destinatarios["fonte"],
+            "fontes_por_destinatario": destinatarios.get("fontes_por_destinatario", {}),
+            "estado_blueprint": destinatarios.get("estado_blueprint", "NAO_CONSULTADO"),
             "destinatario_validado": False,
             "assunto": f"[EDI Netunna] Chamado #{item['chamado_id']} - {assunto}",
             "corpo": corpo.format(id=item["chamado_id"]),
