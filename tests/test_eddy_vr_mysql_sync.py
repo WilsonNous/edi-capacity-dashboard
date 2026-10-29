@@ -6,6 +6,14 @@ from datetime import datetime, timezone
 
 
 class TestVRMySQLSync(unittest.TestCase):
+    def test_persists_canonical_redmine_client_field(self):
+        issue = {"id": 50318, "subject": "VR Beneficios",
+                 "status": {"name": "Novo"}, "journals": [],
+                 "custom_fields": [{"id": 1, "value": "SUPERMERCADOS MAMBO"},
+                                   {"id": 5, "value": "VR BENEFICIOS"}]}
+        row, _ = _snapshot(issue, datetime.now(timezone.utc))
+        self.assertEqual(row["cliente"], "SUPERMERCADOS MAMBO")
+
     def test_validates_journal_history(self):
         with self.assertRaises(ValueError):
             _snapshot({"id": 1, "subject": "VR Beneficios", "status": {"name": "Novo"}},
