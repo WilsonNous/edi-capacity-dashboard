@@ -40,7 +40,7 @@ def test_unconfirmed_redmine_does_not_write(monkeypatch):
     writes = []
     monkeypatch.setattr(sync, "listar_abertos_confirmados",
                         lambda: {"confirmado": False, "chamados": [issue(1)]})
-    monkeypatch.setattr(sync, "salvar_snapshot", lambda row: writes.append(row))
+    monkeypatch.setattr(sync, "_upsert", lambda cursor, table, fields, row: writes.append(row))
     with pytest.raises(RuntimeError, match="não confirmou"):
         sync.sincronizar_uma_vez()
     assert not writes
@@ -50,7 +50,7 @@ def test_duplicate_ids_do_not_write(monkeypatch):
     writes = []
     monkeypatch.setattr(sync, "listar_abertos_confirmados",
                         lambda: {"confirmado": True, "chamados": [issue(1), issue(1)]})
-    monkeypatch.setattr(sync, "salvar_snapshot", lambda row: writes.append(row))
+    monkeypatch.setattr(sync, "_upsert", lambda cursor, table, fields, row: writes.append(row))
     with pytest.raises(ValueError, match="duplicados"):
         sync.sincronizar_uma_vez()
     assert not writes
