@@ -11,6 +11,7 @@ def issue(number):
 
 def test_direct_sync_does_not_read_sqlite(monkeypatch):
     writes = []
+    monkeypatch.setattr(sync, "mapa_persistido", lambda field_id: {"347": "MAMBO"})
     monkeypatch.setattr(sync, "listar_abertos_confirmados",
                         lambda: {"confirmado": True, "chamados": [issue(1), issue(2)]})
     from contextlib import contextmanager
@@ -19,10 +20,15 @@ def test_direct_sync_does_not_read_sqlite(monkeypatch):
         class Connection:
             @contextmanager
             def cursor(self):
-                yield object()
+                class Cursor:
+                    def execute(self, sql, args):
+                        assert "SELECT id, payload_json" in sql
+                    def fetchall(self):
+                        return []
+                yield Cursor()
         yield Connection()
     monkeypatch.setattr(sync, "connect", fake_connect)
-    monkeypatch.setattr(sync, "salvar_snapshot", lambda row, *, cursor=None: writes.append(row))
+    monkeypatch.setattr(sync, "_upsert", lambda cursor, table, fields, row: writes.append(row))
     result = sync.sincronizar_uma_vez(painel="/nonexistent/legacy.db")
     assert result["origem"] == "redmine/status=open"
     assert result["gravados"] == 2
@@ -48,3 +54,30 @@ def test_duplicate_ids_do_not_write(monkeypatch):
     with pytest.raises(ValueError, match="duplicados"):
         sync.sincronizar_uma_vez()
     assert not writes
+
+
+def test_client_code_is_resolved_without_guessing(monkeypatch):
+    from contextlib import contextmanager
+    @contextmanager
+    def fake_connect():
+        class Cursor:
+            def execute(self, sql, args):
+                pass
+            def fetchall(self):
+                return []
+        class Connection:
+            @contextmanager
+            def cursor(self):
+                yield Cursor()
+        yield Connection()
+    items = [dict(issue(1), custom_fields=[{"id": 1, "value": ["347"]}]),
+             dict(issue(2), custom_fields=[{"id": 1, "value": ["999"]}])]
+    monkeypatch.setattr(sync, "listar_abertos_confirmados", lambda: {"confirmado": True, "chamados": items})
+    monkeypatch.setattr(sync, "mapa_persistido", lambda field_id: {"347": "MAMBO"})
+    monkeypatch.setattr(sync, "connect", fake_connect)
+    rows = []
+    monkeypatch.setattr(sync, "_upsert", lambda cursor, table, fields, row: rows.append(row))
+    result = sync.sincronizar_uma_vez()
+    assert rows[0]["cliente"] == "MAMBO"
+    assert rows[1]["cliente"] is None
+    assert result["clientes_nao_resolvidos"] == ["999"]
