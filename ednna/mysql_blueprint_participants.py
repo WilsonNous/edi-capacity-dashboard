@@ -5,6 +5,7 @@ Migration is explicit, read-only on source and atomic on destination.
 from __future__ import annotations
 
 import sqlite3
+import unicodedata
 from pathlib import Path
 
 from ednna.mysql_storage import connect
@@ -36,7 +37,9 @@ def preparar():
 
 
 def selecionar_contatos_cliente_mysql(cliente, limite=10, area_preferida="FINANCEIRO"):
-    from ednna.blueprint_knowledge import _norm
+    def _norm(value):
+        text = unicodedata.normalize("NFKD", str(value or "").strip().upper())
+        return "".join(ch for ch in text if not unicodedata.combining(ch))
     with connect() as conn:
         with conn.cursor() as cursor:
             cursor.execute("""SELECT cliente, nome, area, email, telefone, andamento,
