@@ -107,6 +107,7 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     return {
         "origem": "redmine/status=open", "destino": "mysql",
         "total_origem": len(chamados), "gravados": gravados,
+        "clientes_nao_resolvidos": sorted(clientes_nao_resolvidos),
         "journals": "sincronizados apenas pelo fluxo dedicado VR01",
         "automacoes": "suspensas", "modo": "apply",
         "duracao_total_s": round(time.monotonic() - inicio, 3),
