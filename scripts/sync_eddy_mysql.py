@@ -12,8 +12,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from datetime import datetime, timezone
-from ednna.mysql_snapshot_repository import salvar_snapshot
+from ednna.mysql_snapshot_repository import _upsert, CHAMADO_FIELDS
 from ednna.mysql_storage import connect
+from ednna.mysql_redmine_catalog import mapa_persistido
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
 from ednna.redmine_shared_inventory import confirmed_inventory_for_mysql
 
@@ -47,7 +48,10 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     if len(ids) != len(set(ids)):
         raise ValueError("IDs duplicados no Redmine; MySQL preservado")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Resolve client option IDs once per cycle, never guess unknown names.
+    mapa_clientes = mapa_persistido(1)
     gravados = 0
+    clientes_nao_resolvidos = set()
     inicio_mysql = time.monotonic()
     duracao_preparacao_mysql_s = 0.0
     duracao_upsert_mysql_s = 0.0
@@ -55,11 +59,20 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     with connect() as conn:
       duracao_conexao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
       with conn.cursor() as cursor:
+       placeholders = ", ".join(["%s"] * len(ids))
+       cursor.execute(f"SELECT id, payload_json FROM eddy_chamados WHERE id IN ({placeholders}) FOR UPDATE", tuple(ids))
+       anteriores = {int(i): payload for i, payload in cursor.fetchall()}
        for issue in chamados:
         inicio_preparacao = time.monotonic()
+        valores = next((f.get("value") for f in issue.get("custom_fields", []) if str(f.get("id")) == "1"), None)
+        codigos = [str(v).strip() for v in (valores if isinstance(valores, list) else [valores]) if v not in (None, "")]
+        nomes = [mapa_clientes.get(c) for c in codigos]
+        if any(nome is None for nome in nomes):
+            clientes_nao_resolvidos.update(c for c in codigos if c not in mapa_clientes)
+        cliente = nomes[0] if len(nomes) == 1 and nomes[0] else None
         row = {
             "id": int(issue["id"]),
-            "cliente": None,
+            "cliente": cliente,
             "origem": None,
             "responsavel": (issue.get("assigned_to") or {}).get("name"),
             "projeto": (issue.get("project") or {}).get("name"),
@@ -75,7 +88,16 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
         }
         duracao_preparacao_mysql_s += time.monotonic() - inicio_preparacao
         inicio_upsert = time.monotonic()
-        salvar_snapshot(row, cursor=cursor)
+        anterior = anteriores.get(row["id"])
+        if anterior:
+            try:
+                payload_anterior = json.loads(anterior) if isinstance(anterior, str) else anterior
+            except (TypeError, ValueError):
+                payload_anterior = {}
+            if (isinstance(payload_anterior, dict) and payload_anterior.get("_eddy_journals_completos") is True
+                and str(payload_anterior.get("updated_on") or "") == str(issue.get("updated_on") or "")):
+                row["payload_json"] = payload_anterior
+        _upsert(cursor, "eddy_chamados", CHAMADO_FIELDS, row)
         duracao_upsert_mysql_s += time.monotonic() - inicio_upsert
         gravados += 1
       inicio_fechamento_mysql = time.monotonic()
@@ -85,6 +107,7 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     return {
         "origem": "redmine/status=open", "destino": "mysql",
         "total_origem": len(chamados), "gravados": gravados,
+        "clientes_nao_resolvidos": sorted(clientes_nao_resolvidos),
         "journals": "sincronizados apenas pelo fluxo dedicado VR01",
         "automacoes": "suspensas", "modo": "apply",
         "duracao_total_s": round(time.monotonic() - inicio, 3),
