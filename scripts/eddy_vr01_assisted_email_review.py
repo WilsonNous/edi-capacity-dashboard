@@ -11,7 +11,7 @@ import re
 from ednna.eddy_vr01_offline_proposals import PILOT_IDS
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.planejador_inclusoes import _extrair_dados
-from ednna.blueprint_knowledge import selecionar_contatos_cliente
+from ednna.mysql_blueprint_participants import selecionar_contatos_cliente_mysql as selecionar_contatos_cliente
 from ednna.eddy_vr_mysql_sync import clientes_do_redmine
 from ednna.mysql_redmine_catalog import mapa_persistido
 from scripts.eddy_vr01_validation_report import validar_pilotos
