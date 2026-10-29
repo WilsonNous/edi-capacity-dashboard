@@ -107,3 +107,27 @@ def test_ambiguous_multiselect_blocks_blueprint_lookup():
     selector.assert_not_called()
     assert result["estado_blueprint"] == "MULTIPLOS_CLIENTES_REVISAO_HUMANA"
     assert result["cliente_blueprint"] == ""
+
+def test_numeric_redmine_client_resolved_from_mysql_catalog():
+    issue = {"id": 50318, "subject": "VR", "description": "",
+             "custom_fields": [{"id": 1, "value": ["347"]}]}
+    with patch.object(module, "carregar_snapshot", return_value={"chamado": {"payload_json": issue}}), \
+         patch.object(module, "mapa_persistido", return_value={"347": "SUPERMERCADOS MAMBO"}), \
+         patch.object(module, "selecionar_contatos_cliente", return_value=[]) as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": []}):
+        result = module.candidatos_destinatarios(50318)
+    selector.assert_called_once_with("SUPERMERCADOS MAMBO", limite=10)
+    assert result["estado_catalogo_clientes"] == "RESOLVIDO_MYSQL"
+    assert result["cliente_blueprint"] == "SUPERMERCADOS MAMBO"
+
+
+def test_unknown_numeric_client_id_does_not_lookup_blueprint():
+    issue = {"id": 48786, "subject": "VR", "description": "",
+             "custom_fields": [{"id": 1, "value": ["246"]}]}
+    with patch.object(module, "carregar_snapshot", return_value={"chamado": {"payload_json": issue}}), \
+         patch.object(module, "mapa_persistido", return_value={}), \
+         patch.object(module, "selecionar_contatos_cliente") as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": []}):
+        result = module.candidatos_destinatarios(48786)
+    selector.assert_not_called()
+    assert result["estado_blueprint"] == "CLIENTE_ID_SEM_CATALOGO"
