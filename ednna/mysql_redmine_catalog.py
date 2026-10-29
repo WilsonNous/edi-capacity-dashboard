@@ -32,8 +32,8 @@ def mapa_persistido(field_id=1):
 
 def sincronizar_catalogo():
     """Explicit Redmine read and MySQL write; never touches Redmine issues."""
-    from redmine_api import buscar_custom_fields
-    fields = buscar_custom_fields(force=True)
+    from redmine_api import _get
+    fields = _get("custom_fields.json").get("custom_fields") or []
     options = []
     for field in fields:
         if str(field.get("id")) not in ("1", "5"):
@@ -43,7 +43,7 @@ def sincronizar_catalogo():
                 continue
             key = str(item.get("value") or "").strip()
             label = str(item.get("label") or "").strip()
-            if key and label and key != label and len(key) <= 191 and len(label) <= 255:
+            if key and label and len(key) <= 191 and len(label) <= 255:
                 options.append((int(field["id"]), key, label))
     if not any(field_id == 1 for field_id, _, _ in options):
         raise ValueError("Catálogo Clientes Redmine sem opções válidas; nenhuma gravação")
