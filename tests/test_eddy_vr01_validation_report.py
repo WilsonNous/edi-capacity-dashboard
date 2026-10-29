@@ -8,7 +8,7 @@ def test_validation_reconciles_observational_proposal_without_writes():
     conn = MagicMock()
     conn.__enter__.return_value = conn
     cursor = conn.cursor.return_value.__enter__.return_value
-    cursor.fetchone.return_value = ("key", "2026-10-29", "AGUARDANDO", "COBRAR", "OBSERVACIONAL")
+    cursor.fetchone.return_value = (report.chave_observacional("key"), "2026-10-29", "AGUARDANDO", "COBRAR", "OBSERVACIONAL")
     snapshot = {
         "chamado": {"payload_json": {"id": 50318, "updated_on": "2026-10-29",
                                     "_eddy_journals_completos": True}},
@@ -21,6 +21,7 @@ def test_validation_reconciles_observational_proposal_without_writes():
          patch.object(report, "carregar_snapshot", return_value=snapshot), \
          patch.object(report, "criar_intencao", return_value=intent):
         result = report.validar_pilotos(ids=(50318,))
+    assert cursor.execute.call_args.args[1] == (50318, report.chave_observacional("key"))
     assert result["conferidos"] == 1
     assert result["chamados"][0]["estado"] == "PROPOSTA_OBSERVACIONAL_CONFERIDA"
     assert result["chamados"][0]["aprovado_para_envio"] is False
