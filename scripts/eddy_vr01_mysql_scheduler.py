@@ -28,6 +28,20 @@ def intervalo_segundos(raw: str | None) -> int:
 def executar_uma_vez() -> dict:
     result = executar_worker_vr01()
     sync = result.get("sincronizacao") or {}
+    offline = result.get("propostas")
+    fila = result.get("fila") or {}
+    planejamento = (
+        {"avaliados": offline.get("avaliados"),
+         "intencoes": offline.get("propostas"),
+         "propostas": offline.get("propostas"),
+         "bloqueados": len(offline.get("bloqueados") or []),
+         "detalhes_bloqueios": offline.get("bloqueados") or [],
+         "situacao_fila": offline.get("situacao_fila"),
+         "estado_persistencia": offline.get("estado")}
+        if isinstance(offline, dict) else
+        {"avaliados": fila.get("avaliados"), "intencoes": fila.get("intencoes"),
+         "bloqueados": fila.get("bloqueados")}
+    )
     LOG.info(
         "[EDDY-VR01-SCHEDULER] %s",
         json.dumps({
@@ -43,11 +57,11 @@ def executar_uma_vez() -> dict:
             "estado_executor": (result.get("execucao") or {}).get("estado"),
             # Dispatcher count differs from planned intents when execution is blocked.
             "acoes_avaliadas": (result.get("execucao") or {}).get("avaliados", 0),
-            "planejamento": {
-                "avaliados": (result.get("fila") or {}).get("avaliados"),
-                "intencoes": (result.get("fila") or {}).get("intencoes"),
-                "bloqueados": (result.get("fila") or {}).get("bloqueados"),
-            },
+            "planejamento": planejamento,
+            "total_snapshots_vr_mysql": (result.get("operacao") or {}).get("total_snapshots_vr"),
+            "chamados_vr_mysql": [item.get("chamado_id") for item in
+                                  (result.get("operacao") or {}).get("chamados", [])],
+            "modo_offline": isinstance(offline, dict),
             "cobertura_completa": sync.get("cobertura_completa"),
             "motivo_degradacao": sync.get("motivo"),
             "erro_ciclo": result.get("erro"),
