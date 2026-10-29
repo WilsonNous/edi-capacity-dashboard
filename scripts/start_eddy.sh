@@ -84,7 +84,8 @@ fi
 # external emails, follow-ups or Redmine writes. Advisory lock protects
 # overlapping cycles across Azure instances.
 if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_VR01_OBSERVER_ENABLED:-true}" == "true" ]]; then
-  echo "[EDDY] VR01 MySQL observer iniciado (somente leitura; sem envios externos)."
+  export EDDY_VR01_OFFLINE_FIRST="${EDDY_VR01_OFFLINE_FIRST:-true}"
+  echo "[EDDY] VR01 MySQL observer iniciado; offline_first=${EDDY_VR01_OFFLINE_FIRST}; sem envios externos."
   python -m scripts.eddy_vr01_mysql_scheduler &
   pids+=("$!")
 fi
