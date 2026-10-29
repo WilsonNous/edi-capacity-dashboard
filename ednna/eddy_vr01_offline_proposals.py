@@ -6,12 +6,18 @@ must never consume an offline proposal as an authorized send.
 from __future__ import annotations
 
 import json
+import hashlib
 
 from ednna.eddy_vr_action_queue import DDL, criar_intencao
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.mysql_storage import connect
 
 PILOT_IDS = (50318, 49119, 48786, 50120)
+
+
+def chave_observacional(action_key: str) -> str:
+    """Independent namespace: never collide with a dispatchable action key."""
+    return hashlib.sha256(f"VR01:OBSERVACIONAL:{action_key}".encode()).hexdigest()
 
 
 def preparar_intencoes_locais(ids=PILOT_IDS) -> dict:
@@ -41,6 +47,8 @@ def preparar_intencoes_locais(ids=PILOT_IDS) -> dict:
         else:
             blocked.append({"chamado_id": issue_id, "motivo": proposal["situacao"]})
     # A DB error must fail the cycle: do not report persisted intents on failure.
+    inseridas = 0
+    existentes = 0
     with connect() as conn:
         with conn.cursor() as cursor:
             cursor.execute(DDL)
@@ -49,13 +57,19 @@ def preparar_intencoes_locais(ids=PILOT_IDS) -> dict:
                     """INSERT IGNORE INTO eddy_vr01_action_queue
                     (action_key, chamado_id, redmine_updated_on, etapa, acao, destino, situacao)
                     VALUES (%s,%s,%s,%s,%s,%s,'OBSERVACIONAL')""",
-                    tuple(item[k] for k in ("action_key", "chamado_id", "redmine_updated_on",
-                                            "etapa", "acao", "destino")),
+                    (chave_observacional(item["action_key"]),) + tuple(
+                        item[k] for k in ("chamado_id", "redmine_updated_on",
+                                       "etapa", "acao", "destino")
+                    ),
                 )
+                inseridas += cursor.rowcount
+                existentes += int(cursor.rowcount == 0)
     return {
         "estado": "PROPOSTAS_OBSERVACIONAIS_PERSISTIDAS",
         "avaliados": len(ids),
         "propostas": len(planned),
+        "inseridas": inseridas,
+        "ja_existentes": existentes,
         "bloqueados": blocked,
         "situacao_fila": "OBSERVACIONAL",
         "acoes_externas_autorizadas": False,
