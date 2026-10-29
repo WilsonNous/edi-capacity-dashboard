@@ -72,3 +72,16 @@ def test_blueprint_sqlite_failure_falls_back_without_authorizing():
         result = module.candidatos_destinatarios(48786)
     assert result["candidatos"] == ["cliente@exemplo.com"]
     assert result["estado_blueprint"] == "INDISPONIVEL_RuntimeError"
+
+def test_old_mysql_snapshot_resolves_client_from_redmine_custom_field():
+    issue = {"id": 50318, "subject": "Habilitação", "description": "",
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "SUPERMERCADOS MAMBO"}]}
+    stored = {"chamado": {"payload_json": issue, "cliente": None}}
+    with patch.object(module, "carregar_snapshot", return_value=stored), \
+         patch.object(module, "selecionar_contatos_cliente", return_value=[
+             {"email": "gerente@cliente.com"}]) as selector, \
+         patch.object(module, "_extrair_dados", return_value={"emails": []}):
+        result = module.candidatos_destinatarios(50318)
+    selector.assert_called_once_with("SUPERMERCADOS MAMBO", limite=10)
+    assert result["cliente_blueprint"] == "SUPERMERCADOS MAMBO"
+    assert result["candidatos"] == ["gerente@cliente.com"]
