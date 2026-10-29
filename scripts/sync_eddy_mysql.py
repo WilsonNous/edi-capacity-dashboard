@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
 from ednna.mysql_snapshot_repository import salvar_snapshot
 from ednna.mysql_storage import connect
+from ednna.mysql_redmine_catalog import mapa_persistido
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
 from ednna.redmine_shared_inventory import confirmed_inventory_for_mysql
 
@@ -47,7 +48,10 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     if len(ids) != len(set(ids)):
         raise ValueError("IDs duplicados no Redmine; MySQL preservado")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # Resolve client option IDs once per cycle, never guess unknown names.
+    mapa_clientes = mapa_persistido(1)
     gravados = 0
+    clientes_nao_resolvidos = set()
     inicio_mysql = time.monotonic()
     duracao_preparacao_mysql_s = 0.0
     duracao_upsert_mysql_s = 0.0
@@ -57,9 +61,15 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
       with conn.cursor() as cursor:
        for issue in chamados:
         inicio_preparacao = time.monotonic()
+        valores = next((f.get("value") for f in issue.get("custom_fields", []) if str(f.get("id")) == "1"), None)
+        codigos = [str(v).strip() for v in (valores if isinstance(valores, list) else [valores]) if v not in (None, "")]
+        nomes = [mapa_clientes.get(c) for c in codigos]
+        if any(nome is None for nome in nomes):
+            clientes_nao_resolvidos.update(c for c in codigos if c not in mapa_clientes)
+        cliente = nomes[0] if len(nomes) == 1 and nomes[0] else None
         row = {
             "id": int(issue["id"]),
-            "cliente": None,
+            "cliente": cliente,
             "origem": None,
             "responsavel": (issue.get("assigned_to") or {}).get("name"),
             "projeto": (issue.get("project") or {}).get("name"),
