@@ -12,7 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from datetime import datetime, timezone
-from ednna.mysql_snapshot_repository import salvar_snapshot
+from ednna.mysql_snapshot_repository import _upsert, CHAMADO_FIELDS
 from ednna.mysql_storage import connect
 from ednna.mysql_redmine_catalog import mapa_persistido
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
@@ -59,6 +59,9 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
     with connect() as conn:
       duracao_conexao_mysql_s = round(time.monotonic() - inicio_mysql, 3)
       with conn.cursor() as cursor:
+       placeholders = ", ".join(["%s"] * len(ids))
+       cursor.execute(f"SELECT id, payload_json FROM eddy_chamados WHERE id IN ({placeholders}) FOR UPDATE", tuple(ids))
+       anteriores = {int(i): payload for i, payload in cursor.fetchall()}
        for issue in chamados:
         inicio_preparacao = time.monotonic()
         valores = next((f.get("value") for f in issue.get("custom_fields", []) if str(f.get("id")) == "1"), None)
@@ -85,7 +88,16 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
         }
         duracao_preparacao_mysql_s += time.monotonic() - inicio_preparacao
         inicio_upsert = time.monotonic()
-        salvar_snapshot(row, cursor=cursor)
+        anterior = anteriores.get(row["id"])
+        if anterior:
+            try:
+                payload_anterior = json.loads(anterior) if isinstance(anterior, str) else anterior
+            except (TypeError, ValueError):
+                payload_anterior = {}
+            if (isinstance(payload_anterior, dict) and payload_anterior.get("_eddy_journals_completos") is True
+                and str(payload_anterior.get("updated_on") or "") == str(issue.get("updated_on") or "")):
+                row["payload_json"] = payload_anterior
+        _upsert(cursor, "eddy_chamados", CHAMADO_FIELDS, row)
         duracao_upsert_mysql_s += time.monotonic() - inicio_upsert
         gravados += 1
       inicio_fechamento_mysql = time.monotonic()
