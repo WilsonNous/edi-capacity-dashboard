@@ -19,7 +19,8 @@ class CorruptSQLiteStartupTest(unittest.TestCase):
                 env=env, capture_output=True, text=True, timeout=15,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("SQLite indisponivel", result.stdout)
+            self.assertNotIn("SQLite indisponivel", result.stdout)
+            self.assertEqual(path.read_bytes(), b"not a valid sqlite database")
 
     def test_existing_corruption_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
