@@ -187,7 +187,7 @@ def registrar_confirmacao_revisada(*, message_id: str, revisado_por: str) -> dic
         with conn.cursor() as cur:
             cur.execute("""SELECT COUNT(*) FROM eddy_external_evidence
                 WHERE chamado_id=%s AND source='GRAPH'
-                AND evidence_type='INBOX_REPLY' AND evidence_key=%s""",
+                AND evidence_type='INBOX_REPLY' AND external_id=%s""",
                 (ISSUE_ID, message_id))
             if not int(cur.fetchone()[0]):
                 raise RuntimeError("Mensagem Graph nao conciliada; nao confirmar")
