@@ -1,7 +1,6 @@
 """Read-only VR01 follow-up scheduler using confirmed MySQL dispatch evidence.
 
-A 48-hour deadline is only meaningful after a Graph-confirmed send. Inbox
-replies suspend follow-up. No outbound calls or Redmine writes are performed.
+A 48-hour deadline is only meaningful after a Graph-confirmed send. Inbox replies require authorization review; a mere reply never proves portal authorization. No outbound calls or Redmine writes are performed.
 """
 from __future__ import annotations
 
@@ -46,7 +45,10 @@ def listar_followups_vr01(*, agora=None, limit=200) -> dict:
                 )
                 reply_count = int(cur.fetchone()[0])
                 if reply_count:
-                    results.append({"chamado_id": int(cid), "situacao": "RESPOSTA_RECEBIDA"})
+                    results.append({"chamado_id": int(cid),
+                                    "situacao": "AGUARDA_CLASSIFICACAO_AUTORIZACAO",
+                                    "respostas_recebidas": reply_count,
+                                    "execucao_externa": False})
                     continue
                 deadline = _utc(when) + timedelta(hours=48)
                 results.append({"chamado_id": int(cid),
