@@ -75,6 +75,23 @@ def executar_uma_vez() -> dict:
 
         }, ensure_ascii=False, default=str),
     )
+    # Opt-in pilot observation only. Never advance phases, dispatch mail, or
+    # modify Redmine from this autonomous scheduler.
+    if os.getenv("EDDY_VR01_PILOT_OBSERVE", "false").lower() == "true":
+        try:
+            from ednna.eddy_vr01_integrated_scheduler import ciclo_piloto
+            pilot = ciclo_piloto(execute=False)
+            LOG.info("[EDDY-VR01-PILOT] %s", json.dumps({
+                "chamado_id": pilot.get("chamado_id", 50318),
+                "fase": pilot.get("fase"),
+                "acao": pilot.get("acao"),
+                "estado": pilot.get("estado"),
+                "followup_situacao": (pilot.get("followup") or {}).get("situacao"),
+                "execucao_externa": False,
+            }, ensure_ascii=False))
+        except Exception as exc:
+            LOG.warning("[EDDY-VR01-PILOT] observacao indisponivel: %s",
+                        type(exc).__name__)
     return result
 
 
