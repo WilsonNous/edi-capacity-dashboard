@@ -10,14 +10,14 @@ from __future__ import annotations
 import argparse
 import json
 
-from ednna.eddy_vr01_integrated import planejar_vr01
+from ednna.eddy_vr01_integrated_scheduler import ciclo_piloto
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", default=True)
     args = parser.parse_args()
-    print(json.dumps(planejar_vr01(execute=False), ensure_ascii=False, default=str))
+    print(json.dumps(ciclo_piloto(execute=False), ensure_ascii=False, default=str))
 
 
 if __name__ == "__main__":
