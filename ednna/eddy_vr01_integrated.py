@@ -235,7 +235,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     if row["operacao_pendente"]:
         return {"estado": "AGUARDA_RECONCILIACAO_MANUAL", "operacao": row["operacao_pendente"], "externo": False}
     phase = VR01State(row["fase"])
-    bp = _valid_bp() if phase == VR01State.AGUARDA_CONTATO_BP else None
+    bp = _valid_bp() if phase in (VR01State.AGUARDA_CONTATO_BP, VR01State.SOLICITACAO_ENVIADA) else None
     evidence = VR01Evidence(
         original_owner_id=ORIGINAL_OWNER_ID, eddy_owner_id=eddy_id,
         redmine_assignee_id=_assignee(issue), redmine_snapshot_fresh=True,
