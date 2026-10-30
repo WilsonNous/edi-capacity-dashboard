@@ -105,7 +105,7 @@ def importar_participantes_sqlite(caminho, *, aplicar=False):
     return {"modo": "IMPORTADO", "participantes": len(rows), "mysql_escritas": len(rows)}
 
 
-def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False):
+def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_imported=False):
     """Read Redmine attachments and reuse Blueprint parsers; never open SQLite.
 
     pilotos: mapping issue_id -> verified client label. Read-only unless aplicar.
@@ -137,6 +137,24 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False):
                     continue
                 attachment_id = int(attachment.get("id") or 0)
                 try:
+                    if aplicar and skip_imported and attachment_id:
+                        with connect() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    "SELECT COUNT(*) FROM eddy_blueprint_participants "
+                                    "WHERE attachment_id=%s AND chamado_id=%s "
+                                    "AND cliente=%s AND ativo=1",
+                                    (attachment_id, issue_id, cliente),
+                                )
+                                existing = int(cur.fetchone()[0])
+                        if existing:
+                            results.append({
+                                "chamado_id": issue_id, "cliente": cliente,
+                                "attachment_id": attachment_id,
+                                "status": "JA_IMPORTADO",
+                                "participantes": existing,
+                            })
+                            continue
                     data = baixar_anexo_redmine(str(attachment.get("content_url") or ""))
                     abas = ler_excel(data, filename)
                     if not _eh_blueprint(filename, list(abas)):
@@ -204,7 +222,8 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False):
     return {
         "modo": "APPLY" if aplicar else "DRY_RUN",
         "mysql_escritas_habilitadas": bool(aplicar),
-        "participantes_processados": sum(r.get("participantes", 0) for r in results),
+        "participantes_processados": sum(r.get("participantes", 0) for r in results if r.get("status") != "JA_IMPORTADO"),
+        "participantes_reutilizados": sum(r.get("participantes", 0) for r in results if r.get("status") == "JA_IMPORTADO"),
         "resultados": results,
         "redmine_escritas": 0,
         "emails_enviados": 0,
