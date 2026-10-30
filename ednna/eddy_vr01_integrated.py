@@ -42,7 +42,7 @@ EVENT_DDL = """CREATE TABLE IF NOT EXISTS eddy_vr01_lifecycle_events (
  chamado_id BIGINT NOT NULL,
  evento VARCHAR(64) NOT NULL,
  referencia VARCHAR(191) NULL,
- ocorrido_em TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+ ocorrido_em DATETIME(6) NOT NULL,
  UNIQUE KEY uq_vr01_evento (chamado_id, evento, referencia)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
 
@@ -144,8 +144,8 @@ def _event(name: str, reference: str) -> None:
         with conn.cursor() as cur:
             cur.execute(EVENT_DDL)
             cur.execute("""INSERT IGNORE INTO eddy_vr01_lifecycle_events
-                (chamado_id, evento, referencia) VALUES (%s,%s,%s)""",
-                (ISSUE_ID, name, reference[:191]))
+                (chamado_id, evento, referencia, ocorrido_em) VALUES (%s,%s,%s,%s)""",
+                (ISSUE_ID, name, reference[:191], datetime.now(timezone.utc).replace(tzinfo=None)))
 
 
 def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
