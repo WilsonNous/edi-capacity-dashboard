@@ -172,6 +172,35 @@ def _approval(operation: str, approvals: dict, issue: dict) -> None:
         raise PermissionError("Versao Redmine nao aprovada")
 
 
+def registrar_confirmacao_revisada(*, message_id: str, revisado_por: str) -> dict:
+    """Human-reviewed positive authorization evidence, never inferred from any reply.
+
+    Only an actual Graph INBOX_REPLY evidence row for this issue is accepted.
+    This is a MySQL evidence update, not a Redmine write or outgoing email.
+    """
+    if not message_id or not revisado_por or len(message_id) > 191:
+        raise ValueError("Referencia de resposta e revisor obrigatorios")
+    row = _load()
+    if not row or row["fase"] != VR01State.AGUARDA_CONFIRMACAO_CLIENTE.value:
+        raise RuntimeError("Chamado nao aguarda confirmacao")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT COUNT(*) FROM eddy_external_evidence
+                WHERE chamado_id=%s AND source='GRAPH'
+                AND evidence_type='INBOX_REPLY' AND evidence_key=%s""",
+                (ISSUE_ID, message_id))
+            if not int(cur.fetchone()[0]):
+                raise RuntimeError("Mensagem Graph nao conciliada; nao confirmar")
+            cur.execute("""UPDATE eddy_vr01_lifecycle_audit
+                SET autorizacao_confirmada=1, confirmacao_evidence_id=%s
+                WHERE chamado_id=%s AND fase=%s AND autorizacao_confirmada=0""",
+                (message_id, ISSUE_ID, VR01State.AGUARDA_CONFIRMACAO_CLIENTE.value))
+            if cur.rowcount != 1:
+                raise RuntimeError("Confirmacao ja registrada ou estado mudou")
+    _event("AUTORIZACAO_CONFIRMADA", f"{message_id} revisado por {revisado_por}")
+    return {"chamado_id": ISSUE_ID, "estado": "AUTORIZACAO_CONFIRMADA_REVISADA"}
+
+
 def _timeline() -> str:
     with connect() as conn:
         with conn.cursor() as cur:
