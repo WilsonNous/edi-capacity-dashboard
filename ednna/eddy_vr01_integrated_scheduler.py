@@ -58,4 +58,44 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     if plan.get("acao") != "ACOMPANHAR_E_COBRAR":
         return plan
     followup = planejar_followup_piloto(agora=agora)
-    return {**plan, "followup": followup, "envios_realizados": 0}
+    if not execute or followup["situacao"] != "FOLLOWUP_VENCIDO":
+        return {**plan, "followup": followup, "envios_realizados": 0}
+    from ednna.eddy_vr01_integrated import (
+        _approval, _reserve, _advance, _event, _load, _read_issue,
+    )
+    from ednna.eddy_vr_readiness import verificar_prontidao_vr01
+    from ednna.email_sender import enviar_email_graph, localizar_email_enviado
+    import os
+    issue = _read_issue(ISSUE_ID)
+    if not verificar_prontidao_vr01()["pronto"]:
+        return {**plan, "followup": followup, "estado": "BLOQUEADO_PRONTIDAO"}
+    approved = (approvals or {}).get("FOLLOWUP_CLIENTE")
+    _approval("FOLLOWUP_CLIENTE", approvals or {}, issue)
+    row = _load()
+    if not row or not row["destinatario"] or not row["bp_source_id"]:
+        raise RuntimeError("Contato BP de origem nao comprovada")
+    subject = str(approved.get("subject") or "")
+    if not subject.startswith(f"[EDDY VR01] #{ISSUE_ID} - Follow-up ") or len(subject) > 180:
+        raise PermissionError("Assunto unico do follow-up nao aprovado")
+    if approved.get("to", "").lower() != row["destinatario"].lower():
+        raise PermissionError("Destinatario divergente do BP validado")
+    if not _reserve("AGUARDA_CONFIRMACAO_CLIENTE", "FOLLOWUP_CLIENTE"):
+        return {**plan, "estado": "AGUARDA_RECONCILIACAO"}
+    # Reservation is deliberately retained on any uncertain send result.
+    sender = os.environ["EDNNA_EMAIL_FROM"]
+    if localizar_email_enviado(remetente=sender, assunto=subject):
+        raise RuntimeError("Follow-up anterior detectado: reconciliar")
+    enviar_email_graph(remetente=sender, para=[row["destinatario"]], cc=[],
+        assunto=subject,
+        corpo=("Retomamos a solicitacao de autorizacao no portal VR Beneficios "
+               "para o estabelecimento 71676316003323. Por favor, confirme "
+               "quando a autorizacao de envio dos arquivos a Netunna for concluida."),
+        chamado_id=ISSUE_ID)
+    sent = localizar_email_enviado(remetente=sender, assunto=subject)
+    if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
+        raise RuntimeError("Follow-up pendente de conciliacao Graph")
+    _event("FOLLOWUP_CLIENTE", str(sent.get("internetMessageId") or sent["id"]))
+    _advance("AGUARDA_CONFIRMACAO_CLIENTE", "FOLLOWUP_CLIENTE",
+             "AGUARDA_CONFIRMACAO_CLIENTE")
+    return {**plan, "followup": followup, "estado": "FOLLOWUP_CONFIRMADO",
+            "envios_realizados": 1}
