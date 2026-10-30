@@ -103,3 +103,109 @@ def importar_participantes_sqlite(caminho, *, aplicar=False):
                     attachment_id=VALUES(attachment_id),
                     importado_em=VALUES(importado_em)""", row)
     return {"modo": "IMPORTADO", "participantes": len(rows), "mysql_escritas": len(rows)}
+
+
+def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False):
+    """Read Redmine attachments and reuse Blueprint parsers; never open SQLite.
+
+    pilotos: mapping issue_id -> verified client label. Read-only unless aplicar.
+    """
+    import hashlib
+    from pathlib import Path
+    from ednna.blueprint_knowledge import (
+        ler_excel, _eh_blueprint, _norm, _dict_rows, _valor,
+        _email_valido, _participantes_legado_id_projeto,
+    )
+    from redmine_api import buscar_detalhes_chamado, baixar_anexo_redmine
+
+    def stable_id(*parts):
+        digest = hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).digest()
+        return int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)
+
+    results = []
+    for issue_id, cliente in pilotos.items():
+        issue_id = int(issue_id)
+        cliente = str(cliente or "").strip()
+        if not cliente:
+            results.append({"chamado_id": issue_id, "status": "CLIENTE_NAO_RESOLVIDO"})
+            continue
+        try:
+            issue = buscar_detalhes_chamado(issue_id, incluir_anexos=True, consulta_pontual=True)
+            for attachment in issue.get("attachments", []) or []:
+                filename = str(attachment.get("filename") or "")
+                if Path(filename).suffix.lower() not in (".xls", ".xlsx"):
+                    continue
+                attachment_id = int(attachment.get("id") or 0)
+                try:
+                    data = baixar_anexo_redmine(str(attachment.get("content_url") or ""))
+                    abas = ler_excel(data, filename)
+                    if not _eh_blueprint(filename, list(abas)):
+                        continue
+                    part_name = next((a for a in abas if _norm(a) == "PARTICIPANTES"), None)
+                    participantes = []
+                    if part_name:
+                        for item in _dict_rows(abas[part_name]):
+                            norm = {_norm(k): _valor(v) for k, v in item.items()}
+                            email = _email_valido(norm.get("E-MAIL") or norm.get("EMAIL"))
+                            if email:
+                                participantes.append({
+                                    "nome": norm.get("NOME", ""), "area": norm.get("AREA", ""),
+                                    "email": email, "telefone": norm.get("TELEFONE WAPP") or norm.get("TELEFONE") or "",
+                                    "andamento": norm.get("ANDAMENTO", ""),
+                                    "status_report": norm.get("STATUS REPORT", ""),
+                                })
+                    layout = "MODERNO" if participantes else "ID_PROJETO_LEGADO"
+                    if not participantes:
+                        participantes = _participantes_legado_id_projeto(abas)
+                    dedup = {p["email"].lower(): p for p in participantes if p.get("email")}
+                    digest = hashlib.sha256(data).hexdigest()
+                    documento_id = stable_id("documento", digest)
+                    rows = []
+                    for email, p in dedup.items():
+                        rows.append((
+                            stable_id("redmine", issue_id, attachment_id or digest, email),
+                            cliente, p.get("nome", ""), p.get("area", ""), email,
+                            p.get("telefone", ""), p.get("andamento", ""),
+                            p.get("status_report", ""), documento_id, issue_id, 1,
+                            filename, attachment_id or None,
+                        ))
+                    if aplicar and rows:
+                        preparar()
+                        with connect() as conn:
+                            with conn.cursor() as cur:
+                                cur.executemany("""
+                                    INSERT INTO eddy_blueprint_participants
+                                    (source_id, cliente, nome, area, email, telefone,
+                                     andamento, status_report, documento_id, chamado_id,
+                                     ativo, fonte_arquivo, attachment_id, importado_em)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,UTC_TIMESTAMP())
+                                    ON DUPLICATE KEY UPDATE
+                                    cliente=VALUES(cliente), nome=VALUES(nome),
+                                    area=VALUES(area), email=VALUES(email),
+                                    telefone=VALUES(telefone),
+                                    andamento=VALUES(andamento),
+                                    status_report=VALUES(status_report),
+                                    ativo=VALUES(ativo),
+                                    fonte_arquivo=VALUES(fonte_arquivo),
+                                    attachment_id=VALUES(attachment_id)
+                                """, rows)
+                    results.append({
+                        "chamado_id": issue_id, "cliente": cliente,
+                        "attachment_id": attachment_id, "arquivo": filename,
+                        "layout": layout, "participantes": len(rows),
+                        "status": "IMPORTADO" if aplicar else "DRY_RUN",
+                    })
+                except Exception as exc:
+                    results.append({"chamado_id": issue_id, "attachment_id": attachment_id,
+                                    "status": "ERRO_ANEXO", "erro": type(exc).__name__})
+        except Exception as exc:
+            results.append({"chamado_id": issue_id, "status": "ERRO_CHAMADO",
+                            "erro": type(exc).__name__})
+    return {
+        "modo": "APPLY" if aplicar else "DRY_RUN",
+        "mysql_escritas_habilitadas": bool(aplicar),
+        "participantes_processados": sum(r.get("participantes", 0) for r in results),
+        "resultados": results,
+        "redmine_escritas": 0,
+        "emails_enviados": 0,
+    }
