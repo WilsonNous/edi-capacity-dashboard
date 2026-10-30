@@ -42,7 +42,7 @@ def selecionar_contatos_cliente_mysql(cliente, limite=10, area_preferida="FINANC
         return "".join(ch for ch in text if not unicodedata.combining(ch))
     with connect() as conn:
         with conn.cursor() as cursor:
-            cursor.execute("""SELECT cliente, nome, area, email, telefone, andamento,
+            cursor.execute("""SELECT source_id, cliente, nome, area, email, telefone, andamento,
                 status_report, documento_id, chamado_id, ativo, fonte_arquivo,
                 attachment_id, importado_em
                 FROM eddy_blueprint_participants
