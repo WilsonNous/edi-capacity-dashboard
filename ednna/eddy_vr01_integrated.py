@@ -48,9 +48,17 @@ EVENT_DDL = """CREATE TABLE IF NOT EXISTS eddy_vr01_lifecycle_events (
 
 
 def _identity() -> int:
-    raw = os.getenv("EDDY_REDMINE_USER_ID", "")
+    """Reuse the institutional EDNNA Redmine identity; fail closed on conflicts."""
+    primary = os.getenv("REDMINE_EDNNA_USER_ID", "").strip()
+    legacy = os.getenv("EDDY_REDMINE_USER_ID", "").strip()
+    username = os.getenv("REDMINE_EDNNA_USERNAME", "").strip()
+    if username and username.casefold() != "ednna.ia":
+        raise ValueError("REDMINE_EDNNA_USERNAME divergente")
+    if primary and legacy and primary != legacy:
+        raise ValueError("IDs Redmine EDNNA/EDDY divergentes")
+    raw = primary or legacy
     if not raw.isdigit() or int(raw) in (0, ORIGINAL_OWNER_ID):
-        raise ValueError("EDDY_REDMINE_USER_ID nao identificado/valido")
+        raise ValueError("Identidade Redmine EDNNA nao identificada/valida")
     return int(raw)
 
 
