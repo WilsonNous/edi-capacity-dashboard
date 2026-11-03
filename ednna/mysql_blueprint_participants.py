@@ -131,10 +131,16 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
             continue
         try:
             issue = buscar_detalhes_chamado(issue_id, incluir_anexos=True, consulta_pontual=True)
-            for attachment in issue.get("attachments", []) or []:
+            attachments = issue.get("attachments", []) or []
+            if not attachments:
+                results.append({"chamado_id": issue_id, "cliente": cliente,
+                                "status": "SEM_ANEXOS_REDMINE", "participantes": 0})
+            excel_found = False
+            for attachment in attachments:
                 filename = str(attachment.get("filename") or "")
                 if Path(filename).suffix.lower() not in (".xls", ".xlsx"):
                     continue
+                excel_found = True
                 attachment_id = int(attachment.get("id") or 0)
                 try:
                     if aplicar and skip_imported and attachment_id:
@@ -216,6 +222,9 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                 except Exception as exc:
                     results.append({"chamado_id": issue_id, "attachment_id": attachment_id,
                                     "status": "ERRO_ANEXO", "erro": type(exc).__name__})
+            if attachments and not excel_found:
+                results.append({"chamado_id": issue_id, "cliente": cliente,
+                                "status": "SEM_ANEXOS_EXCEL", "participantes": 0})
         except Exception as exc:
             results.append({"chamado_id": issue_id, "status": "ERRO_CHAMADO",
                             "erro": type(exc).__name__})
