@@ -76,9 +76,9 @@ def candidatos_destinatarios(chamado_id: int) -> dict:
         if cliente:
             try:
                 bp_contatos = selecionar_contatos_cliente(cliente, limite=10)
-                bp_estado = "CONSULTADO" if bp_contatos else "SEM_PARTICIPANTES"
+                bp_estado = "CONSULTADO" if bp_contatos else "SEM_CONTATOS_PERSISTIDOS_MYSQL"
             except Exception as bp_exc:
-                bp_estado = "INDISPONIVEL_" + type(bp_exc).__name__
+                bp_estado = "CATALOGO_MYSQL_INDISPONIVEL_" + type(bp_exc).__name__
         dados = _extrair_dados({
             "subject": issue.get("subject") or "",
             "description": issue.get("description") or "",
