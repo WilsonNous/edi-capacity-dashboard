@@ -48,19 +48,9 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     # v3.34.5 — chamados já confirmados como terminais ficam fora dos ciclos
     # operacionais. Não repetimos GET/pre-flight a cada worker; uma carga fresca
     # do snapshot é responsável por reabilitar o chamado caso o estado mude.
-    try:
-        from ednna.acompanhamento_acoes import _conectar, inicializar_acompanhamento
-        inicializar_acompanhamento()
-        with _conectar() as _conn:
-            _conn.execute("""CREATE TABLE IF NOT EXISTS chamados_terminais_auditoria (
-                chamado_id INTEGER PRIMARY KEY, estado_redmine TEXT NOT NULL,
-                detectado_em TEXT NOT NULL, motivo TEXT NOT NULL
-            )""")
-            _row = _conn.execute("SELECT estado_redmine FROM chamados_terminais_auditoria WHERE chamado_id=?", (int(chamado_id),)).fetchone()
-        if _row and estado_terminal_nome(_row[0]):
-            return {"ok":True,"bloquear":True,"motivo":"ESTADO_TERMINAL_QUARENTENA","estado":str(_row[0]),"quarentena":True}
-    except Exception:
-        pass
+    # Legacy SQLite terminal quarantine is intentionally not consulted here.
+    # The Redmine fresh status remains authoritative; the hard-coded
+    # confirmed quarantine above is still enforced.
 
     # v3.34.3 — o pre-flight continua fail-safe, mas não fura o circuit breaker.
     # Se a origem está em cooldown, bloquear é mais seguro do que criar uma tempestade
@@ -95,18 +85,28 @@ def preflight_chamado_ativo(chamado_id: int) -> dict:
     return {"ok":True,"bloquear":False,"motivo":"ATIVO","estado":estado,"issue":issue}
 
 def registrar_auditoria_preflight(chamado_id: int, resultado: str, estado: str = "", motivo: str = "") -> None:
-    """Persiste a decisão de segurança sem depender do journal do chamado."""
-    try:
-        from ednna.acompanhamento_acoes import _conectar, _iso, _agora
-        with _conectar() as conn:
-            conn.execute("""CREATE TABLE IF NOT EXISTS auditoria_preflight (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, chamado_id INTEGER NOT NULL,
-                resultado TEXT NOT NULL, estado_redmine TEXT, motivo TEXT, criado_em TEXT NOT NULL
-            )""")
-            conn.execute("INSERT INTO auditoria_preflight(chamado_id,resultado,estado_redmine,motivo,criado_em) VALUES(?,?,?,?,?)",
-                         (int(chamado_id), str(resultado), str(estado or ""), str(motivo or ""), _iso(_agora())))
-    except Exception as exc:
-        print(f"[EDNNA] Auditoria pre-flight falhou | chamado={chamado_id} | {type(exc).__name__}: {exc}", flush=True)
+    """Audit preflight decisions in MySQL, never in legacy SQLite.
+
+    Audit failure must not silently authorize an external action. The caller's
+    Redmine preflight decision remains independent of persistence.
+    """
+    from ednna.mysql_storage import connect
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_preflight_audit (
+                id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                chamado_id BIGINT NOT NULL,
+                resultado VARCHAR(32) NOT NULL,
+                estado_redmine VARCHAR(191) NULL,
+                motivo VARCHAR(191) NULL,
+                criado_em DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+                KEY idx_preflight_issue (chamado_id, criado_em)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""INSERT INTO eddy_preflight_audit
+                (chamado_id, resultado, estado_redmine, motivo)
+                VALUES (%s, %s, %s, %s)""",
+                (int(chamado_id), str(resultado), str(estado or ""), str(motivo or "")))
+
 
 def validar_efeito_externo(chamado_id: int, acao: str) -> dict:
     """Barreira global imediatamente antes de qualquer efeito externo conhecido."""
