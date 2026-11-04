@@ -14,3 +14,9 @@ def test_existing_lifecycle_is_read_only():
     assert result["operacao_pendente"] == "BUSCAR_CONTATO_BP"
     assert result["externo"] is False
     assert result["fonte"] == "MYSQL_LOCAL"
+
+
+def test_completed_lifecycle_preserves_contract():
+    result = observational_state(50318, {"fase": "CONCLUIDO", "operacao_pendente": None})
+    assert result["acao"] == "CONCLUIDO"
+    assert result["externo"] is False
