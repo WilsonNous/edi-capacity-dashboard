@@ -36,14 +36,16 @@ def executar_uma_vez() -> dict:
             _LAST_BLUEPRINT_ATTEMPT = now
             LOG.info("[EDDY-VR01-BLUEPRINT-AUTO] tentativa_inicio chamado_id=50318")
             try:
-                from ednna.mysql_blueprint_participants import sincronizar_blueprints_redmine_mysql
-                bp = sincronizar_blueprints_redmine_mysql(
+                from ednna.mysql_blueprint_participants import descobrir_e_sincronizar_participantes_mysql
+                bp = descobrir_e_sincronizar_participantes_mysql(
                     {50318: "SUPERMERCADOS MAMBO"}, aplicar=True, skip_imported=True
                 )
                 LOG.info("[EDDY-VR01-BLUEPRINT-AUTO] %s", json.dumps({
                     "chamado_id": 50318,
                     "participantes_processados": bp.get("participantes_processados", 0),
                     "participantes_reutilizados": bp.get("participantes_reutilizados", 0),
+                    "fontes_descobertas": bp.get("fontes_descobertas", 0),
+                    "descoberta": bp.get("descoberta", []),
                     "resultados": bp.get("resultados", []),
                     "emails_enviados": 0,
                     "redmine_escritas": 0,
