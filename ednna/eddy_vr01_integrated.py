@@ -231,6 +231,12 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     No email text alone can set autorizacao_confirmada.
     """
     eddy_id = _identity()
+    # Observational cycles must not preflight Redmine every five minutes.
+    # External execution retains the mandatory fresh Redmine preflight below.
+    if not execute:
+        row = _load()
+        from ednna.redmine_collection_policy import observational_state
+        return observational_state(ISSUE_ID, row)
     issue = _read_issue(ISSUE_ID)
     row = _load()
     if row is None:
