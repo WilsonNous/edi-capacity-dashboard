@@ -13,6 +13,7 @@ import time
 from scripts.eddy_vr01_mysql_worker import executar_worker_vr01
 
 LOG = logging.getLogger("eddy.vr01.scheduler")
+_LAST_BLUEPRINT_ATTEMPT = 0.0
 
 
 def intervalo_segundos(raw: str | None) -> int:
@@ -26,6 +27,32 @@ def intervalo_segundos(raw: str | None) -> int:
 
 
 def executar_uma_vez() -> dict:
+    # Autonomous pilot Blueprint import: MySQL only; never writes Redmine or sends email.
+    # Rate limit independent of scheduler interval to avoid hammering unstable Redmine.
+    global _LAST_BLUEPRINT_ATTEMPT
+    if os.getenv("EDDY_VR01_BLUEPRINT_AUTO_SYNC", "true").lower() == "true":
+        now = time.monotonic()
+        if now - _LAST_BLUEPRINT_ATTEMPT >= 3600 or _LAST_BLUEPRINT_ATTEMPT == 0:
+            _LAST_BLUEPRINT_ATTEMPT = now
+            LOG.info("[EDDY-VR01-BLUEPRINT-AUTO] tentativa_inicio chamado_id=50318")
+            try:
+                from ednna.mysql_blueprint_participants import sincronizar_blueprints_redmine_mysql
+                bp = sincronizar_blueprints_redmine_mysql(
+                    {50318: "SUPERMERCADOS MAMBO"}, aplicar=True, skip_imported=True
+                )
+                LOG.info("[EDDY-VR01-BLUEPRINT-AUTO] %s", json.dumps({
+                    "chamado_id": 50318,
+                    "participantes_processados": bp.get("participantes_processados", 0),
+                    "participantes_reutilizados": bp.get("participantes_reutilizados", 0),
+                    "resultados": bp.get("resultados", []),
+                    "emails_enviados": 0,
+                    "redmine_escritas": 0,
+                }, ensure_ascii=False, default=str))
+            except Exception as exc:
+                LOG.warning("[EDDY-VR01-BLUEPRINT-AUTO] falha segura: %s",
+                            type(exc).__name__)
+
+    LOG.info("[EDDY-VR01-SCHEDULER] ciclo_inicio")
     result = executar_worker_vr01()
     sync = result.get("sincronizacao") or {}
     offline = result.get("propostas")
@@ -92,6 +119,7 @@ def executar_uma_vez() -> dict:
         except Exception as exc:
             LOG.warning("[EDDY-VR01-PILOT] observacao indisponivel: %s",
                         type(exc).__name__)
+    LOG.info("[EDDY-VR01-SCHEDULER] ciclo_fim estado=%s", result.get("estado"))
     return result
 
 
@@ -106,6 +134,7 @@ def main() -> None:
             executar_uma_vez()
         except Exception as exc:
             LOG.exception("[EDDY-VR01-SCHEDULER] falha segura: %s", type(exc).__name__)
+        LOG.info("[EDDY-VR01-SCHEDULER] heartbeat ativo=true proximo_ciclo_em_s=%s", interval)
         time.sleep(interval)
 
 
