@@ -239,46 +239,98 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
     }
 
 
-def descobrir_e_sincronizar_participantes_mysql(chamados, *, aplicar=False, skip_imported=True):
-    """Resolve BP e relacionamentos por chamado, depois importa para MySQL.
+def _ids_relacoes_redmine(issue):
+    """IDs de relações Redmine sem consultar cache ou SQLite."""
+    atual = int(issue.get("id") or 0)
+    ids = set()
+    for rel in issue.get("relations", []) or []:
+        origem = int(rel.get("issue_id") or 0)
+        destino = int(rel.get("issue_to_id") or 0)
+        outro = destino if origem == atual else origem if destino == atual else 0
+        if outro > 0:
+            ids.add(outro)
+    return ids
 
-    A descoberta e reutilizavel por qualquer motor EDI; nao depende da VR01.
-    Em falha de contexto, nao assume que o chamado nao possui Blueprint.
-    Nao envia email nem escreve no Redmine.
+
+def _eh_bp_redmine(issue):
+    """Identifica a raiz BP/Novo Cliente sem dependências de persistência."""
+    def norm(value):
+        texto = unicodedata.normalize("NFKD", str(value or "").upper())
+        return "".join(c for c in texto if not unicodedata.combining(c))
+    tracker = norm((issue.get("tracker") or {}).get("name"))
+    assunto = norm(issue.get("subject"))
+    return "NOVO CLIENTE" in tracker or "NOVO CLIENTE" in assunto
+
+
+def _descobrir_fontes_redmine(chamado_id):
+    """Consulta raiz, relações diretas e relações do BP; falha fechada.
+
+    Não usa ednna.contexto_relacionamentos (cache SQLite). Não interpreta
+    eventos de negócio: qualquer anexo Excel relacionado pode conter BP.
     """
-    from ednna.contexto_relacionamentos import analisar_contexto_operacional
+    from redmine_api import buscar_detalhes_chamado
 
+    def buscar(iid):
+        return buscar_detalhes_chamado(
+            int(iid), incluir_relacoes=True, consulta_pontual=False,
+            timeout=(4, 8), tentativas=1,
+        )
+
+    raiz = buscar(chamado_id)
+    if int(raiz.get("id") or 0) != int(chamado_id):
+        raise ValueError("REDMINE_ID_INCONSISTENTE")
+    ids = {int(chamado_id)}
+    bp = raiz if _eh_bp_redmine(raiz) else None
+    diretos = _ids_relacoes_redmine(raiz)
+    ids.update(diretos)
+    for rid in sorted(diretos):
+        relacionado = buscar(rid)
+        if int(relacionado.get("id") or 0) != rid:
+            raise ValueError("REDMINE_RELACAO_INCONSISTENTE")
+        if bp is None and _eh_bp_redmine(relacionado):
+            bp = relacionado
+    if bp:
+        ids.update(_ids_relacoes_redmine(bp))
+    return ids, int(bp["id"]) if bp else None
+
+
+def descobrir_e_sincronizar_participantes_mysql(chamados, *, aplicar=False, skip_imported=True):
+    """Descoberta Redmine sem SQLite; MySQL apenas na importação autorizada.
+
+    Os clientes são rótulos verificados pelo chamador. Falha em uma relação
+    impede importação parcial daquele chamado. Não envia emails nem escreve
+    no Redmine. Não habilita execução externa.
+    """
     fontes = {}
+    conflitos = set()
     diagnosticos = []
     for chamado_id, cliente_esperado in chamados.items():
         chamado_id = int(chamado_id)
+        cliente = str(cliente_esperado or "").strip()
+        if not cliente:
+            diagnosticos.append({"chamado_id": chamado_id, "status": "SEM_CLIENTE"})
+            continue
         try:
-            contexto = analisar_contexto_operacional(chamado_id)
-            cliente = str(contexto.get("cliente") or cliente_esperado or "").strip()
-            if not cliente:
-                diagnosticos.append({"chamado_id": chamado_id, "status": "SEM_CLIENTE"})
-                continue
-            ids = {chamado_id}
-            if contexto.get("blueprint_id"):
-                ids.add(int(contexto["blueprint_id"]))
-            ids.update(int(e["id"]) for e in contexto.get("eventos", []) if e.get("id"))
+            ids, bp_id = _descobrir_fontes_redmine(chamado_id)
             for origem_id in sorted(ids):
                 anterior = fontes.get(origem_id)
                 if anterior and anterior != cliente:
+                    conflitos.add(origem_id)
                     diagnosticos.append({"chamado_id": origem_id, "status": "CLIENTE_CONFLITANTE"})
-                    continue
-                fontes[origem_id] = cliente
+                else:
+                    fontes[origem_id] = cliente
             diagnosticos.append({"chamado_id": chamado_id, "status": "CONTEXTO_RESOLVIDO",
-                                 "blueprint_id": contexto.get("blueprint_id"),
-                                 "fontes": len(ids)})
+                                 "blueprint_id": bp_id, "fontes": len(ids)})
         except Exception as exc:
             diagnosticos.append({"chamado_id": chamado_id, "status": "CONTEXTO_INDISPONIVEL",
                                  "erro": type(exc).__name__})
+    for origem_id in conflitos:
+        fontes.pop(origem_id, None)
     resultado = sincronizar_blueprints_redmine_mysql(
         fontes, aplicar=aplicar, skip_imported=skip_imported
     ) if fontes else {"modo": "SEM_FONTES", "resultados": [],
-                       "participantes_processados": 0, "participantes_reutilizados": 0,
-                       "redmine_escritas": 0, "emails_enviados": 0}
+                      "participantes_processados": 0, "participantes_reutilizados": 0,
+                      "redmine_escritas": 0, "emails_enviados": 0}
     resultado["descoberta"] = diagnosticos
     resultado["fontes_descobertas"] = len(fontes)
     return resultado
