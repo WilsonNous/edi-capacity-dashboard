@@ -237,3 +237,48 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
         "redmine_escritas": 0,
         "emails_enviados": 0,
     }
+
+
+def descobrir_e_sincronizar_participantes_mysql(chamados, *, aplicar=False, skip_imported=True):
+    """Resolve BP e relacionamentos por chamado, depois importa para MySQL.
+
+    A descoberta e reutilizavel por qualquer motor EDI; nao depende da VR01.
+    Em falha de contexto, nao assume que o chamado nao possui Blueprint.
+    Nao envia email nem escreve no Redmine.
+    """
+    from ednna.contexto_relacionamentos import analisar_contexto_operacional
+
+    fontes = {}
+    diagnosticos = []
+    for chamado_id, cliente_esperado in chamados.items():
+        chamado_id = int(chamado_id)
+        try:
+            contexto = analisar_contexto_operacional(chamado_id)
+            cliente = str(contexto.get("cliente") or cliente_esperado or "").strip()
+            if not cliente:
+                diagnosticos.append({"chamado_id": chamado_id, "status": "SEM_CLIENTE"})
+                continue
+            ids = {chamado_id}
+            if contexto.get("blueprint_id"):
+                ids.add(int(contexto["blueprint_id"]))
+            ids.update(int(e["id"]) for e in contexto.get("eventos", []) if e.get("id"))
+            for origem_id in sorted(ids):
+                anterior = fontes.get(origem_id)
+                if anterior and anterior != cliente:
+                    diagnosticos.append({"chamado_id": origem_id, "status": "CLIENTE_CONFLITANTE"})
+                    continue
+                fontes[origem_id] = cliente
+            diagnosticos.append({"chamado_id": chamado_id, "status": "CONTEXTO_RESOLVIDO",
+                                 "blueprint_id": contexto.get("blueprint_id"),
+                                 "fontes": len(ids)})
+        except Exception as exc:
+            diagnosticos.append({"chamado_id": chamado_id, "status": "CONTEXTO_INDISPONIVEL",
+                                 "erro": type(exc).__name__})
+    resultado = sincronizar_blueprints_redmine_mysql(
+        fontes, aplicar=aplicar, skip_imported=skip_imported
+    ) if fontes else {"modo": "SEM_FONTES", "resultados": [],
+                       "participantes_processados": 0, "participantes_reutilizados": 0,
+                       "redmine_escritas": 0, "emails_enviados": 0}
+    resultado["descoberta"] = diagnosticos
+    resultado["fontes_descobertas"] = len(fontes)
+    return resultado
