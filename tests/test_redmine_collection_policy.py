@@ -17,6 +17,6 @@ def test_existing_lifecycle_is_read_only():
 
 
 def test_completed_lifecycle_preserves_contract():
-    result = observational_state(50318, {"fase": "CONCLUIDO", "operacao_pendente": None})
+    result = observational_state(50318, {"fase": "NOTIFICACAO_INTERNA_CONFIRMADA", "notificado": 1, "operacao_pendente": None})
     assert result["acao"] == "CONCLUIDO"
     assert result["externo"] is False
