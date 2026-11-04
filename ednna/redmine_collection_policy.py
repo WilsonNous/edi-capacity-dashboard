@@ -18,7 +18,7 @@ def observational_state(chamado_id: int, row: dict | None) -> dict:
                 "externo": False, "fonte": "MYSQL_LOCAL"}
     fase = row.get("fase")
     return {"chamado_id": int(chamado_id),
-            **({"acao": "CONCLUIDO"} if fase == "CONCLUIDO" else {}),
+            **({"acao": "CONCLUIDO"} if fase == "NOTIFICACAO_INTERNA_CONFIRMADA" and bool(row.get("notificado")) else {}),
             "fase": fase,
             "estado": "OBSERVACAO_LOCAL",
             "operacao_pendente": row.get("operacao_pendente"),
