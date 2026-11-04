@@ -20,9 +20,9 @@ def test_descobre_bp_e_todas_relacoes_sem_sqlite():
     issues = {50318: _issue(50318, [_rel(50318, 111), _rel(50318, 222)]),
               111: _issue(111, [_rel(111, 50318), _rel(111, 333)], bp=True),
               222: _issue(222)}
-    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \\
+    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \
          patch("ednna.contexto_relacionamentos.analisar_contexto_operacional",
-               side_effect=AssertionError("SQLite must not be consulted")), \\
+               side_effect=AssertionError("SQLite must not be consulted")), \
          patch("ednna.mysql_blueprint_participants.sincronizar_blueprints_redmine_mysql",
                return_value={"participantes_processados": 2, "resultados": []}) as sync:
         resultado = descobrir_e_sincronizar_participantes_mysql({50318: "MAMBO"}, aplicar=True)
@@ -33,7 +33,7 @@ def test_descobre_bp_e_todas_relacoes_sem_sqlite():
 
 
 def test_falha_remota_nao_importa_parcial():
-    with patch("redmine_api.buscar_detalhes_chamado", side_effect=TimeoutError), \\
+    with patch("redmine_api.buscar_detalhes_chamado", side_effect=TimeoutError), \
          patch("ednna.mysql_blueprint_participants.sincronizar_blueprints_redmine_mysql") as sync:
         resultado = descobrir_e_sincronizar_participantes_mysql({50318: "MAMBO"})
     sync.assert_not_called()
@@ -43,7 +43,7 @@ def test_falha_remota_nao_importa_parcial():
 
 def test_multiplos_clientes_sem_confundir_origens():
     issues = {1: _issue(1), 2: _issue(2)}
-    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \\
+    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \
          patch("ednna.mysql_blueprint_participants.sincronizar_blueprints_redmine_mysql",
                return_value={"resultados": []}) as sync:
         resultado = descobrir_e_sincronizar_participantes_mysql({1: "MAMBO", 2: "OUTRO"})
@@ -54,7 +54,7 @@ def test_multiplos_clientes_sem_confundir_origens():
 def test_cliente_conflitante_nao_importado():
     issues = {1: _issue(1, [_rel(1, 9)]), 2: _issue(2, [_rel(2, 9)]),
               9: _issue(9)}
-    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \\
+    with patch("redmine_api.buscar_detalhes_chamado", side_effect=lambda i, **kw: issues[i]), \
          patch("ednna.mysql_blueprint_participants.sincronizar_blueprints_redmine_mysql",
                return_value={"resultados": []}) as sync:
         resultado = descobrir_e_sincronizar_participantes_mysql({1: "MAMBO", 2: "OUTRO"})
