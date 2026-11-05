@@ -61,10 +61,8 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
          patch("ednna.eddy_vr01_integrated._event",
                side_effect=lambda *a: events.append(a)), \
          patch("ednna.eddy_vr01_integrated._timeline", return_value="historico auditado"), \
-         patch("ednna.eddy_vr_readiness.verificar_prontidao_vr01",
-               return_value={"pronto": True}), \
-         patch("ednna.eddy_vr01_integrated.verificar_prontidao_vr01",
-               return_value={"pronto": True}), \
+         patch("ednna.eddy_vr01_integrated.verificar_prontidao_operacao_vr01",
+               return_value={"pronto": True, "bloqueios": []}), \
          patch("ednna.email_sender.enviar_email_graph", side_effect=send), \
          patch("ednna.email_sender.localizar_email_enviado", side_effect=locate), \
          patch.dict("os.environ", {"EDNNA_EMAIL_FROM": "eddy@example.invalid"}):
