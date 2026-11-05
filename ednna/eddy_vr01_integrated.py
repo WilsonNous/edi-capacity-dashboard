@@ -267,6 +267,33 @@ def _timeline() -> str:
     return "\n".join(parts)
 
 
+def reconciliar_assuncao_pendente() -> dict:
+    """Confirm an already-applied assignment without repeating the Redmine PUT.
+
+    On Redmine timeout or ambiguous ownership, preserve the reservation. Only
+    an observed EDDY assignment may close the pending MySQL operation.
+    """
+    row = _load()
+    if not row or row["fase"] != VR01State.PRONTO_PARA_ASSUMIR.value or row["operacao_pendente"] != "ASSUMIR_REDMINE":
+        return {"estado": "SEM_ASSUNCAO_PENDENTE", "externo": False}
+    eddy_id = _identity()
+    if row["original_owner_id"] != ORIGINAL_OWNER_ID or row["eddy_owner_id"] != eddy_id:
+        return {"estado": "BLOQUEADO_IDENTIDADE", "externo": False}
+    try:
+        issue = _read_issue(ISSUE_ID)
+    except Exception as exc:
+        return {"estado": "RECONCILIACAO_ADIADA", "motivo": type(exc).__name__, "externo": False}
+    assignee = _assignee(issue)
+    if assignee != eddy_id:
+        return {"estado": "AGUARDA_CONFIRMACAO_REDMINE", "responsavel_atual": assignee, "externo": False}
+    # A verified external state is the source of truth. The event is unique,
+    # and the phase update requires the original reservation atomically.
+    _event("ASSUNCAO_EDDY", str(eddy_id))
+    _advance(VR01State.PRONTO_PARA_ASSUMIR.value, "ASSUMIR_REDMINE",
+             VR01State.ASSUMIDO_EDDY.value)
+    return {"estado": "ASSUNCAO_RECONCILIADA", "responsavel_atual": eddy_id, "externo": False}
+
+
 def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> dict:
     """One pilot step per call. Default is read-only; never schedules itself.
 
@@ -290,7 +317,8 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     if row["original_owner_id"] != ORIGINAL_OWNER_ID or row["eddy_owner_id"] != eddy_id:
         return {"estado": "BLOQUEADO_IDENTIDADE", "externo": False}
     if row["operacao_pendente"]:
-        return {"estado": "AGUARDA_RECONCILIACAO_MANUAL", "operacao": row["operacao_pendente"], "externo": False}
+        return (reconciliar_assuncao_pendente() if row["operacao_pendente"] == "ASSUMIR_REDMINE"
+                else {"estado": "AGUARDA_RECONCILIACAO_MANUAL", "operacao": row["operacao_pendente"], "externo": False})
     phase = VR01State(row["fase"])
     bp = _valid_bp() if phase == VR01State.AGUARDA_CONTATO_BP else None
     evidence = VR01Evidence(
