@@ -90,6 +90,48 @@ def _valid_bp() -> dict | None:
     return matches[0] if len(matches) == 1 else None
 
 
+
+def _mambo_recipients() -> tuple[list[str], list[str]]:
+    """Resolve approved MAMBO recipients from MySQL; never send from this helper."""
+    from ednna.mysql_blueprint_participants import selecionar_contatos_cliente_mysql
+    client = "SUPERMERCADOS MAMBO"
+    contacts = selecionar_contatos_cliente_mysql(client, limite=100)
+    expected = {
+        "tais vieira", "henrique mota", "raiza vieira", "ingrid santos",
+        "agata palladino", "anderson cavalcanti", "wilamy tolentino",
+        "augusto silva", "claudimar freitas", "gustavo mengue",
+    }
+    by_name = {}
+    for contact in contacts:
+        name = str(contact.get("nome") or "").strip().casefold()
+        if name not in expected:
+            continue
+        email = str(contact.get("email") or "").strip().lower()
+        if not EMAIL_RE.fullmatch(email) or not all(
+            contact.get(key) for key in ("source_id", "documento_id", "chamado_id")
+        ):
+            raise RuntimeError("Contato MAMBO sem evidencia ou email valido")
+        if name in by_name and by_name[name] != email:
+            raise RuntimeError("Contato MAMBO ambiguo: " + name)
+        by_name[name] = email
+    if set(by_name) != expected:
+        raise RuntimeError("Matriz MAMBO incompleta; bloquear envio")
+    primary = by_name["tais vieira"]
+    approved = _valid_bp()
+    if not approved or str(approved["email"]).strip().lower() != primary:
+        raise RuntimeError("Gerente MAMBO nao aprovada no Blueprint")
+    internal = (
+        "bpo@netunna.com.br", "edi@netunna.com.br",
+        "suporte@netunna.com.br", "consultores@netunna.com.br",
+    )
+    cc = list(dict.fromkeys(
+        [by_name[name] for name in sorted(expected - {"tais vieira"})] + list(internal)
+    ))
+    if primary in cc or len(cc) != 13:
+        raise RuntimeError("Matriz de destinatarios MAMBO invalida")
+    return [primary], cc
+
+
 def _load() -> dict | None:
     with connect() as conn:
         with conn.cursor() as cur:
@@ -302,7 +344,8 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         # An already sent message is ambiguous unless correlated to this reservation.
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Mensagem anterior detectada; reconciliar")
-        enviar_email_graph(remetente=sender, para=[bp["email"]], cc=[],
+        para, cc = _mambo_recipients()
+        enviar_email_graph(remetente=sender, para=para, cc=cc,
                            assunto=subject, corpo=body, chamado_id=ISSUE_ID)
         sent = localizar_email_enviado(remetente=sender, assunto=subject)
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
