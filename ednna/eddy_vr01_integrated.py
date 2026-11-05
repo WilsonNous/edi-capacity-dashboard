@@ -52,8 +52,9 @@ def _identity() -> int:
     primary = os.getenv("REDMINE_EDNNA_USER_ID", "").strip()
     legacy = os.getenv("EDDY_REDMINE_USER_ID", "").strip()
     username = os.getenv("REDMINE_EDNNA_USERNAME", "").strip()
-    if username and username.casefold() != "ednna.ia":
-        raise ValueError("REDMINE_EDNNA_USERNAME divergente")
+    # Legacy environment key is retained; the Redmine account was renamed to eddy.ia.
+    if username and username.casefold() != "eddy.ia":
+        raise ValueError("REDMINE_EDNNA_USERNAME deve identificar eddy.ia")
     if primary and legacy and primary != legacy:
         raise ValueError("IDs Redmine EDNNA/EDDY divergentes")
     raw = primary or legacy
