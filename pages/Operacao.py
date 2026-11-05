@@ -147,8 +147,56 @@ with st.expander('🦾 Regra 01 · VR Benefícios · MySQL', expanded=True):
                 'Próximo follow-up': row.get('vencimento') or 'Não definido',
                 'Redmine': redmine_link(row.get('chamado_id')),
             } for row in vr_rows])
-            st.dataframe(vr_table, hide_index=True, width='stretch',
-                         column_config={'Redmine': st.column_config.LinkColumn('Redmine')})
+            st.caption('Selecione um chamado na grade para consultar o Redmine ao vivo. A consulta nao altera o chamado nem libera execucao externa.')
+            vr_selection = st.dataframe(
+                vr_table, hide_index=True, width='stretch',
+                column_config={'Redmine': st.column_config.LinkColumn('Redmine')},
+                on_select='rerun', selection_mode='single-row',
+                key='eddy_vr01_operacional_selecao',
+            )
+            selected_rows = vr_selection.selection.rows if vr_selection is not None else []
+            if selected_rows:
+                selected_issue = int(vr_table.iloc[selected_rows[0]]['Chamado'])
+                action_col, link_col = st.columns([2, 3])
+                with action_col:
+                    consultar = st.button(
+                        f'🔎 Consulta segura #{selected_issue}',
+                        key=f'eddy_vr01_consulta_segura_{selected_issue}',
+                    )
+                with link_col:
+                    st.markdown(f'[Abrir chamado #{selected_issue} no Redmine]({redmine_link(selected_issue)})')
+                if consultar:
+                    try:
+                        from ednna.eddy_vr01_integrated import _read_issue
+                        with st.spinner(f'Consultando #{selected_issue} no Redmine (somente leitura)...'):
+                            live_issue = _read_issue(selected_issue)
+                        owner = live_issue.get('assigned_to') or {}
+                        owner_id = owner.get('id')
+                        guidance = {
+                            166: 'EDDY consta como responsavel. Reconciliar a operacao pendente no MySQL antes de avancar; nao repetir a atribuicao.',
+                            97: 'Responsavel original permanece. A atribuicao nao foi confirmada. Manter a operacao pendente e solicitar reconciliacao supervisionada antes de nova tentativa.',
+                        }.get(owner_id, 'Responsavel divergente. Suspender qualquer atribuicao e investigar historico e auditoria.')
+                        st.session_state[f'eddy_vr01_consulta_resultado_{selected_issue}'] = {
+                            'chamado': live_issue.get('id'),
+                            'responsavel': owner.get('name') or 'Nao informado',
+                            'responsavel_id': owner_id,
+                            'atualizado_em': live_issue.get('updated_on'),
+                            'orientacao': guidance,
+                        }
+                    except Exception as exc:
+                        st.session_state[f'eddy_vr01_consulta_resultado_{selected_issue}'] = {
+                            'erro': f'{type(exc).__name__}: {exc}',
+                            'orientacao': 'Consulta inconclusiva. Nao repetir escritas nem limpar operacoes pendentes. Tente novamente mais tarde.',
+                        }
+                result = st.session_state.get(f'eddy_vr01_consulta_resultado_{selected_issue}')
+                if result:
+                    if result.get('erro'):
+                        st.warning(f"Consulta nao concluida: {result['erro']}")
+                    else:
+                        st.success(f"Chamado #{selected_issue} | Responsavel: {result['responsavel']} (ID {result['responsavel_id']}) | Atualizado: {result['atualizado_em']}")
+                    st.info('Proxima acao: ' + result['orientacao'])
+                    st.caption('Resultado da ultima consulta manual nesta sessao; nao e monitoramento continuo. Zero escritas Redmine/MySQL e zero envios.')
+
         else:
             st.info('Nenhum snapshot VR identificado no MySQL. Use Atualizar VR para consultar o Redmine.')
     except Exception as exc:
