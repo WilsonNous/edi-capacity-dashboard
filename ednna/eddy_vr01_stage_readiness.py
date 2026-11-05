@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from ednna.eddy_vr01_integrated import ISSUE_ID, ORIGINAL_OWNER_ID, _identity, _load
 from ednna.eddy_vr_readiness import verificar_prontidao_vr01
+from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
 
 STAGES = (
     ("ASSUMIR_CHAMADO", ("PRONTO_PARA_ASSUMIR",)),
@@ -40,9 +41,24 @@ def diagnosticar_etapas_vr01() -> dict:
                 "etapas": [{"nome": name, "estado": "BLOQUEADA"}
                            for name, _ in STAGES]}
     current = next(i for i, (_, phases) in enumerate(STAGES) if phase in phases)
+    current_operations = {
+        "PRONTO_PARA_ASSUMIR": "ASSUMIR_REDMINE",
+        "ASSUMIDO_EDDY": "BUSCAR_CONTATO_BP",
+        "AGUARDA_CONTATO_BP": "SOLICITAR_AUTORIZACAO_PORTAL",
+        "SOLICITACAO_ENVIADA": "MONITORAR_CLIENTE",
+        "AGUARDA_CONFIRMACAO_CLIENTE": "CONFIRMACAO_VALIDADA",
+        "CONFIRMACAO_RECEBIDA": "REGISTRAR_EVIDENCIAS_REDMINE",
+        "EVIDENCIAS_REGISTRADAS": "DEVOLVER_AO_RESPONSAVEL_ORIGINAL",
+        "DEVOLVIDO_ORIGEM": "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA",
+        "NOTIFICACAO_INTERNA_CONFIRMADA": "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA",
+    }
+    operation = current_operations[phase]
+    op_readiness = verificar_prontidao_operacao_vr01(operation)
+    result["proxima_operacao"] = operation
+    result["prontidao_operacao"] = op_readiness
     for i, (name, _) in enumerate(STAGES):
         state = "CONCLUIDA_NO_LEDGER" if i < current else (
-            "AGUARDA_HOMOLOGACAO" if i == current and not readiness["pronto"]
+            "AGUARDA_HOMOLOGACAO" if i == current and not op_readiness["pronto"]
             else "AGUARDA_APROVACAO_E_EVIDENCIAS" if i == current
             else "AGUARDA_ETAPA_ANTERIOR")
         result["etapas"].append({"nome": name, "estado": state})
