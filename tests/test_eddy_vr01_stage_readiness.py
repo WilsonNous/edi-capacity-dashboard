@@ -11,6 +11,8 @@ def _run(row, ready=False):
          patch(f"{MOD}._identity", return_value=999), \
          patch(f"{MOD}.verificar_prontidao_vr01",
                return_value={"pronto": ready, "bloqueios": [] if ready else ["EXECUCAO_EXTERNA_DESABILITADA"]}), \
+         patch(f"{MOD}.verificar_prontidao_operacao_vr01",
+               return_value={"pronto": ready, "bloqueios": [] if ready else ["EXECUCAO_EXTERNA_DESABILITADA"]}), \
          patch("ednna.eddy_vr01_integrated._redmine_update") as redmine:
         result = diagnosticar_etapas_vr01()
         redmine.assert_not_called()
