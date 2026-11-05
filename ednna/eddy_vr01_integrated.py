@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ednna.eddy_vr01_lifecycle import VR01Evidence, VR01State, next_transition
-from ednna.eddy_vr_readiness import verificar_prontidao_vr01
+from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
 from ednna.mysql_storage import connect
 
 ISSUE_ID = 50318
@@ -264,8 +264,10 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
               "proxima_fase": target.value, "externo": False}
     if not execute:
         return report
-    if not verificar_prontidao_vr01()["pronto"]:
-        return {**report, "estado": "BLOQUEADO_PRONTIDAO"}
+    readiness = verificar_prontidao_operacao_vr01(operation)
+    if not readiness["pronto"]:
+        return {**report, "estado": "BLOQUEADO_PRONTIDAO",
+                "bloqueios_prontidao": readiness["bloqueios"]}
     if operation not in {"ASSUMIR_REDMINE", "BUSCAR_CONTATO_BP",
                          "SOLICITAR_AUTORIZACAO_PORTAL", "MONITORAR_CLIENTE",
                          "CONFIRMACAO_VALIDADA", "REGISTRAR_EVIDENCIAS_REDMINE",
