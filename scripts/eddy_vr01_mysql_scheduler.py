@@ -26,6 +26,66 @@ def intervalo_segundos(raw: str | None) -> int:
         raise ValueError("EDDY_VR01_INTERVAL_SECONDS must be >= 300")
     return value
 
+def executar_avanco_bp_piloto() -> None:
+    """Executa exclusivamente a transicao BUSCAR_CONTATO_BP."""
+    if os.getenv("EDDY_VR01_PILOT_BP_AUTO_ADVANCE", "false").lower() != "true":
+        return
+
+    if os.getenv("EDDY_VR01_EXTERNAL_ENABLED", "false").lower() != "true":
+        LOG.info("[EDDY-VR01-BP-AUTO] bloqueado: execucao externa desabilitada")
+        return
+
+    if os.getenv("EDDY_DB_ENGINE", "").lower() != "mysql":
+        LOG.warning("[EDDY-VR01-BP-AUTO] bloqueado: MySQL obrigatorio")
+        return
+
+    try:
+        from ednna.eddy_vr01_integrated import _load, planejar_vr01
+
+        ledger = _load()
+
+        if ledger is None:
+            LOG.info("[EDDY-VR01-BP-AUTO] ledger indisponivel")
+            return
+
+        if ledger["fase"] != "ASSUMIDO_EDDY":
+            LOG.info(
+                "[EDDY-VR01-BP-AUTO] fase nao elegivel: %s",
+                ledger["fase"],
+            )
+            return
+
+        if ledger["operacao_pendente"] is not None:
+            LOG.warning(
+                "[EDDY-VR01-BP-AUTO] operacao pendente; reconciliacao necessaria"
+            )
+            return
+
+        # O executor realiza novo preflight do Redmine e verifica a prontidao.
+        # Este caminho nao executa as fases posteriores do ciclo.
+        resultado = planejar_vr01(approvals=None, execute=True)
+
+        LOG.info(
+            "[EDDY-VR01-BP-AUTO] %s",
+            json.dumps(
+                {
+                    "chamado_id": 50318,
+                    "estado": resultado.get("estado"),
+                    "acao": resultado.get("acao"),
+                    "fase": resultado.get("fase"),
+                    "proxima_fase": resultado.get("proxima_fase"),
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+
+    except Exception as exc:
+        LOG.warning(
+            "[EDDY-VR01-BP-AUTO] falha segura: %s",
+            type(exc).__name__,
+        )
+
 
 def executar_uma_vez() -> dict:
     # Autonomous pilot Blueprint import: MySQL only; never writes Redmine or sends email.
