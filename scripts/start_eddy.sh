@@ -27,6 +27,9 @@ if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" ]]; then
   echo "[EDDY] MySQL configured but operational persistence not migrated: external automation disabled."
 fi
 
+python -m scripts.eddy_sqlite_diagnostic || echo "[EDDY] Diagnostico SQLite indisponivel; preservando dados"
+echo "[EDDY] VR01 offline-first configurado: ${EDDY_VR01_OFFLINE_FIRST:-false}"
+
 EDNNA_MONITOR_EMAIL_ENABLED=false python -m streamlit run app.py --server.port "$UI_PORT" --server.address 127.0.0.1 &
 pids+=("$!")
 
