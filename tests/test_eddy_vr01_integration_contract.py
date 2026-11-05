@@ -55,6 +55,7 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
          patch("ednna.eddy_vr01_integrated._read_issue", return_value=issue), \
          patch("ednna.eddy_vr01_integrated._load", return_value=state), \
          patch("ednna.eddy_vr01_integrated._valid_bp", return_value=bp), \
+             patch("ednna.eddy_vr01_integrated._mambo_recipients", return_value=(["cliente@example.invalid"], ["copias@example.invalid"])), \
          patch("ednna.eddy_vr01_integrated._reserve", side_effect=reserve), \
          patch("ednna.eddy_vr01_integrated._advance", side_effect=advance), \
          patch("ednna.eddy_vr01_integrated._redmine_update", side_effect=redmine_update), \
