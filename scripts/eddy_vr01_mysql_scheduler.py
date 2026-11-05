@@ -132,6 +132,10 @@ def executar_uma_vez() -> dict:
         try:
             from ednna.eddy_vr01_integrated_scheduler import ciclo_piloto
             pilot = ciclo_piloto(execute=False)
+            from ednna.eddy_vr01_stage_readiness import diagnosticar_etapas_vr01
+            stages = diagnosticar_etapas_vr01()
+            LOG.info("[EDDY-VR01-STAGES] %s",
+                     json.dumps(stages, ensure_ascii=False, default=str))
             LOG.info("[EDDY-VR01-PILOT] %s", json.dumps({
                 "chamado_id": pilot.get("chamado_id", 50318),
                 "fase": pilot.get("fase"),
