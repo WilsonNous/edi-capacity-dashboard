@@ -294,6 +294,28 @@ def reconciliar_assuncao_pendente() -> dict:
     return {"estado": "ASSUNCAO_RECONCILIADA", "responsavel_atual": eddy_id, "externo": False}
 
 
+def reconciliar_envio_graph_pendente() -> dict:
+    """Reconcile a reserved MAMBO request using Sent Items; never resend."""
+    row = _load()
+    if not row or row["fase"] != VR01State.AGUARDA_CONTATO_BP.value or row["operacao_pendente"] != "SOLICITAR_AUTORIZACAO_PORTAL":
+        return {"estado": "SEM_ENVIO_PENDENTE", "externo": False}
+    if row["original_owner_id"] != ORIGINAL_OWNER_ID or row["eddy_owner_id"] != _identity():
+        return {"estado": "BLOQUEADO_IDENTIDADE", "externo": False}
+    from ednna.email_sender import localizar_email_enviado
+    subject = f"[EDDY VR01] #{ISSUE_ID} - Autorizacao VR Beneficios MAMBO"
+    try:
+        sent = localizar_email_enviado(remetente=os.environ["EDNNA_EMAIL_FROM"], assunto=subject)
+    except Exception as exc:
+        return {"estado": "GRAPH_CONSULTA_ADIADA", "motivo": type(exc).__name__, "externo": False}
+    if not sent or not sent.get("sentDateTime") or not (sent.get("internetMessageId") or sent.get("id")):
+        return {"estado": "ENVIO_NAO_CONFIRMADO", "externo": False}
+    # The original recipients must still match the approved Blueprint.
+    # A subject-only match is not enough to prove this was our operation.
+    return {"estado": "ENVIO_LOCALIZADO_EXIGE_VALIDACAO_DESTINATARIOS",
+            "message_id": str(sent.get("internetMessageId") or sent["id"]),
+            "externo": False}
+
+
 def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> dict:
     """One pilot step per call. Default is read-only; never schedules itself.
 
@@ -312,6 +334,8 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     row = _load()
     if row and row["operacao_pendente"] == "ASSUMIR_REDMINE":
         return reconciliar_assuncao_pendente()
+    if row and row["operacao_pendente"] == "SOLICITAR_AUTORIZACAO_PORTAL":
+        return reconciliar_envio_graph_pendente()
     issue = _read_issue(ISSUE_ID)
     if row is None:
         if not execute:
