@@ -12,7 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from datetime import datetime, timezone
-from ednna.mysql_snapshot_repository import _upsert, CHAMADO_FIELDS
+from ednna.mysql_snapshot_repository import _upsert, _values, CHAMADO_FIELDS
 from ednna.mysql_storage import connect
 from ednna.mysql_redmine_catalog import mapa_persistido
 from ednna.redmine_resilient_reads import listar_abertos_confirmados
@@ -26,6 +26,24 @@ def _timestamp(value):
         return None
     parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def _persistir_lote(cursor, rows):
+    """Batch INSERT in one transaction; never retry a failed batch as individual writes."""
+    if not rows:
+        return
+    if not hasattr(cursor, "executemany"):
+        # Compatibility for lightweight in-memory test cursors only.
+        for row in rows:
+            _upsert(cursor, "eddy_chamados", CHAMADO_FIELDS, row)
+        return
+    fields = CHAMADO_FIELDS
+    columns = ", ".join(fields)
+    placeholders = ", ".join(["%s"] * len(fields))
+    updates = ", ".join(f"{field}=VALUES({field})" for field in fields if field != "id")
+    sql = (f"INSERT INTO eddy_chamados ({columns}) VALUES ({placeholders}) "
+           f"ON DUPLICATE KEY UPDATE {updates}")
+    cursor.executemany(sql, [_values(row, fields) for row in rows])
 
 
 def sincronizar_uma_vez(*, painel=None) -> dict:
@@ -62,6 +80,7 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
        placeholders = ", ".join(["%s"] * len(ids))
        cursor.execute(f"SELECT id, payload_json FROM eddy_chamados WHERE id IN ({placeholders}) FOR UPDATE", tuple(ids))
        anteriores = {int(i): payload for i, payload in cursor.fetchall()}
+       rows_para_gravar = []
        for issue in chamados:
         inicio_preparacao = time.monotonic()
         valores = next((f.get("value") for f in issue.get("custom_fields", []) if str(f.get("id")) == "1"), None)
@@ -87,7 +106,6 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
             "sincronizado_em": now,
         }
         duracao_preparacao_mysql_s += time.monotonic() - inicio_preparacao
-        inicio_upsert = time.monotonic()
         anterior = anteriores.get(row["id"])
         if anterior:
             try:
@@ -97,9 +115,11 @@ def sincronizar_uma_vez(*, painel=None) -> dict:
             if (isinstance(payload_anterior, dict) and payload_anterior.get("_eddy_journals_completos") is True
                 and str(payload_anterior.get("updated_on") or "") == str(issue.get("updated_on") or "")):
                 row["payload_json"] = payload_anterior
-        _upsert(cursor, "eddy_chamados", CHAMADO_FIELDS, row)
-        duracao_upsert_mysql_s += time.monotonic() - inicio_upsert
-        gravados += 1
+        rows_para_gravar.append(row)
+       inicio_upsert = time.monotonic()
+       _persistir_lote(cursor, rows_para_gravar)
+       duracao_upsert_mysql_s += time.monotonic() - inicio_upsert
+       gravados = len(rows_para_gravar)
       inicio_fechamento_mysql = time.monotonic()
     fim_mysql = time.monotonic()
     duracao_mysql_s = round(fim_mysql - inicio_mysql, 3)
