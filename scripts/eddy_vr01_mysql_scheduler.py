@@ -207,6 +207,10 @@ def executar_uma_vez() -> dict:
         except Exception as exc:
             LOG.warning("[EDDY-VR01-PILOT] observacao indisponivel: %s",
                         type(exc).__name__)
+            
+    # Avanco automatico controlado do piloto BP.
+    executar_avanco_bp_piloto()
+
     LOG.info("[EDDY-VR01-SCHEDULER] ciclo_fim estado=%s", result.get("estado"))
     return result
 
