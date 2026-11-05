@@ -28,9 +28,12 @@ def intervalo_segundos(raw: str | None) -> int:
 
 def executar_uma_vez() -> dict:
     # Autonomous pilot Blueprint import: MySQL only; never writes Redmine or sends email.
+    # Explicit opt-in only: this discovery makes live Redmine requests and is
+    # not yet covered by a shared distributed collection lease. Keep disabled
+    # by default until the coordinated collector is deployed and validated.
     # Rate limit independent of scheduler interval to avoid hammering unstable Redmine.
     global _LAST_BLUEPRINT_ATTEMPT
-    if os.getenv("EDDY_VR01_BLUEPRINT_AUTO_SYNC", "true").lower() == "true":
+    if os.getenv("EDDY_VR01_BLUEPRINT_AUTO_SYNC", "false").lower() == "true":
         now = time.monotonic()
         if now - _LAST_BLUEPRINT_ATTEMPT >= 3600 or _LAST_BLUEPRINT_ATTEMPT == 0:
             _LAST_BLUEPRINT_ATTEMPT = now
