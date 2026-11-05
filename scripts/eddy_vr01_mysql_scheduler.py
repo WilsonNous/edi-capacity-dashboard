@@ -14,6 +14,7 @@ from scripts.eddy_vr01_mysql_worker import executar_worker_vr01
 
 LOG = logging.getLogger("eddy.vr01.scheduler")
 _LAST_BLUEPRINT_ATTEMPT = 0.0
+_LAST_PILOT_BOOTSTRAP_ATTEMPT = 0.0
 
 
 def intervalo_segundos(raw: str | None) -> int:
@@ -107,6 +108,24 @@ def executar_uma_vez() -> dict:
 
         }, ensure_ascii=False, default=str),
     )
+    # Bootstrap is a local MySQL ledger INSERT only. Fresh Redmine preflight
+    # validates identity and ownership; failure never authorizes external actions.
+    # Limit attempts to once per hour per process when connectivity is degraded.
+    global _LAST_PILOT_BOOTSTRAP_ATTEMPT
+    if (os.getenv("EDDY_VR01_PILOT_OBSERVE", "false").lower() == "true"
+            and os.getenv("EDDY_VR01_PILOT_BOOTSTRAP", "true").lower() == "true"):
+        now = time.monotonic()
+        if (_LAST_PILOT_BOOTSTRAP_ATTEMPT == 0
+                or now - _LAST_PILOT_BOOTSTRAP_ATTEMPT >= 3600):
+            _LAST_PILOT_BOOTSTRAP_ATTEMPT = now
+            try:
+                from ednna.eddy_vr01_bootstrap import inicializar_piloto_local
+                bootstrap = inicializar_piloto_local()
+                LOG.info("[EDDY-VR01-BOOTSTRAP] %s",
+                         json.dumps(bootstrap, ensure_ascii=False))
+            except Exception as exc:
+                LOG.warning("[EDDY-VR01-BOOTSTRAP] falha segura: %s",
+                            type(exc).__name__)
     # Opt-in pilot observation only. Never advance phases, dispatch mail, or
     # modify Redmine from this autonomous scheduler.
     if os.getenv("EDDY_VR01_PILOT_OBSERVE", "false").lower() == "true":

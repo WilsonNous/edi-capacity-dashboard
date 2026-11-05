@@ -4,7 +4,7 @@ from scripts.eddy_vr01_mysql_scheduler import executar_uma_vez
 
 
 def test_observation_opt_in_calls_integrated_dry_run_only():
-    with patch.dict("os.environ", {"EDDY_VR01_PILOT_OBSERVE": "true"}), \
+    with patch.dict("os.environ", {"EDDY_VR01_PILOT_OBSERVE": "true", "EDDY_VR01_PILOT_BOOTSTRAP": "false"}), \
          patch("scripts.eddy_vr01_mysql_scheduler.executar_worker_vr01",
                return_value={"estado": "OK"}), \
          patch("ednna.eddy_vr01_integrated_scheduler.ciclo_piloto",
