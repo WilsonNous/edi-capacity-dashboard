@@ -20,7 +20,7 @@ def test_scheduler_cannot_send_before_specific_approval():
                return_value={"acao": "ACOMPANHAR_E_COBRAR"}), \
          patch("ednna.eddy_vr01_integrated_scheduler.planejar_followup_piloto",
                return_value={"situacao": "FOLLOWUP_VENCIDO"}), \
-         patch("ednna.eddy_vr_readiness.verificar_prontidao_vr01",
+         patch("ednna.eddy_vr01_operation_readiness.verificar_prontidao_operacao_vr01",
                return_value={"pronto": True}), \
          patch("ednna.eddy_vr01_integrated_scheduler._read_issue",
                create=True) as unused, \

@@ -63,12 +63,14 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _approval, _reserve, _advance, _event, _load, _read_issue,
     )
-    from ednna.eddy_vr_readiness import verificar_prontidao_vr01
+    from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
     from ednna.email_sender import enviar_email_graph, localizar_email_enviado
     import os
     issue = _read_issue(ISSUE_ID)
-    if not verificar_prontidao_vr01()["pronto"]:
-        return {**plan, "followup": followup, "estado": "BLOQUEADO_PRONTIDAO"}
+    readiness = verificar_prontidao_operacao_vr01("FOLLOWUP_CLIENTE")
+    if not readiness["pronto"]:
+        return {**plan, "followup": followup, "estado": "BLOQUEADO_PRONTIDAO",
+                "bloqueios_prontidao": readiness["bloqueios"]}
     approved = (approvals or {}).get("FOLLOWUP_CLIENTE")
     _approval("FOLLOWUP_CLIENTE", approvals or {}, issue)
     row = _load()
