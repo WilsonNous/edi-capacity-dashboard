@@ -307,8 +307,12 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         row = _load()
         from ednna.redmine_collection_policy import observational_state
         return observational_state(ISSUE_ID, row)
-    issue = _read_issue(ISSUE_ID)
+    # Resolve a durable reservation before normal execution preflight.
+    # The reconciler performs its own fresh Redmine read and never repeats PUT.
     row = _load()
+    if row and row["operacao_pendente"] == "ASSUMIR_REDMINE":
+        return reconciliar_assuncao_pendente()
+    issue = _read_issue(ISSUE_ID)
     if row is None:
         if not execute:
             return {"estado": "AGUARDA_INICIALIZACAO_MYSQL", "externo": False}
