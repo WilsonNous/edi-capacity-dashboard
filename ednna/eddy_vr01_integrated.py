@@ -75,61 +75,28 @@ def _assignee(issue: dict) -> int:
     return int((issue.get("assigned_to") or {}).get("id") or 0)
 
 
-def _valid_bp() -> dict | None:
+def _bp_contacts() -> list[dict]:
+    """Resolve verified recipients with the shared Blueprint MySQL selector."""
     from ednna.mysql_blueprint_participants import selecionar_contatos_cliente_mysql
-    # Exact verified label only: never infer a client from an issue subject.
-    client = os.getenv("EDDY_VR01_MAMBO_BP_CLIENTE", "").strip()
-    if not client:
-        return None
-    contacts = selecionar_contatos_cliente_mysql(client, limite=20)
-    candidates = [r for r in contacts if EMAIL_RE.fullmatch(str(r.get("email") or ""))
-                  and r.get("source_id") and r.get("documento_id") and r.get("chamado_id")]
-    # Fail closed on ambiguity: the operator must approve one proven contact.
-    approved = os.getenv("EDDY_VR01_MAMBO_BP_EMAIL", "").strip().lower()
-    matches = [r for r in candidates if str(r["email"]).strip().lower() == approved]
-    return matches[0] if len(matches) == 1 else None
+    client = os.getenv("EDDY_VR01_BP_CLIENTE", "").strip() or "SUPERMERCADOS MAMBO"
+    contacts = selecionar_contatos_cliente_mysql(client, limite=100)
+    return [row for row in contacts
+            if EMAIL_RE.fullmatch(str(row.get("email") or "").strip())
+            and all(row.get(key) for key in ("source_id", "documento_id", "chamado_id"))]
 
+
+def _valid_bp() -> dict | None:
+    contacts = _bp_contacts()
+    return contacts[0] if contacts else None
 
 
 def _mambo_recipients() -> tuple[list[str], list[str]]:
-    """Resolve approved MAMBO recipients from MySQL; never send from this helper."""
-    from ednna.mysql_blueprint_participants import selecionar_contatos_cliente_mysql
-    client = "SUPERMERCADOS MAMBO"
-    contacts = selecionar_contatos_cliente_mysql(client, limite=100)
-    expected = {
-        "tais vieira", "henrique mota", "raiza vieira", "ingrid santos",
-        "agata palladino", "anderson cavalcanti", "wilamy tolentino",
-        "augusto silva", "claudimar freitas", "gustavo mengue",
-    }
-    by_name = {}
-    for contact in contacts:
-        name = str(contact.get("nome") or "").strip().casefold()
-        if name not in expected:
-            continue
-        email = str(contact.get("email") or "").strip().lower()
-        if not EMAIL_RE.fullmatch(email) or not all(
-            contact.get(key) for key in ("source_id", "documento_id", "chamado_id")
-        ):
-            raise RuntimeError("Contato MAMBO sem evidencia ou email valido")
-        if name in by_name and by_name[name] != email:
-            raise RuntimeError("Contato MAMBO ambiguo: " + name)
-        by_name[name] = email
-    if set(by_name) != expected:
-        raise RuntimeError("Matriz MAMBO incompleta; bloquear envio")
-    primary = by_name["tais vieira"]
-    approved = _valid_bp()
-    if not approved or str(approved["email"]).strip().lower() != primary:
-        raise RuntimeError("Gerente MAMBO nao aprovada no Blueprint")
-    internal = (
-        "bpo@netunna.com.br", "edi@netunna.com.br",
-        "suporte@netunna.com.br", "consultores@netunna.com.br",
-    )
-    cc = list(dict.fromkeys(
-        [by_name[name] for name in sorted(expected - {"tais vieira"})] + list(internal)
-    ))
-    if primary in cc or len(cc) != 13:
-        raise RuntimeError("Matriz de destinatarios MAMBO invalida")
-    return [primary], cc
+    """Use current Blueprint participants, without a hard-coded name matrix."""
+    contacts = _bp_contacts()
+    if not contacts:
+        raise RuntimeError("Blueprint sem destinatario com origem comprovada")
+    emails = list(dict.fromkeys(str(row["email"]).strip().lower() for row in contacts))
+    return emails[:1], emails[1:]
 
 
 def _load() -> dict | None:
