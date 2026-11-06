@@ -48,3 +48,32 @@ def test_receipt_is_never_automatically_validated():
     import inspect
     import ednna.eddy_vr01_integrated as module
     assert "VALIDAR_RECEBIMENTO_ARQUIVOS" not in inspect.getsource(module)
+
+
+def test_external_step_rejects_unexpected_redmine_owner():
+    issue = {"assigned_to": {"id": 777}, "updated_on": "2026-11-06T12:00:00Z"}
+    row = {"fase": "AGUARDA_CONTATO_BP", "original_owner_id": 97,
+           "eddy_owner_id": 166, "operacao_pendente": None}
+    with patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue", return_value=issue), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=row), \
+         patch("ednna.eddy_vr01_integrated._reserve") as reserve:
+        result = planejar_vr01(execute=True)
+        assert result["estado"] == "BLOQUEADO_RESPONSAVEL_DIVERGENTE"
+        reserve.assert_not_called()
+
+
+def test_post_handoff_allows_original_owner_without_false_block():
+    issue = {"assigned_to": {"id": 97}, "updated_on": "2026-11-06T12:00:00Z"}
+    row = {"fase": "NOTIFICACAO_INTERNA_CONFIRMADA", "original_owner_id": 97,
+           "eddy_owner_id": 166, "operacao_pendente": None,
+           "autorizacao_confirmada": 1, "confirmacao_evidence_id": "graph-1",
+           "envio_graph_confirmado": 1, "evidencias_registradas": 1,
+           "notificado": 1}
+    with patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue", return_value=issue), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=row), \
+         patch("ednna.eddy_vr01_integrated.verificar_prontidao_operacao_vr01",
+               return_value={"pronto": False, "bloqueios": ["TESTE"]}):
+        result = planejar_vr01(execute=True)
+        assert result["estado"] != "BLOQUEADO_RESPONSAVEL_DIVERGENTE"

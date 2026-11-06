@@ -45,10 +45,9 @@ def intervalo_segundos(raw: str | None) -> int:
 
 
 def executar_avanco_bp_piloto() -> None:
-    """Advance only BUSCAR_CONTATO_BP when explicitly enabled.
+    """Advance evidence-gated MySQL-only lifecycle transitions.
 
-    Never invoke the integrated executor from this autonomous path
-    for any other lifecycle phase.
+    External Graph sends and Redmine writes remain outside this path.
     """
     if not flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE"):
         return
@@ -84,11 +83,12 @@ def executar_avanco_bp_piloto() -> None:
         fase = ledger["fase"]
         pendente = ledger["operacao_pendente"]
 
-        if fase != "ASSUMIDO_EDDY":
-            LOG.info(
-                "[EDDY-VR01-BP-AUTO] sem avanco: fase=%s",
-                fase,
-            )
+        # Only internal, evidence-gated lifecycle transitions may run without
+        # a specific external-action approval. Never auto-send Graph or write Redmine.
+        eligible = {"ASSUMIDO_EDDY", "SOLICITACAO_ENVIADA",
+                    "AGUARDA_CONFIRMACAO_CLIENTE"}
+        if fase not in eligible:
+            LOG.info("[EDDY-VR01-BP-AUTO] sem avanco: fase=%s", fase)
             return
 
         if pendente is not None:
@@ -101,12 +101,21 @@ def executar_avanco_bp_piloto() -> None:
         # The integrated executor performs a fresh Redmine preflight,
         # validates lifecycle evidence and checks operation readiness.
         #
-        # Only BUSCAR_CONTATO_BP is eligible here. Later lifecycle
-        # phases must never be executed by this scheduler path.
-        resultado = planejar_vr01(
-            approvals=None,
-            execute=True,
-        )
+        # The executor must never be invoked for a phase whose next action
+        # could be an external side effect. Determine the next action using
+        # current evidence first; execute only the three pure transitions.
+        from ednna.eddy_vr01_integrated import _identity, _read_issue, _assignee
+        issue = _read_issue(50318)
+        if _assignee(issue) != _identity():
+            LOG.warning("[EDDY-VR01-BP-AUTO] responsavel divergente")
+            return
+        # The integrated executor performs the final fresh preflight and
+        # recomputes all evidence before committing a transition.
+        if fase == "AGUARDA_CONFIRMACAO_CLIENTE" and not (
+            ledger["autorizacao_confirmada"] and ledger["confirmacao_evidence_id"]
+        ):
+            return
+        resultado = planejar_vr01(approvals=None, execute=True)
 
         LOG.info(
             "[EDDY-VR01-BP-AUTO] %s",
