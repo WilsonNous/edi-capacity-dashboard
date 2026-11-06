@@ -87,6 +87,33 @@ def executar_avanco_bp_piloto() -> None:
         # a specific external-action approval. Never auto-send Graph or write Redmine.
         eligible = {"ASSUMIDO_EDDY", "SOLICITACAO_ENVIADA",
                     "AGUARDA_CONFIRMACAO_CLIENTE"}
+        if fase == "AGUARDA_CONTATO_BP":
+            # This phase has no pure lifecycle transition: its next step is
+            # an external Graph send. Report the actual missing prerequisites
+            # instead of misleadingly treating it as an eligible BP transition.
+            from ednna.eddy_vr01_integrated import _valid_bp
+            from ednna.eddy_vr01_operation_readiness import (
+                verificar_prontidao_operacao_vr01,
+            )
+            bp = _valid_bp()
+            readiness = verificar_prontidao_operacao_vr01(
+                "SOLICITAR_AUTORIZACAO_PORTAL"
+            )
+            LOG.info(
+                "[EDDY-VR01-BP-AUTO] %s",
+                json.dumps({
+                    "chamado_id": 50318,
+                    "fase": fase,
+                    "estado": ("PRONTO_PARA_ENVIO_HOMOLOGADO"
+                               if bp and readiness["pronto"]
+                               else "AGUARDA_PRE_REQUISITOS_ENVIO"),
+                    "contato_bp_validado": bool(bp),
+                    "bloqueios_prontidao": readiness["bloqueios"],
+                    "proxima_operacao": "SOLICITAR_AUTORIZACAO_PORTAL",
+                    "execucao_externa": False,
+                }, ensure_ascii=False),
+            )
+            return
         if fase not in eligible:
             LOG.info("[EDDY-VR01-BP-AUTO] sem avanco: fase=%s", fase)
             return
