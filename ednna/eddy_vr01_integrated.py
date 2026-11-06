@@ -96,7 +96,7 @@ def _mambo_recipients() -> tuple[list[str], list[str]]:
     if not contacts:
         raise RuntimeError("Blueprint sem destinatario com origem comprovada")
     emails = list(dict.fromkeys(str(row["email"]).strip().lower() for row in contacts))
-    return emails[:1], emails[1:]
+    return emails[:1], []  # Do not CC every Blueprint participant
 
 
 def _load() -> dict | None:
