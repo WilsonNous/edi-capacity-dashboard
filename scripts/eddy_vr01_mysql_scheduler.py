@@ -45,10 +45,9 @@ def intervalo_segundos(raw: str | None) -> int:
 
 
 def executar_avanco_bp_piloto() -> None:
-    """Advance only BUSCAR_CONTATO_BP when explicitly enabled.
+    """Advance evidence-gated MySQL-only lifecycle transitions.
 
-    Never invoke the integrated executor from this autonomous path
-    for any other lifecycle phase.
+    External Graph sends and Redmine writes remain outside this path.
     """
     if not flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE"):
         return
@@ -102,8 +101,6 @@ def executar_avanco_bp_piloto() -> None:
         # The integrated executor performs a fresh Redmine preflight,
         # validates lifecycle evidence and checks operation readiness.
         #
-        # Only BUSCAR_CONTATO_BP is eligible here. Later lifecycle
-        # phases must never be executed by this scheduler path.
         # The executor must never be invoked for a phase whose next action
         # could be an external side effect. Determine the next action using
         # current evidence first; execute only the three pure transitions.
