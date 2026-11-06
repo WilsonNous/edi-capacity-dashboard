@@ -113,6 +113,27 @@ def executar_avanco_bp_piloto() -> None:
                     "execucao_externa": False,
                 }, ensure_ascii=False),
             )
+            if not (bp and readiness["pronto"]):
+                return
+            if not flag_ativa("EDDY_VR01_AUTO_SEND_PORTAL"):
+                LOG.info("[EDDY-VR01-BP-AUTO] envio automatico desabilitado")
+                return
+            if pendente is not None:
+                LOG.warning("[EDDY-VR01-BP-AUTO] envio pendente; reconciliar antes de repetir")
+                return
+            from ednna.eddy_vr01_integrated import _read_issue, _assignee, _identity
+            issue = _read_issue(50318)
+            if _assignee(issue) != _identity() or not issue.get("updated_on"):
+                LOG.warning("[EDDY-VR01-BP-AUTO] Redmine nao confirmou identidade/versao")
+                return
+            # Approval is scoped to this fresh Redmine snapshot and this operation.
+            # Global opt-in and operation-specific readiness are both required.
+            approval = {"SOLICITAR_AUTORIZACAO_PORTAL": {
+                "issue_id": 50318, "redmine_updated_on": issue["updated_on"]
+            }}
+            outcome = planejar_vr01(approvals=approval, execute=True)
+            LOG.info("[EDDY-VR01-BP-AUTO] envio_resultado=%s",
+                     json.dumps(outcome, ensure_ascii=False, default=str))
             return
         if fase not in eligible:
             LOG.info("[EDDY-VR01-BP-AUTO] sem avanco: fase=%s", fase)
