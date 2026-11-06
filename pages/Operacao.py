@@ -31,6 +31,37 @@ with st.expander('🧭 Prontidão do colaborador digital · evidências de execu
     except Exception as exc:
         st.error(f'Diagnóstico indisponível: {type(exc).__name__}: {exc}')
 
+
+# Telemetria persistida pelo scheduler em /home/data; somente leitura.
+with st.expander('📡 Observabilidade do EDDY · ciclos e falhas', expanded=True):
+    import json as _obs_json
+    from pathlib import Path as _ObsPath
+    from datetime import datetime as _ObsDateTime, timezone as _ObsTZ
+    from zoneinfo import ZoneInfo as _ObsZoneInfo
+    _obs_path = _ObsPath('/home/data/eddy_vr01_observabilidade.json')
+    if not _obs_path.is_file():
+        st.warning('Sem telemetria persistida do scheduler. Estado desconhecido; não interpretar como operação normal.')
+    else:
+        try:
+            _obs = _obs_json.loads(_obs_path.read_text(encoding='utf-8'))
+            _obs_at = _ObsDateTime.fromisoformat(_obs['timestamp_utc'])
+            _obs_age = (_ObsDateTime.now(_ObsTZ.utc) - _obs_at).total_seconds()
+            _obs_local = _obs_at.astimezone(_ObsZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')
+            _oc1, _oc2, _oc3 = st.columns(3)
+            _oc1.metric('Último ciclo · Brasília', _obs_local)
+            _oc2.metric('Scheduler', 'Ativo recentemente' if 0 <= _obs_age <= 900 else 'Sem heartbeat recente')
+            _oc3.metric('Resultado', str(_obs.get('estado') or 'Desconhecido'))
+            st.caption('Telemetria do scheduler, não confirmação de envio. Dados com mais de 15 minutos são considerados desatualizados.')
+            if _obs.get('erro'):
+                st.error('Falha no ciclo: ' + str(_obs['erro']))
+            _obs_pilot = _obs.get('piloto') or {}
+            if _obs_pilot:
+                st.markdown('**VR01 · chamado #50318**')
+                st.json(_obs_pilot)
+            st.caption('Preflight Redmine, Microsoft Graph e MySQL exigem evidências próprias. Ausência de erro no ciclo não comprova envio.')
+        except (ValueError, KeyError, OSError, TypeError) as _obs_exc:
+            st.error(f'Telemetria indisponível: {type(_obs_exc).__name__}. Estado desconhecido.')
+
 # Escola: inventário persistente, leitura e triagem. A homologação e a
 # autorização continuam exclusivamente nos fluxos humanos existentes.
 with st.expander('🎓 Escola do EDDY · conhecimento e evolução das regras', expanded=False):
