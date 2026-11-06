@@ -464,6 +464,37 @@ def executar_uma_vez() -> dict:
     return result
 
 
+
+
+def _publicar_observabilidade(*, estado: str, erro: str | None = None) -> None:
+    """Publish one atomic, read-only scheduler snapshot for Streamlit."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+    import tempfile
+    destino = Path('/home/data/eddy_vr01_observabilidade.json')
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        piloto = {}
+        try:
+            from ednna.eddy_vr01_integrated import _load
+            row = _load() or {}
+            piloto = {k: row.get(k) for k in (
+                'fase', 'operacao_pendente', 'envio_graph_confirmado',
+                'autorizacao_confirmada', 'evidencias_registradas',
+            )}
+        except Exception as exc:
+            piloto = {'estado': 'LEDGER_INDISPONIVEL', 'erro': type(exc).__name__}
+        payload = {'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+                   'estado': estado, 'erro': erro, 'piloto': piloto}
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                dir=destino.parent, prefix='.eddy_obs_', delete=False) as tmp:
+            json.dump(payload, tmp, ensure_ascii=False)
+            tmp.write('\\n')
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, destino)
+    except Exception as exc:
+        LOG.warning('[EDDY-VR01-OBS] indisponivel: %s', type(exc).__name__)
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -493,9 +524,11 @@ def main() -> None:
 
     while True:
         try:
-            executar_uma_vez()
+            resultado = executar_uma_vez()
+            _publicar_observabilidade(estado=str((resultado or {}).get('estado', 'CICLO_CONCLUIDO')))
 
         except Exception as exc:
+            _publicar_observabilidade(estado='FALHA_CICLO', erro=type(exc).__name__)
             LOG.exception(
                 "[EDDY-VR01-SCHEDULER] falha segura: %s",
                 type(exc).__name__,
