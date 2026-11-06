@@ -292,6 +292,9 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     if row["operacao_pendente"]:
         return {"estado": "AGUARDA_RECONCILIACAO_MANUAL", "operacao": row["operacao_pendente"], "externo": False}
     phase = VR01State(row["fase"])
+    # Never contact a client or mutate a ticket after another owner takes over.
+    if phase != VR01State.PRONTO_PARA_ASSUMIR and _assignee(issue) != eddy_id:
+        return {"estado": "BLOQUEADO_RESPONSAVEL_DIVERGENTE", "externo": False}
     bp = _valid_bp() if phase == VR01State.AGUARDA_CONTATO_BP else None
     evidence = VR01Evidence(
         original_owner_id=ORIGINAL_OWNER_ID, eddy_owner_id=eddy_id,
