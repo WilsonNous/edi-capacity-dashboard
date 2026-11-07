@@ -199,14 +199,37 @@ def _event(name: str, reference: str) -> None:
                 (_context()["chamado_id"], name, reference[:191], datetime.now(timezone.utc).replace(tzinfo=None)))
 
 
-def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
+def _redmine_aguardando_cliente_status_id() -> int:
+    """Resolve exact workflow status by name; never assume its numeric ID."""
+    import requests
+    import unicodedata
+    from redmine_api import REDMINE_URL, _headers
+
+    def normalize(value):
+        value = unicodedata.normalize("NFKD", str(value or ""))
+        return "".join(c for c in value if not unicodedata.combining(c)).casefold().strip()
+
+    response = requests.get(
+        f"{REDMINE_URL}/issue_statuses.json", headers=_headers(), timeout=(8, 20)
+    )
+    response.raise_for_status()
+    matches = [int(item["id"]) for item in response.json().get("issue_statuses", [])
+               if normalize(item.get("name")) == "aguardando cliente"]
+    if len(matches) != 1:
+        raise RuntimeError("Status Aguardando Cliente nao identificado no Redmine")
+    return matches[0]
+
+
+def _redmine_update(assigned_to_id: int | None = None, notes: str = "", status_id: int | None = None) -> None:
     import requests
     from redmine_api import REDMINE_URL, _headers
-    if assigned_to_id is None and not notes:
+    if assigned_to_id is None and not notes and status_id is None:
         raise ValueError("Atualizacao Redmine vazia")
     issue = {"assigned_to_id": assigned_to_id} if assigned_to_id is not None else {}
     if notes:
         issue["notes"] = notes
+    if status_id is not None:
+        issue["status_id"] = int(status_id)
     response = requests.put(
         f"{REDMINE_URL}/issues/{_context()["chamado_id"]}.json",
         headers={**_headers(), "Content-Type": "application/json"},
@@ -356,6 +379,16 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Graph envio pendente de conciliacao")
         _event("SOLICITACAO_CLIENTE", str(sent.get("internetMessageId") or sent["id"]))
+        # Email already sent: retain reservation on Redmine failure, preventing duplicate send.
+        waiting_id = _redmine_aguardando_cliente_status_id()
+        _redmine_update(
+            status_id=waiting_id,
+            notes="EDDY VR01: solicitacao de autorizacao enviada por e-mail. Aguardando retorno do cliente.",
+        )
+        verified = _read_issue(_context()["chamado_id"])
+        if int((verified.get("status") or {}).get("id") or 0) != waiting_id:
+            raise RuntimeError("Status Aguardando Cliente nao confirmado no Redmine")
+        _event("AGUARDANDO_CLIENTE_REDMINE", str(waiting_id))
     elif operation == "REGISTRAR_EVIDENCIAS_REDMINE":
         _redmine_update(notes=("EDDY VR01: autorizacao no portal VR Beneficios "
             "confirmada pelo cliente. Evidencia: " + str(row["confirmacao_evidence_id"]) +
