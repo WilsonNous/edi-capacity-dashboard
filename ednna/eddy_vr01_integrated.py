@@ -358,7 +358,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         # An already sent message is ambiguous unless correlated to this reservation.
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Mensagem anterior detectada; reconciliar")
-        para, cc = _verified_recipients()
+        para, cc = _mambo_recipients()
         enviar_email_graph(remetente=sender, para=para, cc=cc,
                            assunto=subject, corpo=body, chamado_id=_context()["chamado_id"], corpo_html=True)
         sent = localizar_email_enviado(remetente=sender, assunto=subject)
