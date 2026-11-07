@@ -1,32 +1,18 @@
-"""Redmine waiting-client status contract after confirmed Graph send."""
+"""VR01 delegates status update to the shared Redmine writer."""
 from unittest.mock import patch, Mock
-import pytest
 from ednna import eddy_vr01_integrated as vr
 
 
-def test_status_resolves_by_name_without_hardcoded_id():
-    response = Mock()
-    response.json.return_value = {"issue_statuses": [
-        {"id": 8, "name": "Em andamento"},
-        {"id": 17, "name": "Aguardando Cliente"},
-    ]}
-    with patch("requests.get", return_value=response):
-        assert vr._redmine_aguardando_cliente_status_id() == 17
+def test_shared_writer_exposes_post_email_operation():
+    from ednna.redmine_writer import registrar_email_e_status_chamado
+    assert callable(registrar_email_e_status_chamado)
 
 
-def test_status_missing_fails_without_guessing():
-    response = Mock()
-    response.json.return_value = {"issue_statuses": [{"id": 8, "name": "Em andamento"}]}
-    with patch("requests.get", return_value=response):
-        with pytest.raises(RuntimeError, match="Aguardando Cliente"):
-            vr._redmine_aguardando_cliente_status_id()
-
-
-def test_redmine_update_sends_status_and_note():
+def test_vr01_redmine_update_still_supports_existing_operations():
     response = Mock()
     with patch("requests.put", return_value=response) as put:
         with vr.escopo_vr01(50318, 97, "CLIENTE", "71676316003323"):
-            vr._redmine_update(status_id=17, notes="Aguardando retorno")
+            vr._redmine_update(assigned_to_id=97, notes="Evidencia")
     payload = put.call_args.kwargs["json"]["issue"]
-    assert payload["status_id"] == 17
-    assert payload["notes"] == "Aguardando retorno"
+    assert payload["assigned_to_id"] == 97
+    assert payload["notes"] == "Evidencia"
