@@ -24,8 +24,21 @@ def listar_chamados_vr_mysql() -> tuple[int, ...]:
     found = []
     for row in rows:
         issue = dict(zip(CHAMADO_FIELDS, row))
-        status = str(issue.get("estado") or "").casefold()
-        if any(word in status for word in ("conclu", "fechad", "rejeitad", "cancelad")):
+        payload = issue.get("payload_json") or {}
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        status_obj = payload.get("status") or {}
+        if not isinstance(status_obj, dict):
+            status_obj = {}
+        status = str(status_obj.get("name") or issue.get("estado") or "").casefold()
+        if status_obj.get("is_closed") or any(
+            word in status for word in ("conclu", "fechad", "rejeitad", "cancelad")
+        ):
             continue
         if identificar_vr(issue):
             found.append(int(issue["id"]))
