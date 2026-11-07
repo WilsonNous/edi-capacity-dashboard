@@ -111,9 +111,12 @@ class Connection:
 
     def __exit__(self, exc_type, exc, tb):
         if exc_type:
-            self._unlock()
-            self.context.__exit__(exc_type, exc, tb)
-            self.closed = True
+            try:
+                self.conn.rollback()
+            finally:
+                self._unlock()
+                self.context.__exit__(exc_type, exc, tb)
+                self.closed = True
         else:
             self.close()
 
