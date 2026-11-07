@@ -77,7 +77,9 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     if not row or not row["destinatario"] or not row["bp_source_id"]:
         raise RuntimeError("Contato BP de origem nao comprovada")
     subject = str(approved.get("subject") or "")
-    if not subject.startswith(f"[EDDY VR01] #{ISSUE_ID} - Follow-up ") or len(subject) > 180:
+    from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_followup
+    base_subject = assunto_vr01(ISSUE_ID)
+    if not (subject == base_subject or subject.startswith(f"Re: {base_subject}")) or len(subject) > 180:
         raise PermissionError("Assunto unico do follow-up nao aprovado")
     if approved.get("to", "").lower() != row["destinatario"].lower():
         raise PermissionError("Destinatario divergente do BP validado")
@@ -89,10 +91,8 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
         raise RuntimeError("Follow-up anterior detectado: reconciliar")
     enviar_email_graph(remetente=sender, para=[row["destinatario"]], cc=[],
         assunto=subject,
-        corpo=("Retomamos a solicitacao de autorizacao no portal VR Beneficios "
-               "para o estabelecimento 71676316003323. Por favor, confirme "
-               "quando a autorizacao de envio dos arquivos a Netunna for concluida."),
-        chamado_id=ISSUE_ID)
+        corpo=mensagem_followup(ISSUE_ID),
+        chamado_id=ISSUE_ID, corpo_html=True)
     sent = localizar_email_enviado(remetente=sender, assunto=subject)
     if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
         raise RuntimeError("Follow-up pendente de conciliacao Graph")

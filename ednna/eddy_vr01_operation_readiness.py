@@ -17,7 +17,9 @@ OPERATION_REQUIREMENTS = {
         "EDDY_VR01_TRANSPORT_MYSQL_READY",
         "EDDY_VR01_RECIPIENT_RESOLVER_READY",
     ),
-    "MONITORAR_CLIENTE": ("EDDY_VR01_REPLY_RECONCILIATION_READY",),
+    # Moving into the waiting phase does not assert that reply processing is homologated.
+    # Evidence-based confirmation and follow-up still require the reply gate.
+    "MONITORAR_CLIENTE": (),
     "FOLLOWUP_CLIENTE": (
         "EDDY_VR01_TRANSPORT_MYSQL_READY",
         "EDDY_VR01_RECIPIENT_RESOLVER_READY",
