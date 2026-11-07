@@ -32,4 +32,5 @@ jobs:
             tests/test_eddy_vr01_multi_issue.py \
             tests/test_eddy_vr01_portfolio.py \
             tests/test_eddy_vr01_portfolio_cycle.py \
-            tests/test_eddy_global_config.py
+            tests/test_eddy_global_config.py \
+            tests/test_eddy_vr01_awaiting_client_status.py
