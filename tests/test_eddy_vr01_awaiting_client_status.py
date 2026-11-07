@@ -10,7 +10,7 @@ def test_shared_writer_exposes_post_email_operation():
 
 def test_vr01_redmine_update_still_supports_existing_operations():
     response = Mock()
-    with patch("requests.put", return_value=response) as put:
+    with patch("redmine_api._headers", return_value={"X-Redmine-API-Key": "test"}), patch("requests.put", return_value=response) as put:
         with vr.escopo_vr01(50318, 97, "CLIENTE", "71676316003323"):
             vr._redmine_update(assigned_to_id=97, notes="Evidencia")
     payload = put.call_args.kwargs["json"]["issue"]
