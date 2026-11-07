@@ -8,7 +8,7 @@ from pathlib import Path
 
 def persistencia_operacional_disponivel() -> bool:
     """Fail closed until MySQL operational state is migrated and reconciled."""
-    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+    if os.getenv("EDDY_DB_ENGINE", "mysql").strip().lower() == "mysql":
         return False
     path = Path(os.getenv("EDNNA_DB_PATH", "/home/data/ednna.db"))
     if not path.is_file():
