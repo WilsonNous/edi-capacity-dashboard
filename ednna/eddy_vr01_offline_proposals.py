@@ -12,7 +12,25 @@ from ednna.eddy_vr_action_queue import DDL, criar_intencao
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.mysql_storage import connect
 
-PILOT_IDS = (50318, 49119, 48786, 50120)
+def listar_chamados_vr_mysql() -> tuple[int, ...]:
+    """Discover open VR issues from MySQL without a fixed pilot list."""
+    from ednna.eddy_vr_origin import identificar_vr
+    from ednna.mysql_snapshot_repository import CHAMADO_FIELDS
+
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT " + ", ".join(CHAMADO_FIELDS) + " FROM eddy_chamados ORDER BY id")
+            rows = cursor.fetchall()
+    found = []
+    for row in rows:
+        issue = dict(zip(CHAMADO_FIELDS, row))
+        status = str(issue.get("estado") or "").casefold()
+        if any(word in status for word in ("conclu", "fechad", "rejeitad", "cancelad")):
+            continue
+        if identificar_vr(issue):
+            found.append(int(issue["id"]))
+    return tuple(found)
+
 
 
 def chave_observacional(action_key: str) -> str:
@@ -20,7 +38,9 @@ def chave_observacional(action_key: str) -> str:
     return hashlib.sha256(f"VR01:OBSERVACIONAL:{action_key}".encode()).hexdigest()
 
 
-def preparar_intencoes_locais(ids=PILOT_IDS) -> dict:
+def preparar_intencoes_locais(ids=None) -> dict:
+    if ids is None:
+        ids = listar_chamados_vr_mysql()
     planned = []
     blocked = []
     for issue_id in ids:
