@@ -309,17 +309,16 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         if not bp:
             raise RuntimeError("BP nao validado")
         from ednna.email_sender import enviar_email_graph, localizar_email_enviado
-        subject = f"[EDDY VR01] #{ISSUE_ID} - Autorizacao VR Beneficios MAMBO"
-        body = ("Solicitamos acessar o portal VR Beneficios e autorizar o envio "
-                f"dos arquivos do estabelecimento {ESTABLISHMENT} a Netunna. "
-                "Por favor, confirme quando a autorizacao estiver concluida.")
+        from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_autorizacao
+        subject = assunto_vr01(ISSUE_ID)
+        body = mensagem_autorizacao(ISSUE_ID)
         sender = os.environ["EDNNA_EMAIL_FROM"]
         # An already sent message is ambiguous unless correlated to this reservation.
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Mensagem anterior detectada; reconciliar")
         para, cc = _mambo_recipients()
         enviar_email_graph(remetente=sender, para=para, cc=cc,
-                           assunto=subject, corpo=body, chamado_id=ISSUE_ID)
+                           assunto=subject, corpo=body, chamado_id=ISSUE_ID, corpo_html=True)
         sent = localizar_email_enviado(remetente=sender, assunto=subject)
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Graph envio pendente de conciliacao")
