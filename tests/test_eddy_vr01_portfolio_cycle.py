@@ -58,3 +58,26 @@ def test_history_recovery_uses_existing_reader_and_snapshot_writer():
     read.assert_called_once_with(issue, force=True)
     save.assert_called_once_with(row, [])
     load.assert_called_once_with(50318)
+
+
+def test_auto_portal_approval_is_scoped_to_issue_and_fresh_version():
+    live = {"id": 50671, "updated_on": "2026-11-07T10:00:00Z"}
+    ledger = {"fase": "AGUARDA_CONTATO_BP", "operacao_pendente": None,
+              "envio_graph_confirmado": 0}
+    assert module._aprovacoes_automaticas_portal(
+        50671, live, ledger, enabled_flag=True
+    ) == {"SOLICITAR_AUTORIZACAO_PORTAL": {
+        "issue_id": 50671, "redmine_updated_on": live["updated_on"]}}
+    assert module._aprovacoes_automaticas_portal(
+        50671, live, ledger, enabled_flag=False) == {}
+    assert module._aprovacoes_automaticas_portal(
+        50671, {}, ledger, enabled_flag=True) == {}
+    assert module._aprovacoes_automaticas_portal(
+        50671, live, {**ledger, "operacao_pendente": "SOLICITAR_AUTORIZACAO_PORTAL"},
+        enabled_flag=True) == {}
+    assert module._aprovacoes_automaticas_portal(
+        50671, live, {**ledger, "envio_graph_confirmado": 1},
+        enabled_flag=True) == {}
+    assert module._aprovacoes_automaticas_portal(
+        50671, live, {**ledger, "fase": "AGUARDA_CONFIRMACAO_CLIENTE"},
+        enabled_flag=True) == {}
