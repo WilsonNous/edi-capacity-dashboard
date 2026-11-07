@@ -62,7 +62,7 @@ def test_insert_ignore_reports_existing_row_without_overwriting():
     cursor = conn.cursor.return_value.__enter__.return_value
     cursor.rowcount = 0
     snapshot = {"chamado": {"payload_json": issue(50318)}, "journals": []}
-    with patch.object(module, "carregar_snapshot", return_value=snapshot), \\
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
          patch.object(module, "connect", return_value=conn):
         result = module.preparar_intencoes_locais(ids=(50318,))
     assert result["propostas"] == 1
@@ -100,8 +100,8 @@ def test_dynamic_discovery_filters_closed_and_non_vr_issues():
 def test_dynamic_discovery_is_used_when_ids_omitted():
     conn = MagicMock()
     conn.__enter__.return_value = conn
-    with patch.object(module, "listar_chamados_vr_mysql", return_value=(50318, 50671)) as discovery, \\
-         patch.object(module, "carregar_snapshot", return_value=None), \\
+    with patch.object(module, "listar_chamados_vr_mysql", return_value=(50318, 50671)) as discovery, \
+         patch.object(module, "carregar_snapshot", return_value=None), \
          patch.object(module, "connect", return_value=conn):
         result = module.preparar_intencoes_locais()
     discovery.assert_called_once_with()
