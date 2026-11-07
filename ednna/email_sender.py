@@ -97,6 +97,7 @@ def enviar_email_graph(
     assunto: str,
     corpo: str,
     anexos: list[dict] | None = None,
+    corpo_html: bool = False,
     chamado_id: int | None = None,
 ) -> dict:
     remetente = str(
@@ -144,7 +145,7 @@ def enviar_email_graph(
             "message": {
                 "subject": assunto,
                 "body": {
-                    "contentType": "Text",
+                    "contentType": "HTML" if corpo_html else "Text",
                     "content": corpo,
                 },
                 "toRecipients": _destinatarios(
