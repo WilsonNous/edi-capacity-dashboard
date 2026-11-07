@@ -199,14 +199,16 @@ def _event(name: str, reference: str) -> None:
                 (_context()["chamado_id"], name, reference[:191], datetime.now(timezone.utc).replace(tzinfo=None)))
 
 
-def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
+def _redmine_update(assigned_to_id: int | None = None, notes: str = "", status_id: int | None = None) -> None:
     import requests
     from redmine_api import REDMINE_URL, _headers
-    if assigned_to_id is None and not notes:
+    if assigned_to_id is None and not notes and status_id is None:
         raise ValueError("Atualizacao Redmine vazia")
     issue = {"assigned_to_id": assigned_to_id} if assigned_to_id is not None else {}
     if notes:
         issue["notes"] = notes
+    if status_id is not None:
+        issue["status_id"] = int(status_id)
     response = requests.put(
         f"{REDMINE_URL}/issues/{_context()["chamado_id"]}.json",
         headers={**_headers(), "Content-Type": "application/json"},
@@ -356,6 +358,25 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Graph envio pendente de conciliacao")
         _event("SOLICITACAO_CLIENTE", str(sent.get("internetMessageId") or sent["id"]))
+        # Email already sent: retain reservation on Redmine failure, preventing duplicate send.
+        from ednna.redmine_outbox import registrar_ou_enfileirar
+        from ednna.redmine_writer import obter_status_id_por_nome
+        result = registrar_ou_enfileirar(
+            chamado_id=_context()["chamado_id"],
+            regra_id="VR01",
+            nota="EDDY VR01: solicitacao de autorizacao enviada por e-mail. Aguardando retorno do cliente.",
+            status_nome="Aguardando Retorno Cliente",
+        )
+        if result.get("pendente"):
+            _event("AGUARDANDO_CLIENTE_REDMINE_PENDENTE", "VR01")
+        elif result.get("ok"):
+            waiting_id = obter_status_id_por_nome("Aguardando Retorno Cliente")
+            verified = _read_issue(_context()["chamado_id"])
+            if int((verified.get("status") or {}).get("id") or 0) != waiting_id:
+                raise RuntimeError("Status Aguardando Retorno Cliente nao confirmado no Redmine")
+            _event("AGUARDANDO_CLIENTE_REDMINE", str(waiting_id))
+        else:
+            raise RuntimeError("Resultado Redmine pos-envio nao reconhecido")
     elif operation == "REGISTRAR_EVIDENCIAS_REDMINE":
         _redmine_update(notes=("EDDY VR01: autorizacao no portal VR Beneficios "
             "confirmada pelo cliente. Evidencia: " + str(row["confirmacao_evidence_id"]) +
