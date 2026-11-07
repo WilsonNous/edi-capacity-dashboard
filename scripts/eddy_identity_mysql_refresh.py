@@ -1,6 +1,6 @@
 """Low-frequency client identity enrichment; VR01 planning remains MySQL-only.
 
-One pass on startup, then at most daily. Never sends mail or writes Redmine.
+One pass on startup, then every 30 minutes for unresolved identities. Never sends mail or writes Redmine.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def executar_uma_vez(limite=20):
 
 
 def main():
-    interval = max(86400, int(os.getenv("EDDY_IDENTITY_REFRESH_INTERVAL_SECONDS", "86400")))
+    interval = max(1800, int(os.getenv("EDDY_IDENTITY_REFRESH_INTERVAL_SECONDS", "1800")))
     while True:
         try:
             print("[EDDY-IDENTIDADE-MYSQL] " +

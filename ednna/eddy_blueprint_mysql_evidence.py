@@ -57,7 +57,22 @@ def identidade_de_bp_mysql(cliente):
     guide a targeted Redmine fetch outside the offline planning path.
     """
     from ednna.eddy_client_identity import cnpjs_blueprint
+    from ednna.eddy_blueprint_identity_evidence import consultar_cliente
+    persisted = consultar_cliente(cliente)
     ids, stored = candidatos_bp_mysql(cliente)
+    if persisted["blueprint_ids"]:
+        known = set(persisted["cnpjs"])
+        # Combine evidence across ALL known BPs; never choose a random branch.
+        for bp in stored.values():
+            known.update(cnpjs_blueprint(bp))
+        unresolved = ids - set(persisted["blueprint_ids"]) - stored.keys()
+        if len(known) > 1:
+            return {"estado": "CNPJ_AMBIGUO", "cnpj": None,
+                    "blueprint_ids": sorted(set(ids) | set(persisted["blueprint_ids"]))}
+        if len(known) == 1 and not unresolved:
+            return {"estado": "RESOLVIDO", "cliente": cliente,
+                    "cnpj": next(iter(known)), "blueprint_id": min(persisted["blueprint_ids"]),
+                    "origem": "MYSQL_BP", "quantidade_cnpjs": 1}
     if not ids:
         return {"estado": "SEM_BP_MYSQL", "cnpj": None}
     # A participant-only BP has no reliable CNPJ in the contacts table.
