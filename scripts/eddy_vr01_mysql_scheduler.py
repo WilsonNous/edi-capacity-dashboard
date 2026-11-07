@@ -469,6 +469,20 @@ def executar_uma_vez() -> dict:
         except Exception as exc:
             LOG.warning("[EDDY-VR01-INBOX] falha segura: %s", type(exc).__name__)
 
+    # Opt-in multi-issue VR01 bridge. Reuses the audited executor and global inbox.
+    if flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED"):
+        try:
+            from ednna.eddy_vr01_portfolio_cycle import executar_carteira_vr01
+            portfolio = executar_carteira_vr01(
+                execute=flag_ativa("EDDY_VR01_PORTFOLIO_INTERNAL_ADVANCE")
+                and flag_ativa("EDDY_VR01_EXTERNAL_ENABLED")
+                and os.getenv("EDDY_DB_ENGINE", "").lower() == "mysql"
+            )
+            LOG.info("[EDDY-VR01-PORTFOLIO] %s", json.dumps(
+                portfolio, ensure_ascii=False, default=str))
+        except Exception as exc:
+            LOG.warning("[EDDY-VR01-PORTFOLIO] falha segura: %s", type(exc).__name__)
+
     LOG.info(
         "[EDDY-VR01-SCHEDULER] ciclo_fim estado=%s",
         result.get("estado"),
