@@ -32,7 +32,8 @@ def _iso(valor: datetime) -> str:
 
 def _conectar() -> sqlite3.Connection:
     if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
-        raise RuntimeError("ACOMPANHAMENTO_SQLITE_DESATIVADO: migracao MySQL incompleta")
+        from ednna.mysql_acompanhamento_acoes import connection
+        return connection()
     caminho = _db_path()
     caminho.parent.mkdir(parents=True, exist_ok=True)
 
@@ -48,6 +49,10 @@ def _conectar() -> sqlite3.Connection:
 
 
 def inicializar_acompanhamento() -> None:
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.mysql_acompanhamento_acoes import initialize
+        initialize()
+        return
     with _conectar() as conn:
         conn.execute(
             """
