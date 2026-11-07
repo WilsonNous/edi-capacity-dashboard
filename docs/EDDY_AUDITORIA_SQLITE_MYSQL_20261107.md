@@ -12,7 +12,7 @@ O banco `ednna.db` foi aposentado. Em produção (`EDDY_DB_ENGINE=mysql`), nenhu
 | `ednna/recovery_guard.py` | Validação do arquivo legado | Modo MySQL não aceita SQLite como prontidão | Prontidão real de cada motor via MySQL |
 | `ui/operational_data.py` | `chamados_df()` lia `ednna.db` | Reutiliza carteira ativa já validada via painel/ponte MySQL | Leitura histórica exclusiva MySQL |
 | `eddy_api/service.py` | Contadores locais de regras, ações, follow-ups | Não abre SQLite no modo MySQL; sinaliza métricas não migradas | Consultas MySQL com tabelas homologadas |
-| `ednna/redmine_status_catalog.py` | Cache de status em SQLite legado | **Pendente** | Migrar catálogo de status para MySQL |
+| `ednna/redmine_status_catalog.py` | Cache de status em SQLite legado | **Migrado nesta PR**: leitura/escrita na tabela `eddy_redmine_status_catalog` quando `EDDY_DB_ENGINE=mysql` | Validar dados reais e permissões DDL em Azure |
 | `ednna/continuidade_decisoes.py` | Persistência de decisões SQLite | **Pendente** | Migrar decisões e revisões |
 | `ednna/acompanhamento_acoes.py` | Acompanhamento de ações SQLite | **Pendente** | Migrar filas e follow-ups |
 | `ednna/orquestrador_cancelamentos.py` | SQLite operacional | **Pendente** | Migrar orquestração |
