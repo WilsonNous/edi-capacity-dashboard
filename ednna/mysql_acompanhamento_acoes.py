@@ -72,7 +72,7 @@ class Connection:
             return Result([], None)
         if command.startswith("CREATE TABLE") or command.startswith("ALTER TABLE") or command.startswith("PRAGMA"):
             raise RuntimeError("MySQL schema must be initialized separately")
-        if not re.match(r"^(SELECT|INSERT|UPDATE)\\b", command):
+        if not re.match(r"^(SELECT|INSERT|UPDATE)\b", command):
             raise RuntimeError("Unsupported operational SQL")
         if self.in_transaction and command.startswith("SELECT") and "FROM ACOES_OPERACIONAIS" in command and self.lock_name is None:
             self.lock_name = f"eddy_action_{int(params[0])}_{str(params[1])}"[:64]
@@ -81,11 +81,11 @@ class Connection:
                 if lock_cursor.fetchone()[0] != 1:
                     self.lock_name = None
                     raise RuntimeError("MYSQL_ACTION_LOCK_TIMEOUT")
-        query = re.sub(r"\\bacoes_operacionais\\b", "eddy_acoes_operacionais", query)
+        query = re.sub(r"\bacoes_operacionais\b", "eddy_acoes_operacionais", query)
         query = query.replace("?", "%s")
-        query = re.sub(r"ON CONFLICT\\s*\\(chamado_id,\\s*regra_id\\)\\s*DO UPDATE SET",
+        query = re.sub(r"ON CONFLICT\s*\(chamado_id,\s*regra_id\)\s*DO UPDATE SET",
                        "ON DUPLICATE KEY UPDATE", query, flags=re.I)
-        query = re.sub(r"excluded\\.(\\w+)", r"VALUES(\\1)", query, flags=re.I)
+        query = re.sub(r"excluded\.(\w+)", r"VALUES(\1)", query, flags=re.I)
         with self.conn.cursor() as cursor:
             cursor.execute(query, params)
             desc = cursor.description
