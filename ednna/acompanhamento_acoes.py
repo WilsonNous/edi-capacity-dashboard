@@ -287,6 +287,10 @@ def adquirir_envio(
                     conn.execute("ROLLBACK")
                     print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EXECUCAO_EM_ANDAMENTO | estado={estado}", flush=True)
                     return False, dados_row
+                if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+                    conn.execute("ROLLBACK")
+                    print(f"[EDNNA] Envio incerto exige reconciliacao Graph | chamado={chamado_id} | regra={regra_id}", flush=True)
+                    return False, dados_row
                 print(f"[EDNNA] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
 
             elif estado in {"AGUARDANDO_RESPOSTA", "PRAZO_VENCIDO", "RESPOSTA_RECEBIDA"}:
