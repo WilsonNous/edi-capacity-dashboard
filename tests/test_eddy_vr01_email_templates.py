@@ -34,3 +34,11 @@ def test_monitoramento_nao_confunde_transicao_com_homologacao():
     assert OPERATION_REQUIREMENTS["MONITORAR_CLIENTE"] == ()
     assert "EDDY_VR01_REPLY_RECONCILIATION_READY" in OPERATION_REQUIREMENTS["CONFIRMACAO_VALIDADA"]
     assert "EDDY_VR01_REPLY_RECONCILIATION_READY" in OPERATION_REQUIREMENTS["FOLLOWUP_CLIENTE"]
+
+
+def test_assunto_compativel_com_monitor_global():
+    from ednna.email_sender import _assunto_referencia_chamado
+    subject = assunto_vr01(50318)
+    assert _assunto_referencia_chamado(subject, 50318)
+    assert _assunto_referencia_chamado("RE: " + subject, 50318)
+    assert not _assunto_referencia_chamado(subject, 50319)
