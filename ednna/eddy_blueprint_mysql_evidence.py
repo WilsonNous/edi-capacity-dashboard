@@ -29,7 +29,6 @@ def candidatos_bp_mysql(cliente):
     can be present in the participants table even if absent from open issues.
     """
     from ednna.mysql_blueprint_participants import _eh_bp_redmine
-    from ednna.eddy_vr_mysql_sync import clientes_do_redmine
 
     ids = set()
     stored = {}
@@ -45,8 +44,7 @@ def candidatos_bp_mysql(cliente):
             for issue_id, payload in cursor.fetchall():
                 issue = _decode(payload)
                 if (int(issue.get("id") or 0) == int(issue_id)
-                        and _eh_bp_redmine(issue)
-                        and clientes_do_redmine(issue) == [cliente]):
+                        and _eh_bp_redmine(issue)):
                     ids.add(int(issue_id))
                     stored[int(issue_id)] = issue
     return ids, stored
