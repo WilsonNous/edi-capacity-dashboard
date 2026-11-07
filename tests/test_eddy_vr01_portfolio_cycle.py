@@ -81,3 +81,54 @@ def test_auto_portal_approval_is_scoped_to_issue_and_fresh_version():
     assert module._aprovacoes_automaticas_portal(
         50671, live, {**ledger, "fase": "AGUARDA_CONFIRMACAO_CLIENTE"},
         enabled_flag=True) == {}
+
+
+def test_existing_portal_email_reconciles_without_resending():
+    from unittest.mock import MagicMock
+    ledger = {"fase": "AGUARDA_CONTATO_BP", "operacao_pendente": None,
+              "envio_graph_confirmado": 0}
+    message = {"subject": "VR01 #50318", "sentDateTime": "2026-11-06T12:00:00Z",
+               "internetMessageId": "<existing@example.com>",
+               "toRecipients": [{"emailAddress": {"address": "bp@example.com"}}]}
+    with patch("ednna.eddy_global_config.setting", return_value="edi@example.com"), \
+         patch("ednna.eddy_vr01_email_templates.assunto_vr01",
+               return_value="VR01 #50318"), \
+         patch("ednna.email_sender.listar_emails_enviados_por_chamado",
+               return_value=[message]) as lookup, \
+         patch("ednna.eddy_vr01_integrated._context",
+               return_value={"cliente": "MAMBO"}), \
+         patch("ednna.eddy_vr01_integrated._valid_bp",
+               return_value={"email": "bp@example.com", "source_id": 42}), \
+         patch("ednna.eddy_vr01_integrated._reserve", return_value=True) as reserve, \
+         patch("ednna.eddy_vr01_integrated._event") as event, \
+         patch("ednna.eddy_vr01_integrated._advance") as advance, \
+         patch("ednna.redmine_outbox.registrar_ou_enfileirar",
+               return_value={"pendente": True}) as outbox:
+        result = module._reconciliar_solicitacao_existente(
+            50318, {"updated_on": "2026-11-07T10:00:00Z"}, ledger)
+    assert result["estado"] == "ENVIO_EXISTENTE_RECONCILIADO"
+    assert result["envios_realizados"] == 0
+    lookup.assert_called_once()
+    reserve.assert_called_once()
+    event.assert_called_once()
+    outbox.assert_called_once()
+    assert advance.call_args.kwargs["envio_graph_confirmado"] == 1
+
+
+def test_ambiguous_existing_mail_never_advances_lifecycle():
+    ledger = {"fase": "AGUARDA_CONTATO_BP", "operacao_pendente": None}
+    with patch("ednna.eddy_global_config.setting", return_value="edi@example.com"), \
+         patch("ednna.eddy_vr01_email_templates.assunto_vr01",
+               return_value="VR01 #50318"), \
+         patch("ednna.email_sender.listar_emails_enviados_por_chamado",
+               return_value=[{"subject": "VR01 #50318", "sentDateTime": "2026-11-06T12:00:00Z",
+                              "internetMessageId": "id", "toRecipients": []}]), \
+         patch("ednna.eddy_vr01_integrated._context",
+               return_value={"cliente": "MAMBO"}), \
+         patch("ednna.eddy_vr01_integrated._valid_bp",
+               return_value={"email": "bp@example.com", "source_id": 42}), \
+         patch("ednna.eddy_vr01_integrated._reserve") as reserve:
+        result = module._reconciliar_solicitacao_existente(
+            50318, {"updated_on": "2026-11-07T10:00:00Z"}, ledger)
+    assert result["estado"] == "ENVIO_AMBIGUO"
+    reserve.assert_not_called()
