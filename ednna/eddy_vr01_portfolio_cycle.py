@@ -92,7 +92,7 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
             continue
         matching.append(item)
     if len(matching) != 1:
-        return {"estado": "ENVIO_NAO_LOCALIZADO" if not matching else "ENVIO_AMBIGUO"}
+        return {"estado": "ENVIO_AMBIGUO" if items else "ENVIO_NAO_LOCALIZADO"}
     if ledger.get("operacao_pendente") not in (None, "SOLICITAR_AUTORIZACAO_PORTAL"):
         return {"estado": "OPERACAO_DIVERGENTE"}
     from ednna.eddy_vr01_integrated import _reserve
