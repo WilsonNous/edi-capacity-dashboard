@@ -50,7 +50,7 @@ def executar_avanco_bp_piloto() -> None:
 
     External Graph sends and Redmine writes remain outside this path.
     """
-    if not flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE"):
+    if flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED") or not flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE"):
         return
 
     if not flag_ativa("EDDY_VR01_EXTERNAL_ENABLED"):
@@ -368,7 +368,8 @@ def executar_uma_vez() -> dict:
     global _LAST_PILOT_BOOTSTRAP_ATTEMPT
 
     if (
-        flag_ativa("EDDY_VR01_PILOT_OBSERVE")
+        not flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED")
+        and flag_ativa("EDDY_VR01_PILOT_OBSERVE")
         and flag_ativa(
             "EDDY_VR01_PILOT_BOOTSTRAP", "true"
         )
@@ -404,7 +405,8 @@ def executar_uma_vez() -> dict:
 
     # Preserve the existing observational pilot.
     # Observation never advances phases.
-    if flag_ativa("EDDY_VR01_PILOT_OBSERVE"):
+    if (not flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED")
+            and flag_ativa("EDDY_VR01_PILOT_OBSERVE")):
         try:
             from ednna.eddy_vr01_integrated_scheduler import (
                 ciclo_piloto,
@@ -456,7 +458,8 @@ def executar_uma_vez() -> dict:
     # Advance internal pilot lifecycle first, then reuse the existing Graph Inbox
     # reconciler. Do not build a second email reader or infer portal authorization.
     executar_avanco_bp_piloto()
-    if (flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE")
+    if (not flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED")
+            and flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE")
             and flag_ativa("EDDY_VR01_REPLY_RECONCILIATION_READY")
             and os.getenv("EDDY_DB_ENGINE", "").lower() == "mysql"):
         try:
