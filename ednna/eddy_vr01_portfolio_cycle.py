@@ -42,6 +42,20 @@ def _recuperar_historico(issue_id: int, issue: dict) -> dict | None:
     return carregar_snapshot(issue_id)
 
 
+def _aprovacoes_automaticas_portal(issue_id: int, live: dict, ledger: dict | None,
+                                  *, enabled_flag: bool) -> dict:
+    """Approve only portal sends, scoped to one live Redmine version."""
+    if not enabled_flag or not live.get("updated_on") or not ledger:
+        return {}
+    if ledger.get("fase") != "AGUARDA_CONTATO_BP" or ledger.get("operacao_pendente"):
+        return {}
+    if ledger.get("envio_graph_confirmado"):
+        return {}
+    return {"SOLICITAR_AUTORIZACAO_PORTAL": {
+        "issue_id": issue_id, "redmine_updated_on": live["updated_on"]
+    }}
+
+
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _load, _identity, _read_issue, escopo_vr01, planejar_vr01,
@@ -118,7 +132,13 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                         # Run the same audited executor for every eligible issue.
                         # Approval payloads are scoped to the issue; never reuse
                         # one customer's authorization for another ticket.
-                        approvals = (approvals_by_issue or {}).get(issue_id, {})
+                        # Preserve explicit approvals; auto-authorize portal only.
+                        approvals = dict((approvals_by_issue or {}).get(issue_id, {}))
+                        if "SOLICITAR_AUTORIZACAO_PORTAL" not in approvals:
+                            approvals.update(_aprovacoes_automaticas_portal(
+                                issue_id, live, ledger,
+                                enabled_flag=enabled("EDDY_VR01_AUTO_SEND_PORTAL"),
+                            ))
                         try:
                             result = planejar_vr01(execute=True, approvals=approvals)
                             entry.update(result)
