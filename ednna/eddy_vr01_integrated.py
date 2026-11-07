@@ -359,17 +359,24 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
             raise RuntimeError("Graph envio pendente de conciliacao")
         _event("SOLICITACAO_CLIENTE", str(sent.get("internetMessageId") or sent["id"]))
         # Email already sent: retain reservation on Redmine failure, preventing duplicate send.
-        from ednna.redmine_writer import registrar_email_e_status_chamado
-        result = registrar_email_e_status_chamado(
+        from ednna.redmine_outbox import registrar_ou_enfileirar
+        from ednna.redmine_writer import obter_status_id_por_nome
+        result = registrar_ou_enfileirar(
             chamado_id=_context()["chamado_id"],
+            regra_id="VR01",
             nota="EDDY VR01: solicitacao de autorizacao enviada por e-mail. Aguardando retorno do cliente.",
             status_nome="Aguardando Retorno Cliente",
         )
-        waiting_id = int(result["status_id"])
-        verified = _read_issue(_context()["chamado_id"])
-        if int((verified.get("status") or {}).get("id") or 0) != waiting_id:
-            raise RuntimeError("Status Aguardando Cliente nao confirmado no Redmine")
-        _event("AGUARDANDO_CLIENTE_REDMINE", str(waiting_id))
+        if result.get("pendente"):
+            _event("AGUARDANDO_CLIENTE_REDMINE_PENDENTE", "VR01")
+        elif result.get("ok"):
+            waiting_id = obter_status_id_por_nome("Aguardando Retorno Cliente")
+            verified = _read_issue(_context()["chamado_id"])
+            if int((verified.get("status") or {}).get("id") or 0) != waiting_id:
+                raise RuntimeError("Status Aguardando Retorno Cliente nao confirmado no Redmine")
+            _event("AGUARDANDO_CLIENTE_REDMINE", str(waiting_id))
+        else:
+            raise RuntimeError("Resultado Redmine pos-envio nao reconhecido")
     elif operation == "REGISTRAR_EVIDENCIAS_REDMINE":
         _redmine_update(notes=("EDDY VR01: autorizacao no portal VR Beneficios "
             "confirmada pelo cliente. Evidencia: " + str(row["confirmacao_evidence_id"]) +
