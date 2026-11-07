@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.eddy_vr_mysql_sync import clientes_do_redmine
@@ -21,6 +22,24 @@ def _cnpj(issue: dict) -> str | None:
             if len(digits) == 14:
                 candidates.add(digits)
     return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def _recuperar_historico(issue_id: int, issue: dict) -> dict | None:
+    """Recover a complete journal snapshot through the existing Redmine sync.
+
+    Never infer completeness from the generic panel snapshot. Only the shared
+    validated detail reader and transactional MySQL writer can mark it complete.
+    """
+    from ednna.redmine_resilient_reads import detalhe_com_retomada
+    from ednna.eddy_vr_mysql_sync import _snapshot
+    from ednna.mysql_snapshot_repository import salvar_snapshot
+    leitura = detalhe_com_retomada(issue, force=True)
+    detail = leitura["detalhe"]
+    if int(detail.get("id") or 0) != issue_id:
+        raise ValueError("Detalhe Redmine divergente")
+    row, journals = _snapshot(detail, datetime.now(timezone.utc).replace(tzinfo=None))
+    salvar_snapshot(row, journals)
+    return carregar_snapshot(issue_id)
 
 
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
@@ -51,9 +70,24 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 outcomes.append(entry)
                 continue
             if issue.get("_eddy_journals_completos") is not True:
-                entry["estado"] = "HISTORICO_INCOMPLETO"
-                outcomes.append(entry)
-                continue
+                if execute:
+                    try:
+                        recovered = _recuperar_historico(issue_id, issue)
+                        if recovered:
+                            snapshot = recovered
+                            issue = snapshot["chamado"].get("payload_json") or {}
+                            if isinstance(issue, str):
+                                issue = json.loads(issue)
+                            entry["historico_recuperado"] = (
+                                isinstance(issue, dict)
+                                and issue.get("_eddy_journals_completos") is True
+                            )
+                    except Exception as exc:
+                        entry["recuperacao_erro"] = type(exc).__name__
+                if not isinstance(issue, dict) or issue.get("_eddy_journals_completos") is not True:
+                    entry["estado"] = "HISTORICO_INCOMPLETO"
+                    outcomes.append(entry)
+                    continue
             clients = clientes_do_redmine(issue)
             cnpj = _cnpj(issue)
             if len(clients) != 1 or not cnpj:
