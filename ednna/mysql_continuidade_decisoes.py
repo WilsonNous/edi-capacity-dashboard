@@ -46,6 +46,10 @@ def materializar(itens, *, agora=None, proposta_fn=None, schema=1):
                 try:
                     proposta = proposta_fn(item, agora)
                     result["analisados"] += 1
+                    # Hash the bounded representation actually persisted, avoiding perpetual updates.
+                    proposta["proxima_acao"] = str(proposta["proxima_acao"])[:512]
+                    proposta["motivo"] = str(proposta["motivo"])[:1024]
+                    proposta["evidencia"] = str(proposta["evidencia"])[:700]
                     assinatura = hashlib.sha256(json.dumps(
                         proposta, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
                     cid = proposta["chamado_id"]
@@ -57,9 +61,6 @@ def materializar(itens, *, agora=None, proposta_fn=None, schema=1):
                     if not proposta["prazo_revisao_em"]:
                         proposta["prazo_revisao_em"] = (anterior[1] if anterior else "") or (
                             agora + timedelta(hours=48)).isoformat(timespec="seconds")
-                    proposta["proxima_acao"] = str(proposta["proxima_acao"])[:512]
-                    proposta["motivo"] = str(proposta["motivo"])[:1024]
-                    proposta["evidencia"] = str(proposta["evidencia"])[:700]
                     values = {**proposta, "assinatura": assinatura,
                               "versao": schema, "atualizado_em": agora.isoformat()}
                     placeholders = ", ".join(["%s"] * len(_COLUMNS))
