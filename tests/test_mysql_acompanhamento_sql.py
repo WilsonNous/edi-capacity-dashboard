@@ -51,6 +51,19 @@ class ActionSQLTest(unittest.TestCase):
             self.db.execute("SELECT * FROM acoes_operacionais WHERE chamado_id=? AND regra_id=?",
                             (50318, "VR01"))
 
+    def test_abandoned_transaction_rolls_back_before_unlock(self):
+        self.db.execute("BEGIN IMMEDIATE")
+        self.db.execute("SELECT * FROM acoes_operacionais WHERE chamado_id=? AND regra_id=?",
+                        (50318, "VR01"))
+        self.db.close()
+        self.raw.rollback.assert_called_once()
+        self.assertTrue(any("RELEASE_LOCK" in str(x) for x in self.cursor.execute.call_args_list))
+
+    def test_nested_transaction_fails_closed(self):
+        self.db.execute("BEGIN IMMEDIATE")
+        with self.assertRaisesRegex(RuntimeError, "Nested operational transaction"):
+            self.db.execute("BEGIN IMMEDIATE")
+
     def test_unknown_sql_fails_closed(self):
         with self.assertRaisesRegex(RuntimeError, "Unsupported operational SQL"):
             self.db.execute("DELETE FROM acoes_operacionais")
