@@ -71,7 +71,7 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     )
     from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
     from ednna.email_sender import enviar_email_graph, localizar_email_enviado
-    import os
+    from ednna.eddy_global_config import setting
     issue = _read_issue(_context()["chamado_id"])
     readiness = verificar_prontidao_operacao_vr01("FOLLOWUP_CLIENTE")
     if not readiness["pronto"]:
@@ -92,7 +92,9 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     if not _reserve("AGUARDA_CONFIRMACAO_CLIENTE", "FOLLOWUP_CLIENTE"):
         return {**plan, "estado": "AGUARDA_RECONCILIACAO"}
     # Reservation is deliberately retained on any uncertain send result.
-    sender = os.environ["EDNNA_EMAIL_FROM"]
+    sender = setting("EDDY_EMAIL_FROM")
+    if not sender:
+        raise RuntimeError("Remetente EDDY nao configurado")
     if localizar_email_enviado(remetente=sender, assunto=subject):
         raise RuntimeError("Follow-up anterior detectado: reconciliar")
     enviar_email_graph(remetente=sender, para=[row["destinatario"]], cc=[],

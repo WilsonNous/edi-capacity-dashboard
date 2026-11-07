@@ -55,7 +55,8 @@ def verificar_prontidao_operacao_vr01(operation: str, environ=None) -> dict:
     blockers = []
     missing = [name for name in MYSQL_CREDENTIALS if not env.get(name)]
     if operation in GRAPH_OPERATIONS:
-        missing.extend(name for name in GRAPH_CREDENTIALS if not env.get(name))
+        missing.extend(name for name in GRAPH_CREDENTIALS
+                       if not (setting("EDDY_EMAIL_FROM", environ=env) if name == "EDNNA_EMAIL_FROM" else env.get(name)))
     if missing:
         blockers.append("CREDENCIAIS_AUSENTES")
     if str(env.get("EDDY_DB_ENGINE", "")).lower() != "mysql":

@@ -123,13 +123,17 @@ def _valid_bp() -> dict | None:
     return contacts[0] if contacts else None
 
 
-def _mambo_recipients() -> tuple[list[str], list[str]]:
+def _verified_recipients() -> tuple[list[str], list[str]]:
     """Use current Blueprint participants, without a hard-coded name matrix."""
     contacts = _bp_contacts()
     if not contacts:
         raise RuntimeError("Blueprint sem destinatario com origem comprovada")
     emails = list(dict.fromkeys(str(row["email"]).strip().lower() for row in contacts))
     return emails[:1], []  # Do not CC every Blueprint participant
+
+
+# Compatibility for callers that still import the original pilot helper.
+_mambo_recipients = _verified_recipients
 
 
 def _load() -> dict | None:
@@ -347,7 +351,10 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_autorizacao
         subject = assunto_vr01(_context()["chamado_id"], _context()["cliente"])
         body = mensagem_autorizacao(_context()["chamado_id"], _context()["cnpj"], _context()["cliente"])
-        sender = os.environ["EDNNA_EMAIL_FROM"]
+        from ednna.eddy_global_config import setting
+        sender = setting("EDDY_EMAIL_FROM")
+        if not sender:
+            raise RuntimeError("Remetente EDDY nao configurado")
         # An already sent message is ambiguous unless correlated to this reservation.
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Mensagem anterior detectada; reconciliar")

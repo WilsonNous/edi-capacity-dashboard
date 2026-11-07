@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.eddy_vr_mysql_sync import clientes_do_redmine
@@ -21,6 +22,99 @@ def _cnpj(issue: dict) -> str | None:
             if len(digits) == 14:
                 candidates.add(digits)
     return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def _recuperar_historico(issue_id: int, issue: dict) -> dict | None:
+    """Recover a complete journal snapshot through the existing Redmine sync.
+
+    Never infer completeness from the generic panel snapshot. Only the shared
+    validated detail reader and transactional MySQL writer can mark it complete.
+    """
+    from ednna.redmine_resilient_reads import detalhe_com_retomada
+    from ednna.eddy_vr_mysql_sync import _snapshot
+    from ednna.mysql_snapshot_repository import salvar_snapshot
+    leitura = detalhe_com_retomada(issue, force=True)
+    detail = leitura["detalhe"]
+    if int(detail.get("id") or 0) != issue_id:
+        raise ValueError("Detalhe Redmine divergente")
+    row, journals = _snapshot(detail, datetime.now(timezone.utc).replace(tzinfo=None))
+    salvar_snapshot(row, journals)
+    return carregar_snapshot(issue_id)
+
+
+def _aprovacoes_automaticas_portal(issue_id: int, live: dict, ledger: dict | None,
+                                  *, enabled_flag: bool) -> dict:
+    """Approve only portal sends, scoped to one live Redmine version."""
+    if not enabled_flag or not live.get("updated_on") or not ledger:
+        return {}
+    if ledger.get("fase") != "AGUARDA_CONTATO_BP" or ledger.get("operacao_pendente"):
+        return {}
+    if ledger.get("envio_graph_confirmado"):
+        return {}
+    return {"SOLICITAR_AUTORIZACAO_PORTAL": {
+        "issue_id": issue_id, "redmine_updated_on": live["updated_on"]
+    }}
+
+
+def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict | None) -> dict:
+    """Correlate the exact VR01 portal request to Graph before any new send.
+
+    Never infer a portal authorization from an email, and never replay a send.
+    Ambiguous historical messages stay blocked for review.
+    """
+    if not ledger or ledger.get("fase") != "AGUARDA_CONTATO_BP":
+        return {"estado": "FORA_DA_ETAPA"}
+    if ledger.get("envio_graph_confirmado"):
+        return {"estado": "ENVIO_JA_CONFIRMADO"}
+    from ednna.eddy_global_config import setting
+    from ednna.email_sender import listar_emails_enviados_por_chamado
+    from ednna.eddy_vr01_email_templates import assunto_vr01
+    from ednna.eddy_vr01_integrated import (
+        _context, _valid_bp, _advance, _event,
+    )
+    sender = setting("EDDY_EMAIL_FROM")
+    bp = _valid_bp()
+    if not sender or not bp or not live.get("updated_on"):
+        return {"estado": "AGUARDA_EVIDENCIAS"}
+    subject = assunto_vr01(issue_id, _context()["cliente"])
+    items = listar_emails_enviados_por_chamado(remetente=sender, chamado_id=issue_id)
+    matching = []
+    for item in items:
+        if str(item.get("subject") or "").strip() != subject:
+            continue
+        if not item.get("sentDateTime") or not (item.get("internetMessageId") or item.get("id")):
+            continue
+        recipients = {
+            str((x.get("emailAddress") or {}).get("address") or "").strip().casefold()
+            for x in (item.get("toRecipients") or [])
+        }
+        if recipients != {str(bp["email"]).strip().casefold()}:
+            continue
+        matching.append(item)
+    if len(matching) != 1:
+        return {"estado": "ENVIO_AMBIGUO" if items else "ENVIO_NAO_LOCALIZADO"}
+    if ledger.get("operacao_pendente") not in (None, "SOLICITAR_AUTORIZACAO_PORTAL"):
+        return {"estado": "OPERACAO_DIVERGENTE"}
+    from ednna.eddy_vr01_integrated import _reserve
+    if ledger.get("operacao_pendente") is None and not _reserve(
+        "AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL"
+    ):
+        return {"estado": "RESERVA_CONCORRENTE"}
+    message = matching[0]
+    _event("SOLICITACAO_CLIENTE", str(message.get("internetMessageId") or message["id"]))
+    # The shared outbox records the historical send without sending mail again.
+    from ednna.redmine_outbox import registrar_ou_enfileirar
+    result = registrar_ou_enfileirar(
+        chamado_id=issue_id, regra_id="VR01",
+        nota="EDDY VR01: solicitacao de autorizacao ja enviada; envio conciliado com Graph. Aguardando retorno do cliente.",
+        status_nome="Aguardando Retorno Cliente",
+    )
+    if not (result.get("ok") or result.get("pendente")):
+        return {"estado": "REDMINE_PENDENTE"}
+    _advance("AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL",
+             "SOLICITACAO_ENVIADA", destinatario=bp["email"],
+             bp_source_id=bp["source_id"], envio_graph_confirmado=1)
+    return {"estado": "ENVIO_EXISTENTE_RECONCILIADO", "envios_realizados": 0}
 
 
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
@@ -51,9 +145,24 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 outcomes.append(entry)
                 continue
             if issue.get("_eddy_journals_completos") is not True:
-                entry["estado"] = "HISTORICO_INCOMPLETO"
-                outcomes.append(entry)
-                continue
+                if execute:
+                    try:
+                        recovered = _recuperar_historico(issue_id, issue)
+                        if recovered:
+                            snapshot = recovered
+                            issue = snapshot["chamado"].get("payload_json") or {}
+                            if isinstance(issue, str):
+                                issue = json.loads(issue)
+                            entry["historico_recuperado"] = (
+                                isinstance(issue, dict)
+                                and issue.get("_eddy_journals_completos") is True
+                            )
+                    except Exception as exc:
+                        entry["recuperacao_erro"] = type(exc).__name__
+                if not isinstance(issue, dict) or issue.get("_eddy_journals_completos") is not True:
+                    entry["estado"] = "HISTORICO_INCOMPLETO"
+                    outcomes.append(entry)
+                    continue
             clients = clientes_do_redmine(issue)
             cnpj = _cnpj(issue)
             if len(clients) != 1 or not cnpj:
@@ -81,10 +190,39 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or _cnpj(live) != cnpj:
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
+                        # Reconcile an existing Graph send before approving a new one.
+                        # A Graph failure fails closed and cannot trigger dispatch.
+                        if ledger and ledger.get("fase") == "AGUARDA_CONTATO_BP":
+                            try:
+                                entry["envio_anterior"] = _reconciliar_solicitacao_existente(
+                                    issue_id, live, ledger
+                                )
+                            except Exception as exc:
+                                entry["estado"] = "RECONCILIACAO_INDISPONIVEL"
+                                entry["erro_reconciliacao"] = type(exc).__name__
+                                outcomes.append(entry)
+                                continue
+                            if entry["envio_anterior"]["estado"] == "ENVIO_EXISTENTE_RECONCILIADO":
+                                entry["estado"] = "ENVIO_EXISTENTE_RECONCILIADO"
+                                outcomes.append(entry)
+                                continue
+                            if entry["envio_anterior"]["estado"] in (
+                                "ENVIO_AMBIGUO", "OPERACAO_DIVERGENTE", "RESERVA_CONCORRENTE",
+                                "REDMINE_PENDENTE",
+                            ):
+                                entry["estado"] = "AGUARDA_REVISAO_ENVIO"
+                                outcomes.append(entry)
+                                continue
                         # Run the same audited executor for every eligible issue.
                         # Approval payloads are scoped to the issue; never reuse
                         # one customer's authorization for another ticket.
-                        approvals = (approvals_by_issue or {}).get(issue_id, {})
+                        # Preserve explicit approvals; auto-authorize portal only.
+                        approvals = dict((approvals_by_issue or {}).get(issue_id, {}))
+                        if "SOLICITAR_AUTORIZACAO_PORTAL" not in approvals:
+                            approvals.update(_aprovacoes_automaticas_portal(
+                                issue_id, live, ledger,
+                                enabled_flag=enabled("EDDY_VR01_AUTO_SEND_PORTAL"),
+                            ))
                         try:
                             result = planejar_vr01(execute=True, approvals=approvals)
                             entry.update(result)
