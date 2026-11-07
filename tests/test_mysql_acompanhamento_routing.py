@@ -23,8 +23,9 @@ class ActionMigrationTest(unittest.TestCase):
                     self.assertEqual(
                         actions.ultima_interpretacao_retorno(50318, "VR01")["classificacao"],
                         "AGUARDAR_TERCEIRO")
-                with self.assertRaisesRegex(RuntimeError, "ACOMPANHAMENTO_SQLITE_DESATIVADO"):
+                with patch("ednna.mysql_acompanhamento_acoes.connection") as factory:
                     actions._conectar()
+                    factory.assert_called_once()
                 self.assertFalse(os.path.exists(path))
 
 
