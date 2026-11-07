@@ -11,6 +11,7 @@ def _snapshot(issue_id, complete=True):
             "subject": "VR BENEFICIO - INCLUSAO DE ESTABELECIMENTO",
             "status": {"name": "Em Andamento", "is_closed": False},
             "assigned_to": {"id": 97},
+            "custom_fields": [{"id": 1, "value": ["CLIENTE EXEMPLO"]}],
             "tracker": {"name": "EDI - Inclusão de EC/Domc"},
         }},
         "journals": [],
@@ -39,3 +40,14 @@ def test_portfolio_does_not_plan_missing_snapshot():
     with patch.object(portfolio, "carregar_snapshot", return_value=None):
         result = portfolio.planejar_carteira_vr01(ids=(50671,))
     assert result["chamados"][0]["estado"] == "BLOQUEADO_SNAPSHOT_AUSENTE"
+
+
+def test_portfolio_blocks_ambiguous_client():
+    snapshot = _snapshot(50671)
+    snapshot["chamado"]["payload_json"]["custom_fields"][0]["value"] = [
+        "CLIENTE A", "CLIENTE B",
+    ]
+    with patch.object(portfolio, "carregar_snapshot", return_value=snapshot):
+        result = portfolio.planejar_carteira_vr01(ids=(50671,))
+    assert result["chamados"][0]["estado"] == "BLOQUEADO_CLIENTE_AMBIGUO"
+    assert result["envios_realizados"] == 0
