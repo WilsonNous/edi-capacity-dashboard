@@ -16,9 +16,42 @@ from ednna.eddy_vr01_lifecycle import VR01Evidence, VR01State, next_transition
 from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
 from ednna.mysql_storage import connect
 
-ISSUE_ID = 50318
-ORIGINAL_OWNER_ID = 97
-ESTABLISHMENT = "71676316003323"
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_VR_CONTEXT = ContextVar("eddy_vr01_context", default=None)
+
+
+def _context() -> dict:
+    return _VR_CONTEXT.get() or {
+        "chamado_id": 50318, "original_owner_id": 97,
+        "cliente": "SUPERMERCADOS MAMBO", "cnpj": "71.676.316/0033-23",
+    }
+
+
+@contextmanager
+def escopo_vr01(chamado_id: int, original_owner_id: int, cliente: str, cnpj: str):
+    """Isolate each issue's identity and recipient context across scheduler tasks."""
+    if int(chamado_id) <= 0 or int(original_owner_id) <= 0:
+        raise ValueError("Chamado e responsavel original obrigatorios")
+    if not str(cliente).strip() or not re.fullmatch(r"\d{14}", re.sub(r"\D", "", str(cnpj))):
+        raise ValueError("Cliente e CNPJ verificados obrigatorios")
+    token = _VR_CONTEXT.set({
+        "chamado_id": int(chamado_id), "original_owner_id": int(original_owner_id),
+        "cliente": str(cliente).strip(), "cnpj": str(cnpj).strip(),
+    })
+    try:
+        yield
+    finally:
+        _VR_CONTEXT.reset(token)
+
+
+def planejar_chamado_vr01(*, chamado_id: int, original_owner_id: int,
+                           cliente: str, cnpj: str, approvals=None, execute=False):
+    with escopo_vr01(chamado_id, original_owner_id, cliente, cnpj):
+        return planejar_vr01(approvals=approvals, execute=execute)
+
+
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 PHASES = tuple(s.value for s in VR01State)
 DDL = """CREATE TABLE IF NOT EXISTS eddy_vr01_lifecycle_audit (
@@ -58,7 +91,7 @@ def _identity() -> int:
     if primary and legacy and primary != legacy:
         raise ValueError("IDs Redmine EDNNA/EDDY divergentes")
     raw = primary or legacy
-    if not raw.isdigit() or int(raw) in (0, ORIGINAL_OWNER_ID):
+    if not raw.isdigit() or int(raw) in (0, _context()["original_owner_id"]):
         raise ValueError("Identidade Redmine EDNNA nao identificada/valida")
     return int(raw)
 
@@ -78,7 +111,7 @@ def _assignee(issue: dict) -> int:
 def _bp_contacts() -> list[dict]:
     """Resolve verified recipients with the shared Blueprint MySQL selector."""
     from ednna.mysql_blueprint_participants import selecionar_contatos_cliente_mysql
-    client = os.getenv("EDDY_VR01_BP_CLIENTE", "").strip() or "SUPERMERCADOS MAMBO"
+    client = _context()["cliente"]
     contacts = selecionar_contatos_cliente_mysql(client, limite=100)
     return [row for row in contacts
             if EMAIL_RE.fullmatch(str(row.get("email") or "").strip())
@@ -108,7 +141,7 @@ def _load() -> dict | None:
                 destinatario, bp_source_id, autorizacao_confirmada,
                 confirmacao_evidence_id, evidencias_registradas,
                 envio_graph_confirmado, notificado, operacao_pendente
-                FROM eddy_vr01_lifecycle_audit WHERE chamado_id=%s""", (ISSUE_ID,))
+                FROM eddy_vr01_lifecycle_audit WHERE chamado_id=%s""", (_context()["chamado_id"],))
             row = cur.fetchone()
     if not row:
         return None
@@ -120,7 +153,7 @@ def _load() -> dict | None:
 
 
 def _initialize(issue: dict, eddy_id: int) -> dict:
-    if _assignee(issue) != ORIGINAL_OWNER_ID:
+    if _assignee(issue) != _context()["original_owner_id"]:
         raise RuntimeError("Responsavel original divergente: nao assumir")
     with connect() as conn:
         with conn.cursor() as cur:
@@ -128,7 +161,7 @@ def _initialize(issue: dict, eddy_id: int) -> dict:
             cur.execute("""INSERT IGNORE INTO eddy_vr01_lifecycle_audit
                 (chamado_id, fase, original_owner_id, eddy_owner_id)
                 VALUES (%s,%s,%s,%s)""",
-                (ISSUE_ID, VR01State.PRONTO_PARA_ASSUMIR.value, ORIGINAL_OWNER_ID, eddy_id))
+                (_context()["chamado_id"], VR01State.PRONTO_PARA_ASSUMIR.value, _context()["original_owner_id"], eddy_id))
     return _load()
 
 
@@ -137,7 +170,7 @@ def _reserve(phase: str, operation: str) -> bool:
         with conn.cursor() as cur:
             cur.execute("""UPDATE eddy_vr01_lifecycle_audit SET operacao_pendente=%s
                 WHERE chamado_id=%s AND fase=%s AND operacao_pendente IS NULL""",
-                (operation, ISSUE_ID, phase))
+                (operation, _context()["chamado_id"], phase))
             return cur.rowcount == 1
 
 
@@ -152,7 +185,7 @@ def _advance(phase: str, operation: str, target: str, **fields) -> None:
             cur.execute("""UPDATE eddy_vr01_lifecycle_audit SET fase=%s,
                 operacao_pendente=NULL""" + (", " + assignments if assignments else "") +
                 """ WHERE chamado_id=%s AND fase=%s AND operacao_pendente=%s""",
-                (target, *fields.values(), ISSUE_ID, phase, operation))
+                (target, *fields.values(), _context()["chamado_id"], phase, operation))
             if cur.rowcount != 1:
                 raise RuntimeError("Transicao nao reconciliada")
 
@@ -163,7 +196,7 @@ def _event(name: str, reference: str) -> None:
             cur.execute(EVENT_DDL)
             cur.execute("""INSERT IGNORE INTO eddy_vr01_lifecycle_events
                 (chamado_id, evento, referencia, ocorrido_em) VALUES (%s,%s,%s,%s)""",
-                (ISSUE_ID, name, reference[:191], datetime.now(timezone.utc).replace(tzinfo=None)))
+                (_context()["chamado_id"], name, reference[:191], datetime.now(timezone.utc).replace(tzinfo=None)))
 
 
 def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
@@ -175,7 +208,7 @@ def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
     if notes:
         issue["notes"] = notes
     response = requests.put(
-        f"{REDMINE_URL}/issues/{ISSUE_ID}.json",
+        f"{REDMINE_URL}/issues/{_context()["chamado_id"]}.json",
         headers={**_headers(), "Content-Type": "application/json"},
         json={"issue": issue}, timeout=(8, 20),
     )
@@ -184,7 +217,7 @@ def _redmine_update(assigned_to_id: int | None = None, notes: str = "") -> None:
 
 def _approval(operation: str, approvals: dict, issue: dict) -> None:
     approved = approvals.get(operation)
-    if not isinstance(approved, dict) or approved.get("issue_id") != ISSUE_ID:
+    if not isinstance(approved, dict) or approved.get("issue_id") != _context()["chamado_id"]:
         raise PermissionError("Aprovacao especifica ausente")
     if approved.get("redmine_updated_on") != issue.get("updated_on"):
         raise PermissionError("Versao Redmine nao aprovada")
@@ -206,17 +239,17 @@ def registrar_confirmacao_revisada(*, message_id: str, revisado_por: str) -> dic
             cur.execute("""SELECT COUNT(*) FROM eddy_external_evidence
                 WHERE chamado_id=%s AND source='GRAPH'
                 AND evidence_type='INBOX_REPLY' AND external_id=%s""",
-                (ISSUE_ID, message_id))
+                (_context()["chamado_id"], message_id))
             if not int(cur.fetchone()[0]):
                 raise RuntimeError("Mensagem Graph nao conciliada; nao confirmar")
             cur.execute("""UPDATE eddy_vr01_lifecycle_audit
                 SET autorizacao_confirmada=1, confirmacao_evidence_id=%s
                 WHERE chamado_id=%s AND fase=%s AND autorizacao_confirmada=0""",
-                (message_id, ISSUE_ID, VR01State.AGUARDA_CONFIRMACAO_CLIENTE.value))
+                (message_id, _context()["chamado_id"], VR01State.AGUARDA_CONFIRMACAO_CLIENTE.value))
             if cur.rowcount != 1:
                 raise RuntimeError("Confirmacao ja registrada ou estado mudou")
     _event("AUTORIZACAO_CONFIRMADA", f"{message_id} revisado por {revisado_por}")
-    return {"chamado_id": ISSUE_ID, "estado": "AUTORIZACAO_CONFIRMADA_REVISADA"}
+    return {"chamado_id": _context()["chamado_id"], "estado": "AUTORIZACAO_CONFIRMADA_REVISADA"}
 
 
 def _timeline() -> str:
@@ -224,7 +257,7 @@ def _timeline() -> str:
         with conn.cursor() as cur:
             cur.execute("""SELECT evento, referencia, ocorrido_em
                 FROM eddy_vr01_lifecycle_events WHERE chamado_id=%s
-                ORDER BY ocorrido_em, id""", (ISSUE_ID,))
+                ORDER BY ocorrido_em, id""", (_context()["chamado_id"],))
             rows = cur.fetchall()
     tz = ZoneInfo("America/Sao_Paulo")
     parts = []
@@ -246,28 +279,28 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     if not execute:
         row = _load()
         from ednna.redmine_collection_policy import observational_state
-        return observational_state(ISSUE_ID, row)
-    issue = _read_issue(ISSUE_ID)
+        return observational_state(_context()["chamado_id"], row)
+    issue = _read_issue(_context()["chamado_id"])
     row = _load()
     if row is None:
         if not execute:
             return {"estado": "AGUARDA_INICIALIZACAO_MYSQL", "externo": False}
         # Initial MySQL ledger write is not an external Redmine/Graph action.
         row = _initialize(issue, eddy_id)
-    if row["original_owner_id"] != ORIGINAL_OWNER_ID or row["eddy_owner_id"] != eddy_id:
+    if row["original_owner_id"] != _context()["original_owner_id"] or row["eddy_owner_id"] != eddy_id:
         return {"estado": "BLOQUEADO_IDENTIDADE", "externo": False}
     if row["operacao_pendente"]:
         return {"estado": "AGUARDA_RECONCILIACAO_MANUAL", "operacao": row["operacao_pendente"], "externo": False}
     phase = VR01State(row["fase"])
     # Never contact a client or mutate a ticket after another owner takes over.
-    expected_owner = (ORIGINAL_OWNER_ID if phase in {
+    expected_owner = (_context()["original_owner_id"] if phase in {
         VR01State.DEVOLVIDO_ORIGEM, VR01State.NOTIFICACAO_INTERNA_CONFIRMADA
     } else eddy_id)
     if phase != VR01State.PRONTO_PARA_ASSUMIR and _assignee(issue) != expected_owner:
         return {"estado": "BLOQUEADO_RESPONSAVEL_DIVERGENTE", "externo": False}
     bp = _valid_bp() if phase == VR01State.AGUARDA_CONTATO_BP else None
     evidence = VR01Evidence(
-        original_owner_id=ORIGINAL_OWNER_ID, eddy_owner_id=eddy_id,
+        original_owner_id=_context()["original_owner_id"], eddy_owner_id=eddy_id,
         redmine_assignee_id=_assignee(issue), redmine_snapshot_fresh=True,
         original_owner_persisted=True, blueprint_recipient_verified=bool(bp),
         graph_send_confirmed=bool(row["envio_graph_confirmado"]),
@@ -276,7 +309,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         internal_notification_confirmed=bool(row["notificado"]),
     )
     operation, target = next_transition(phase, evidence)
-    report = {"chamado_id": ISSUE_ID, "fase": phase.value, "acao": operation,
+    report = {"chamado_id": _context()["chamado_id"], "fase": phase.value, "acao": operation,
               "proxima_fase": target.value, "externo": False}
     if not execute:
         return report
@@ -302,7 +335,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     # Reservation stays pending on errors: manual reconciliation prevents blind retries.
     if operation == "ASSUMIR_REDMINE":
         _redmine_update(assigned_to_id=eddy_id)
-        if _assignee(_read_issue(ISSUE_ID)) != eddy_id:
+        if _assignee(_read_issue(_context()["chamado_id"])) != eddy_id:
             raise RuntimeError("Assuncao Redmine nao confirmada")
         _event("ASSUNCAO_EDDY", str(eddy_id))
     elif operation == "SOLICITAR_AUTORIZACAO_PORTAL":
@@ -310,15 +343,15 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
             raise RuntimeError("BP nao validado")
         from ednna.email_sender import enviar_email_graph, localizar_email_enviado
         from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_autorizacao
-        subject = assunto_vr01(ISSUE_ID)
-        body = mensagem_autorizacao(ISSUE_ID)
+        subject = assunto_vr01(_context()["chamado_id"], _context()["cliente"])
+        body = mensagem_autorizacao(_context()["chamado_id"], _context()["cnpj"], _context()["cliente"])
         sender = os.environ["EDNNA_EMAIL_FROM"]
         # An already sent message is ambiguous unless correlated to this reservation.
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Mensagem anterior detectada; reconciliar")
         para, cc = _mambo_recipients()
         enviar_email_graph(remetente=sender, para=para, cc=cc,
-                           assunto=subject, corpo=body, chamado_id=ISSUE_ID, corpo_html=True)
+                           assunto=subject, corpo=body, chamado_id=_context()["chamado_id"], corpo_html=True)
         sent = localizar_email_enviado(remetente=sender, assunto=subject)
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Graph envio pendente de conciliacao")
@@ -329,17 +362,17 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
             ". Recebimento dos arquivos ainda nao validado; responsabilidade do analista."))
         _event("EVIDENCIAS_REDMINE", str(row["confirmacao_evidence_id"]))
     elif operation == "DEVOLVER_AO_RESPONSAVEL_ORIGINAL":
-        _redmine_update(assigned_to_id=ORIGINAL_OWNER_ID)
-        if _assignee(_read_issue(ISSUE_ID)) != ORIGINAL_OWNER_ID:
+        _redmine_update(assigned_to_id=_context()["original_owner_id"])
+        if _assignee(_read_issue(_context()["chamado_id"])) != _context()["original_owner_id"]:
             raise RuntimeError("Devolucao Redmine nao confirmada")
-        _event("DEVOLUCAO_ORIGEM", str(ORIGINAL_OWNER_ID))
+        _event("DEVOLUCAO_ORIGEM", str(_context()["original_owner_id"]))
     elif operation == "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA":
         # No inferred internal address. Approval explicitly supplies the verified owner mailbox.
         recipient = (approvals or {})[operation].get("to", "")
         if not EMAIL_RE.fullmatch(str(recipient)):
             raise PermissionError("Email interno do responsavel nao verificado")
         from ednna.email_sender import enviar_email_graph, localizar_email_enviado
-        subject = f"[EDDY VR01] #{ISSUE_ID} - Autorizacao confirmada | MAMBO"
+        subject = f"[EDDY VR01] #{_context()['chamado_id']} - Autorizacao confirmada | {_context()['cliente']}"
         sender = os.environ["EDNNA_EMAIL_FROM"]
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Notificacao anterior detectada; reconciliar")
@@ -347,7 +380,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
                 "\n\nProxima acao humana: verificar recebimento dos arquivos pela Netunna."
                 "\nAutorizacao no portal nao comprova recebimento.")
         enviar_email_graph(remetente=sender, para=[recipient], cc=[],
-                           assunto=subject, corpo=body, chamado_id=ISSUE_ID)
+                           assunto=subject, corpo=body, chamado_id=_context()["chamado_id"])
         sent = localizar_email_enviado(remetente=sender, assunto=subject)
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Notificacao pendente de conciliacao")

@@ -17,6 +17,7 @@ import os
 import time
 
 from scripts.eddy_vr01_mysql_worker import executar_worker_vr01
+from ednna.eddy_global_config import enabled, setting
 
 LOG = logging.getLogger("eddy.vr01.scheduler")
 
@@ -25,7 +26,7 @@ _LAST_PILOT_BOOTSTRAP_ATTEMPT = 0.0
 
 
 def flag_ativa(nome: str, default: str = "false") -> bool:
-    return os.getenv(nome, default).strip().lower() == "true"
+    return enabled(nome, default)
 
 
 def intervalo_segundos(raw: str | None) -> int:
@@ -469,6 +470,20 @@ def executar_uma_vez() -> dict:
         except Exception as exc:
             LOG.warning("[EDDY-VR01-INBOX] falha segura: %s", type(exc).__name__)
 
+    # Opt-in multi-issue VR01 bridge. Reuses the audited executor and global inbox.
+    if flag_ativa("EDDY_VR01_PORTFOLIO_ENABLED"):
+        try:
+            from ednna.eddy_vr01_portfolio_cycle import executar_carteira_vr01
+            portfolio = executar_carteira_vr01(
+                execute=flag_ativa("EDDY_VR01_PORTFOLIO_INTERNAL_ADVANCE")
+                and flag_ativa("EDDY_VR01_EXTERNAL_ENABLED")
+                and os.getenv("EDDY_DB_ENGINE", "").lower() == "mysql"
+            )
+            LOG.info("[EDDY-VR01-PORTFOLIO] %s", json.dumps(
+                portfolio, ensure_ascii=False, default=str))
+        except Exception as exc:
+            LOG.warning("[EDDY-VR01-PORTFOLIO] falha segura: %s", type(exc).__name__)
+
     LOG.info(
         "[EDDY-VR01-SCHEDULER] ciclo_fim estado=%s",
         result.get("estado"),
@@ -521,7 +536,7 @@ def main() -> None:
         )
 
     interval = intervalo_segundos(
-        os.getenv("EDDY_VR01_INTERVAL_SECONDS")
+        setting("EDDY_VR01_INTERVAL_SECONDS")
     )
 
     LOG.info(

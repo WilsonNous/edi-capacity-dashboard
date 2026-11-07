@@ -8,7 +8,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from ednna.mysql_storage import connect
 
-ISSUE_ID = 50318
+from ednna.eddy_vr01_integrated import _context, escopo_vr01
+
+
+def ciclo_chamado_vr01(*, chamado_id: int, original_owner_id: int,
+                       cliente: str, cnpj: str, approvals=None, execute=False, agora=None):
+    with escopo_vr01(chamado_id, original_owner_id, cliente, cnpj):
+        return ciclo_piloto(approvals=approvals, execute=execute, agora=agora)
 
 
 def _utc(value):
@@ -27,21 +33,21 @@ def planejar_followup_piloto(*, agora=None) -> dict:
         return {"situacao": "FORA_DA_ETAPA", "execucao_externa": False}
     if row["autorizacao_confirmada"]:
         return {"situacao": "AUTORIZACAO_CONFIRMADA", "execucao_externa": False}
-    issue = _read_issue(ISSUE_ID)
+    issue = _read_issue(_context()["chamado_id"])
     if _assignee(issue) != _identity():
         return {"situacao": "BLOQUEADO_ATRIBUICAO", "execucao_externa": False}
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("""SELECT COUNT(*) FROM eddy_external_evidence
                 WHERE chamado_id=%s AND source='GRAPH' AND evidence_type='INBOX_REPLY'""",
-                (ISSUE_ID,))
+                (_context()["chamado_id"],))
             replies = int(cur.fetchone()[0])
             if replies:
                 return {"situacao": "AGUARDA_REVISAO_RESPOSTA",
                         "respostas": replies, "execucao_externa": False}
             cur.execute("""SELECT MAX(ocorrido_em) FROM eddy_vr01_lifecycle_events
                 WHERE chamado_id=%s AND evento IN ('SOLICITACAO_CLIENTE','FOLLOWUP_CLIENTE')""",
-                (ISSUE_ID,))
+                (_context()["chamado_id"],))
             sent_at = cur.fetchone()[0]
     if not sent_at:
         return {"situacao": "AGUARDA_EVIDENCIA_ENVIO", "execucao_externa": False}
@@ -66,7 +72,7 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
     from ednna.email_sender import enviar_email_graph, localizar_email_enviado
     import os
-    issue = _read_issue(ISSUE_ID)
+    issue = _read_issue(_context()["chamado_id"])
     readiness = verificar_prontidao_operacao_vr01("FOLLOWUP_CLIENTE")
     if not readiness["pronto"]:
         return {**plan, "followup": followup, "estado": "BLOQUEADO_PRONTIDAO",
@@ -77,8 +83,8 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     if not row or not row["destinatario"] or not row["bp_source_id"]:
         raise RuntimeError("Contato BP de origem nao comprovada")
     subject = str(approved.get("subject") or "")
-    from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_followup
-    base_subject = assunto_vr01(ISSUE_ID)
+    from ednna.eddy_vr01_email_templates import assunto_followup_vr01, mensagem_followup
+    base_subject = assunto_followup_vr01(_context()["chamado_id"], _context()["cliente"])
     if not (subject == base_subject or subject.startswith(f"Re: {base_subject}")) or len(subject) > 180:
         raise PermissionError("Assunto unico do follow-up nao aprovado")
     if approved.get("to", "").lower() != row["destinatario"].lower():
@@ -91,8 +97,8 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
         raise RuntimeError("Follow-up anterior detectado: reconciliar")
     enviar_email_graph(remetente=sender, para=[row["destinatario"]], cc=[],
         assunto=subject,
-        corpo=mensagem_followup(ISSUE_ID),
-        chamado_id=ISSUE_ID, corpo_html=True)
+        corpo=mensagem_followup(_context()["chamado_id"], _context()["cnpj"], _context()["cliente"]),
+        chamado_id=_context()["chamado_id"], corpo_html=True)
     sent = localizar_email_enviado(remetente=sender, assunto=subject)
     if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
         raise RuntimeError("Follow-up pendente de conciliacao Graph")

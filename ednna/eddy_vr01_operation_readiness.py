@@ -6,6 +6,7 @@ This module never sends email, updates Redmine or mutates MySQL.
 from __future__ import annotations
 
 import os
+from ednna.eddy_global_config import setting
 
 # The global execution kill switch is mandatory for every operation.
 # Per-operation gates prevent reply/recipient readiness from blocking Redmine
@@ -59,10 +60,10 @@ def verificar_prontidao_operacao_vr01(operation: str, environ=None) -> dict:
         blockers.append("CREDENCIAIS_AUSENTES")
     if str(env.get("EDDY_DB_ENGINE", "")).lower() != "mysql":
         blockers.append("PERSISTENCIA_NAO_MYSQL")
-    if str(env.get("EDDY_VR01_EXTERNAL_ENABLED", "false")).lower() != "true":
+    if setting("EDDY_VR01_EXTERNAL_ENABLED", "false", env).lower() != "true":
         blockers.append("EXECUCAO_EXTERNA_DESABILITADA")
     for flag in OPERATION_REQUIREMENTS[operation]:
-        if str(env.get(flag, "false")).lower() != "true":
+        if setting(flag, "false", env).lower() != "true":
             blockers.append({
                 "EDDY_VR01_TRANSPORT_MYSQL_READY": "TRANSPORTE_MYSQL_NAO_HOMOLOGADO",
                 "EDDY_VR01_RECIPIENT_RESOLVER_READY": "DESTINATARIOS_NAO_HOMOLOGADOS",
