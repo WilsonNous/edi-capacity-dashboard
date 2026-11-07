@@ -44,13 +44,14 @@ def cnpjs_blueprint(blueprint, abas=None):
     return found
 
 
-def resolver_identidade_cliente(issue, *, buscar=None, baixar=None):
+def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False):
     """Read-only resolution through Redmine relations and BP Excel attachments.
 
     Returns a single CNPJ only when exactly one distinct legal entity is proven.
     A multi-establishment BP remains explicit instead of silently choosing one.
     """
     from ednna.eddy_client_identity_store import consultar, registrar
+    from ednna.eddy_blueprint_mysql_evidence import identidade_de_bp_mysql
     from ednna.eddy_vr_mysql_sync import clientes_do_redmine
     from ednna.mysql_blueprint_participants import _descobrir_fontes_redmine
     from ednna.blueprint_knowledge import ler_excel, _eh_blueprint
@@ -67,16 +68,37 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None):
     except Exception as exc:
         return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
-    if cached is not None:
+    if cached is not None and cached.get("estado") == "RESOLVIDO":
         return cached
+    # Negative cache entries from PR #211 are not proof of BP absence.
+    # Use already synchronized MySQL evidence before considering any API call.
+    try:
+        mysql_bp = identidade_de_bp_mysql(cliente)
+    except Exception as exc:
+        return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
+                "erro": type(exc).__name__}
+    if mysql_bp["estado"] == "RESOLVIDO":
+        registrar(cliente, mysql_bp)
+        return mysql_bp
+    if not allow_remote:
+        if cached is not None and cached.get("estado") == "RESOLVIDO":
+            return cached
+        return {"estado": mysql_bp["estado"], "cnpj": None,
+                "origem": "MYSQL", "consulta_redmine": False}
     buscar = buscar or (lambda iid: buscar_detalhes_chamado(
         int(iid), incluir_anexos=True, consulta_pontual=True))
     baixar = baixar or baixar_anexo_redmine
     try:
-        _, bp_id = _descobrir_fontes_redmine(int(issue["id"]))
+        ids_mysql, _ = __import__(
+            "ednna.eddy_blueprint_mysql_evidence", fromlist=["candidatos_bp_mysql"]
+        ).candidatos_bp_mysql(cliente)
+        # A unique BP already indexed in MySQL avoids a relation walk.
+        if len(ids_mysql) == 1:
+            bp_id = next(iter(ids_mysql))
+        else:
+            _, bp_id = _descobrir_fontes_redmine(int(issue["id"]))
         if not bp_id:
             result = {"estado": "BLUEPRINT_NAO_LOCALIZADO", "cnpj": None}
-            registrar(cliente, result)
             return result
         bp = buscar(bp_id)
         if int(bp.get("id") or 0) != bp_id:
