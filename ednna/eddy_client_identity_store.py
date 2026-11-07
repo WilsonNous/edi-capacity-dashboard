@@ -36,7 +36,7 @@ def preparar():
             cursor.execute(DDL)
 
 
-def consultar(cliente):
+def consultar(cliente, *, allow_stale=False):
     """Return fresh cached result, or None. Do not turn DB errors into Redmine calls."""
     preparar()
     with connect() as conn:
@@ -52,9 +52,10 @@ def consultar(cliente):
         updated = datetime.fromisoformat(updated)
     if updated.tzinfo:
         updated = updated.astimezone(timezone.utc).replace(tzinfo=None)
-    if datetime.now(timezone.utc).replace(tzinfo=None) - updated > timedelta(seconds=ttl_seconds()):
+    if not allow_stale and datetime.now(timezone.utc).replace(tzinfo=None) - updated > timedelta(seconds=ttl_seconds()):
         return None
     result = {"estado": estado, "cnpj": cnpj, "origem": "MYSQL",
+              "desatualizado": datetime.now(timezone.utc).replace(tzinfo=None) - updated > timedelta(seconds=ttl_seconds()),
               "quantidade_cnpjs": int(quantidade or 0)}
     if bp_id is not None:
         result["blueprint_id"] = int(bp_id)
