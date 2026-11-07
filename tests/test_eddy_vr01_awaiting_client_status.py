@@ -16,3 +16,12 @@ def test_vr01_redmine_update_still_supports_existing_operations():
     payload = put.call_args.kwargs["json"]["issue"]
     assert payload["assigned_to_id"] == 97
     assert payload["notes"] == "Evidencia"
+
+
+def test_vr01_uses_global_outbox_for_post_send_recovery():
+    import inspect
+    source = inspect.getsource(vr.planejar_vr01)
+    assert "registrar_ou_enfileirar" in source
+    assert 'regra_id="VR01"' in source
+    assert "AGUARDANDO_CLIENTE_REDMINE_PENDENTE" in source
+    assert "obter_status_id_por_nome" in source
