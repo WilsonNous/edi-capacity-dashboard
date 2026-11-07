@@ -452,9 +452,22 @@ def executar_uma_vez() -> dict:
                 type(exc).__name__,
             )
 
-    # New opt-in autonomous pilot transition.
-    # Only BUSCAR_CONTATO_BP is eligible.
+    # Advance internal pilot lifecycle first, then reuse the existing Graph Inbox
+    # reconciler. Do not build a second email reader or infer portal authorization.
     executar_avanco_bp_piloto()
+    if (flag_ativa("EDDY_VR01_PILOT_BP_AUTO_ADVANCE")
+            and flag_ativa("EDDY_VR01_REPLY_RECONCILIATION_READY")
+            and os.getenv("EDDY_DB_ENGINE", "").lower() == "mysql"):
+        try:
+            from ednna.eddy_vr01_integrated import _load
+            ledger = _load() or {}
+            if ledger.get("fase") == "AGUARDA_CONFIRMACAO_CLIENTE":
+                from ednna.eddy_vr_inbox_reconciliation import reconciliar_respostas_vr01
+                reconciliacao = reconciliar_respostas_vr01([50318])
+                LOG.info("[EDDY-VR01-INBOX] %s", json.dumps(
+                    reconciliacao, ensure_ascii=False, default=str))
+        except Exception as exc:
+            LOG.warning("[EDDY-VR01-INBOX] falha segura: %s", type(exc).__name__)
 
     LOG.info(
         "[EDDY-VR01-SCHEDULER] ciclo_fim estado=%s",
