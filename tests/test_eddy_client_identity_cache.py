@@ -25,9 +25,13 @@ def test_mysql_unavailable_does_not_flood_redmine():
 def test_source_outage_uses_stale_identity_for_offline_analysis():
     stale = {"estado": "RESOLVIDO", "cnpj": "12345678000190", "origem": "MYSQL"}
     with patch("ednna.eddy_client_identity_store.consultar", side_effect=[None, stale]), \
+         patch("ednna.eddy_blueprint_mysql_evidence.identidade_de_bp_mysql",
+               return_value={"estado": "SEM_BP_MYSQL", "cnpj": None}), \
+         patch("ednna.eddy_blueprint_mysql_evidence.candidatos_bp_mysql",
+               return_value=(set(), {})), \
          patch("ednna.mysql_blueprint_participants._descobrir_fontes_redmine",
                side_effect=TimeoutError):
-        result = resolver_identidade_cliente(ISSUE)
+        result = resolver_identidade_cliente(ISSUE, allow_remote=True)
     assert result["desatualizado"] is True
 
 
@@ -38,3 +42,26 @@ def test_network_failure_never_persisted():
 def test_weekly_ttl_default():
     with patch.dict("os.environ", {}, clear=True):
         assert ttl_seconds() == 604800
+
+
+def test_offline_negative_cache_does_not_call_redmine():
+    negative = {"estado": "BLUEPRINT_NAO_LOCALIZADO", "cnpj": None}
+    with patch("ednna.eddy_client_identity_store.consultar", return_value=negative), \
+         patch("ednna.eddy_blueprint_mysql_evidence.identidade_de_bp_mysql",
+               return_value={"estado": "SEM_BP_MYSQL", "cnpj": None}), \
+         patch("ednna.mysql_blueprint_participants._descobrir_fontes_redmine",
+               side_effect=AssertionError("unexpected Redmine call")):
+        result = resolver_identidade_cliente(ISSUE)
+    assert result["estado"] == "SEM_BP_MYSQL"
+    assert result["consulta_redmine"] is False
+
+
+def test_mysql_bp_resolves_negative_cache():
+    negative = {"estado": "BLUEPRINT_NAO_LOCALIZADO", "cnpj": None}
+    resolved = {"estado": "RESOLVIDO", "cnpj": "12345678000190",
+                "cliente": "CLIENTE TESTE", "blueprint_id": 77}
+    with patch("ednna.eddy_client_identity_store.consultar", return_value=negative), \
+         patch("ednna.eddy_blueprint_mysql_evidence.identidade_de_bp_mysql",
+               return_value=resolved), \
+         patch("ednna.eddy_client_identity_store.registrar", return_value=True):
+        assert resolver_identidade_cliente(ISSUE) == resolved
