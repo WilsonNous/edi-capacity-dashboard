@@ -205,6 +205,10 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 "cnpj": None,
             }
             cnpj = identidade.get("cnpj")
+            if execute and identidade.get("desatualizado"):
+                entry["estado"] = "IDENTIDADE_DESATUALIZADA_EXECUCAO_SUSPENSA"
+                outcomes.append(entry)
+                continue
             if len(clients) != 1 or not cnpj:
                 entry["estado"] = "IDENTIFICACAO_CLIENTE_PENDENTE"
                 entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"]}
