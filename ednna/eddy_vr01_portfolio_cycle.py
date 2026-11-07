@@ -56,6 +56,67 @@ def _aprovacoes_automaticas_portal(issue_id: int, live: dict, ledger: dict | Non
     }}
 
 
+def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict | None) -> dict:
+    """Correlate the exact VR01 portal request to Graph before any new send.
+
+    Never infer a portal authorization from an email, and never replay a send.
+    Ambiguous historical messages stay blocked for review.
+    """
+    if not ledger or ledger.get("fase") != "AGUARDA_CONTATO_BP":
+        return {"estado": "FORA_DA_ETAPA"}
+    if ledger.get("envio_graph_confirmado"):
+        return {"estado": "ENVIO_JA_CONFIRMADO"}
+    from ednna.eddy_global_config import setting
+    from ednna.email_sender import listar_emails_enviados_por_chamado
+    from ednna.eddy_vr01_email_templates import assunto_vr01
+    from ednna.eddy_vr01_integrated import (
+        _context, _valid_bp, _advance, _event,
+    )
+    sender = setting("EDDY_EMAIL_FROM")
+    bp = _valid_bp()
+    if not sender or not bp or not live.get("updated_on"):
+        return {"estado": "AGUARDA_EVIDENCIAS"}
+    subject = assunto_vr01(issue_id, _context()["cliente"])
+    items = listar_emails_enviados_por_chamado(remetente=sender, chamado_id=issue_id)
+    matching = []
+    for item in items:
+        if str(item.get("subject") or "").strip() != subject:
+            continue
+        if not item.get("sentDateTime") or not (item.get("internetMessageId") or item.get("id")):
+            continue
+        recipients = {
+            str((x.get("emailAddress") or {}).get("address") or "").strip().casefold()
+            for x in (item.get("toRecipients") or [])
+        }
+        if recipients != {str(bp["email"]).strip().casefold()}:
+            continue
+        matching.append(item)
+    if len(matching) != 1:
+        return {"estado": "ENVIO_NAO_LOCALIZADO" if not matching else "ENVIO_AMBIGUO"}
+    if ledger.get("operacao_pendente") not in (None, "SOLICITAR_AUTORIZACAO_PORTAL"):
+        return {"estado": "OPERACAO_DIVERGENTE"}
+    from ednna.eddy_vr01_integrated import _reserve
+    if ledger.get("operacao_pendente") is None and not _reserve(
+        "AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL"
+    ):
+        return {"estado": "RESERVA_CONCORRENTE"}
+    message = matching[0]
+    _event("SOLICITACAO_CLIENTE", str(message.get("internetMessageId") or message["id"]))
+    # The shared outbox records the historical send without sending mail again.
+    from ednna.redmine_outbox import registrar_ou_enfileirar
+    result = registrar_ou_enfileirar(
+        chamado_id=issue_id, regra_id="VR01",
+        nota="EDDY VR01: solicitacao de autorizacao ja enviada; envio conciliado com Graph. Aguardando retorno do cliente.",
+        status_nome="Aguardando Retorno Cliente",
+    )
+    if not (result.get("ok") or result.get("pendente")):
+        return {"estado": "REDMINE_PENDENTE"}
+    _advance("AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL",
+             "SOLICITACAO_ENVIADA", destinatario=bp["email"],
+             bp_source_id=bp["source_id"], envio_graph_confirmado=1)
+    return {"estado": "ENVIO_EXISTENTE_RECONCILIADO", "envios_realizados": 0}
+
+
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _load, _identity, _read_issue, escopo_vr01, planejar_vr01,
@@ -129,6 +190,29 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or _cnpj(live) != cnpj:
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
+                        # Reconcile an existing Graph send before approving a new one.
+                        # A Graph failure fails closed and cannot trigger dispatch.
+                        if ledger and ledger.get("fase") == "AGUARDA_CONTATO_BP":
+                            try:
+                                entry["envio_anterior"] = _reconciliar_solicitacao_existente(
+                                    issue_id, live, ledger
+                                )
+                            except Exception as exc:
+                                entry["estado"] = "RECONCILIACAO_INDISPONIVEL"
+                                entry["erro_reconciliacao"] = type(exc).__name__
+                                outcomes.append(entry)
+                                continue
+                            if entry["envio_anterior"]["estado"] == "ENVIO_EXISTENTE_RECONCILIADO":
+                                entry["estado"] = "ENVIO_EXISTENTE_RECONCILIADO"
+                                outcomes.append(entry)
+                                continue
+                            if entry["envio_anterior"]["estado"] in (
+                                "ENVIO_AMBIGUO", "OPERACAO_DIVERGENTE", "RESERVA_CONCORRENTE",
+                                "REDMINE_PENDENTE",
+                            ):
+                                entry["estado"] = "AGUARDA_REVISAO_ENVIO"
+                                outcomes.append(entry)
+                                continue
                         # Run the same audited executor for every eligible issue.
                         # Approval payloads are scoped to the issue; never reuse
                         # one customer's authorization for another ticket.
