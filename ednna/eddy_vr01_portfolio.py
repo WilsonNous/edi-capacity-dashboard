@@ -10,6 +10,7 @@ from ednna.eddy_vr_origin import identificar_vr
 from ednna.mysql_snapshot_repository import carregar_snapshot
 from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
 from ednna.eddy_vr_action_queue import criar_intencao
+from ednna.eddy_vr_mysql_sync import clientes_do_redmine
 
 
 def planejar_carteira_vr01(ids=None) -> dict:
@@ -37,6 +38,13 @@ def planejar_carteira_vr01(ids=None) -> dict:
                     journals = [{"notes": j.get("notas") or "",
                                  "created_on": j.get("criado_em")}
                                 for j in snapshot.get("journals", [])]
+                    clients = clientes_do_redmine(payload)
+                    if len(clients) != 1:
+                        entry.update(estado="BLOQUEADO_CLIENTE_AMBIGUO",
+                                     clientes_identificados=clients)
+                        result.append(entry)
+                        continue
+                    entry["cliente"] = clients[0]
                     intent = criar_intencao(payload, journals)
                     entry.update(estado=intent["situacao"],
                                  etapa=intent.get("etapa"),
