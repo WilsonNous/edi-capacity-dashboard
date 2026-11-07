@@ -76,6 +76,16 @@ def _resolver_cliente(valor, mapa):
     return ' / '.join(mapa.get(p, p) for p in partes)
 
 def chamados_df():
+    if os.getenv('EDDY_DB_ENGINE', 'mysql').strip().lower() == 'mysql':
+        from ednna.mysql_active_reader import carregar_carteira_mysql
+        from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
+        ids = listar_chamados_vr_mysql()
+        if not ids:
+            return pd.DataFrame()
+        payload = carregar_carteira_mysql(set(ids), None)
+        if payload is None:
+            return pd.DataFrame()
+        return pd.DataFrame(payload)
     p=_db('ednna.db')
     if not p.exists(): return pd.DataFrame()
     try:
