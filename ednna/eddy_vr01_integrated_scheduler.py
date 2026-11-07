@@ -77,8 +77,8 @@ def ciclo_piloto(*, approvals=None, execute=False, agora=None) -> dict:
     if not row or not row["destinatario"] or not row["bp_source_id"]:
         raise RuntimeError("Contato BP de origem nao comprovada")
     subject = str(approved.get("subject") or "")
-    from ednna.eddy_vr01_email_templates import assunto_vr01, mensagem_followup
-    base_subject = assunto_vr01(ISSUE_ID)
+    from ednna.eddy_vr01_email_templates import assunto_followup_vr01, mensagem_followup
+    base_subject = assunto_followup_vr01(ISSUE_ID)
     if not (subject == base_subject or subject.startswith(f"Re: {base_subject}")) or len(subject) > 180:
         raise PermissionError("Assunto unico do follow-up nao aprovado")
     if approved.get("to", "").lower() != row["destinatario"].lower():
