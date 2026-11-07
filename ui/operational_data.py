@@ -76,6 +76,9 @@ def _resolver_cliente(valor, mapa):
     return ' / '.join(mapa.get(p, p) for p in partes)
 
 def chamados_df():
+    if os.getenv('EDDY_DB_ENGINE', 'mysql').strip().lower() == 'mysql':
+        # Reuse the existing active Redmine/MySQL bridge, not retired SQLite.
+        return chamados_ativos_df().copy()
     p=_db('ednna.db')
     if not p.exists(): return pd.DataFrame()
     try:

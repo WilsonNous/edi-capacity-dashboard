@@ -24,7 +24,25 @@ def _db_path() -> Path:
     return Path("data/ednna.db")
 
 
+def _mysql() -> bool:
+    return os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql"
+
+
+def _mysql_init() -> None:
+    from ednna.mysql_storage import connect
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_redmine_status_catalog (
+                status_id BIGINT NOT NULL PRIMARY KEY,
+                nome VARCHAR(255) NOT NULL,
+                nome_normalizado VARCHAR(255) NOT NULL UNIQUE,
+                atualizado_em VARCHAR(40) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+
+
 def _conectar() -> sqlite3.Connection:
+    if _mysql():
+        raise RuntimeError("REDMINE_STATUS_SQLITE_DESATIVADO")
     caminho = _db_path()
     caminho.parent.mkdir(parents=True, exist_ok=True)
 
@@ -48,6 +66,9 @@ def _normalizar_nome(valor: str) -> str:
 
 
 def inicializar_catalogo_status() -> None:
+    if _mysql():
+        _mysql_init()
+        return
     with _conectar() as conn:
         conn.execute(
             """
@@ -70,6 +91,18 @@ def salvar_status(status_id: int, nome: str) -> None:
         timespec="seconds"
     )
 
+    if _mysql():
+        from ednna.mysql_storage import connect
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""INSERT INTO eddy_redmine_status_catalog
+                    (status_id, nome, nome_normalizado, atualizado_em)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE nome=VALUES(nome),
+                    nome_normalizado=VALUES(nome_normalizado),
+                    atualizado_em=VALUES(atualizado_em)""",
+                    (int(status_id), str(nome), _normalizar_nome(nome), agora))
+        return
     with _conectar() as conn:
         conn.execute(
             """
@@ -97,6 +130,13 @@ def salvar_status(status_id: int, nome: str) -> None:
 
 def obter_status_id_cache(nome: str) -> int | None:
     inicializar_catalogo_status()
+    if _mysql():
+        from ednna.mysql_storage import connect
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status_id FROM eddy_redmine_status_catalog WHERE nome_normalizado=%s", (_normalizar_nome(nome),))
+                row = cur.fetchone()
+        return int(row[0]) if row else None
 
     with _conectar() as conn:
         row = conn.execute(
@@ -120,6 +160,13 @@ def obter_status_id_cache(nome: str) -> int | None:
 
 def listar_status_cache() -> list[dict]:
     inicializar_catalogo_status()
+    if _mysql():
+        from ednna.mysql_storage import connect
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT status_id, nome, atualizado_em FROM eddy_redmine_status_catalog ORDER BY status_id")
+                rows = cur.fetchall()
+        return [dict(zip(("status_id", "nome", "atualizado_em"), row)) for row in rows]
 
     with _conectar() as conn:
         rows = conn.execute(

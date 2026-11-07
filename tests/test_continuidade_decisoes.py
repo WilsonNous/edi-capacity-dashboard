@@ -16,6 +16,19 @@ class ContinuidadePersistidaTest(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
 
+    def test_mysql_routes_without_creating_legacy_file(self):
+        with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}):
+            with patch("ednna.mysql_continuidade_decisoes.materializar", return_value={"novos": 1}) as writer:
+                with patch.object(mod, "ultima_interpretacao_retorno", return_value={}):
+                    result = mod.materializar_decisoes([{"chamado_id": 46312}])
+            self.assertEqual(result["novos"], 1)
+            writer.assert_called_once()
+            with patch("ednna.mysql_continuidade_decisoes.obter", return_value={"chamado_id": 46312}):
+                self.assertEqual(mod.obter_decisao(46312)["chamado_id"], 46312)
+            with self.assertRaisesRegex(RuntimeError, "CONTINUIDADE_SQLITE_DESATIVADO"):
+                mod._connect()
+            self.assertFalse(os.path.exists(os.environ["EDNNA_DB_PATH"]))
+
     def test_idempotencia_e_prazo_nao_reinicia(self):
         item = {"chamado_id": 46312, "regra_id": "", "decisao": "MANTER_RESPONSAVEL_ATUAL",
                 "motivo": "Aguardando terceiro", "responsavel_atual": {"id": 129, "nome": "Vitória"}}

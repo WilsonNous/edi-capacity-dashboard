@@ -51,6 +51,10 @@ def _active_snapshot() -> tuple[list[dict], str | None]:
 def _local_metrics() -> dict[str, int]:
     out = dict(rules=0, homologated_rules=0, human_decisions=0, automatic_rules=0,
                under_monitoring=0, executions=0, followups=0)
+    if os.getenv("EDDY_DB_ENGINE", "mysql").strip().lower() == "mysql":
+        # Legacy operational counters have not been migrated to MySQL.
+        # Never silently present an absent SQLite database as verified zeros.
+        return out
     path = _db_path("EDNNA_DB_PATH", "ednna.db")
     if not path.exists():
         return out
@@ -105,6 +109,8 @@ def status_get(_: dict[str, Any]) -> tuple[dict, float, list, list, bool]:
         "snapshot_updated_at": updated_at,
     }
     warnings = [] if updated_at else ["Snapshot operacional não disponível."]
+    if os.getenv("EDDY_DB_ENGINE", "mysql").strip().lower() == "mysql":
+        warnings.append("Métricas legadas de execução ainda não migradas para MySQL; valores zero não representam contagem verificada.")
     confidence = 0.98 if updated_at else 0.60
     return output, confidence, [{"source": "eddy:sqlite-read-model", "snapshot_updated_at": updated_at}], warnings, not bool(updated_at)
 

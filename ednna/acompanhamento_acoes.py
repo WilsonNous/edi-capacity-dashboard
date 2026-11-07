@@ -31,6 +31,9 @@ def _iso(valor: datetime) -> str:
 
 
 def _conectar() -> sqlite3.Connection:
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.mysql_acompanhamento_acoes import connection
+        return connection()
     caminho = _db_path()
     caminho.parent.mkdir(parents=True, exist_ok=True)
 
@@ -46,6 +49,10 @@ def _conectar() -> sqlite3.Connection:
 
 
 def inicializar_acompanhamento() -> None:
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.mysql_acompanhamento_acoes import initialize
+        initialize()
+        return
     with _conectar() as conn:
         conn.execute(
             """
@@ -279,6 +286,10 @@ def adquirir_envio(
                 if not stale:
                     conn.execute("ROLLBACK")
                     print(f"[EDNNA] Execução BLOQUEADA | chamado={chamado_id} | regra={regra_id} | motivo=EXECUCAO_EM_ANDAMENTO | estado={estado}", flush=True)
+                    return False, dados_row
+                if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+                    conn.execute("ROLLBACK")
+                    print(f"[EDNNA] Envio incerto exige reconciliacao Graph | chamado={chamado_id} | regra={regra_id}", flush=True)
                     return False, dados_row
                 print(f"[EDNNA] Idempotência recuperada | chamado={chamado_id} | regra={regra_id} | estado=ENVIANDO_STALE | nova_tentativa=liberada", flush=True)
 
@@ -940,6 +951,10 @@ def registrar_interpretacao_retorno(chamado_id: int, regra_id: str, *, corpo: st
     Decisões incertas permanecem assistidas. A chave inclui a identidade Graph
     e um hash do conteúdo, impedindo reprocessamento duplicado do mesmo retorno.
     """
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.mysql_interpretacoes_retorno import registrar
+        return registrar(chamado_id, regra_id, corpo=corpo, assunto=assunto,
+                         recebido_em=recebido_em, graph_message_id=graph_message_id)
     import hashlib
     import json
     from ednna.interpretacao_retorno import interpretar_retorno
@@ -962,6 +977,9 @@ def registrar_interpretacao_retorno(chamado_id: int, regra_id: str, *, corpo: st
 
 
 def ultima_interpretacao_retorno(chamado_id: int, regra_id: str = "") -> dict:
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.mysql_interpretacoes_retorno import ultima
+        return ultima(chamado_id, regra_id)
     import json
     with _conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS interpretacoes_retorno (

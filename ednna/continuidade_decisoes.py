@@ -17,11 +17,17 @@ _SCHEMA = 1
 _ESTADOS_HUMANOS = {"DECISAO_HUMANA", "INDETERMINADO", "DEVOLVER_ORIGEM"}
 
 
+def _mysql() -> bool:
+    return os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql"
+
+
 def _db_path() -> Path:
     return Path(os.getenv("EDNNA_DB_PATH", "/home/data/ednna.db"))
 
 
 def _connect():
+    if _mysql():
+        raise RuntimeError("CONTINUIDADE_SQLITE_DESATIVADO")
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=15)
@@ -93,6 +99,9 @@ def _proposta(item: dict, agora: datetime) -> dict:
 
 def materializar_decisoes(itens: list[dict], *, agora: datetime | None = None) -> dict:
     """Atualiza somente decisões que mudaram. Preserva o prazo da decisão estável."""
+    if _mysql():
+        from ednna.mysql_continuidade_decisoes import materializar
+        return materializar(itens, agora=agora, proposta_fn=_proposta, schema=_SCHEMA)
     import hashlib
     agora = agora or datetime.now(timezone.utc)
     resultado = {"analisados": 0, "novos": 0, "alterados": 0, "inalterados": 0, "erros": 0}
@@ -133,12 +142,18 @@ def materializar_decisoes(itens: list[dict], *, agora: datetime | None = None) -
 
 
 def obter_decisao(chamado_id: int) -> dict:
+    if _mysql():
+        from ednna.mysql_continuidade_decisoes import obter
+        return obter(chamado_id)
     with _connect() as conn:
         row = conn.execute("SELECT * FROM continuidade_decisoes WHERE chamado_id=?", (int(chamado_id),)).fetchone()
     return dict(row) if row else {}
 
 
 def listar_decisoes(limite: int = 300) -> list[dict]:
+    if _mysql():
+        from ednna.mysql_continuidade_decisoes import listar
+        return listar(limite)
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM continuidade_decisoes ORDER BY atualizado_em DESC LIMIT ?", (max(1, min(int(limite), 2000)),)).fetchall()
     return [dict(r) for r in rows]
