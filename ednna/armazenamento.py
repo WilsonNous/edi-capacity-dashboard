@@ -77,6 +77,9 @@ def obter_caminho_banco() -> Path:
     3. Ambiente local -> data/ednna.db
     """
 
+    if os.getenv("EDDY_DB_ENGINE", "").strip().lower() == "mysql":
+        raise RuntimeError("EDNNA_SQLITE_LEGADO_DESATIVADO: usar repositorios MySQL")
+
     caminho_configurado = os.getenv(
         "EDNNA_DB_PATH",
         "",
