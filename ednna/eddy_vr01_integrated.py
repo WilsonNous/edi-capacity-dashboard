@@ -34,7 +34,7 @@ def escopo_vr01(chamado_id: int, original_owner_id: int, cliente: str, cnpj: str
     """Isolate each issue's identity and recipient context across scheduler tasks."""
     if int(chamado_id) <= 0 or int(original_owner_id) <= 0:
         raise ValueError("Chamado e responsavel original obrigatorios")
-    if not str(cliente).strip() or not re.fullmatch(r"\\d{14}", re.sub(r"\\D", "", str(cnpj))):
+    if not str(cliente).strip() or not re.fullmatch(r"\d{14}", re.sub(r"\D", "", str(cnpj))):
         raise ValueError("Cliente e CNPJ verificados obrigatorios")
     token = _VR_CONTEXT.set({
         "chamado_id": int(chamado_id), "original_owner_id": int(original_owner_id),
