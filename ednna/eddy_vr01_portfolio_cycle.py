@@ -23,13 +23,11 @@ def _cnpj(issue: dict) -> str | None:
     return next(iter(candidates)) if len(candidates) == 1 else None
 
 
-def executar_carteira_vr01(*, ids=None, execute=False) -> dict:
+def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _load, _identity, _read_issue, escopo_vr01, planejar_vr01,
     )
-    from ednna.eddy_vr01_integrated_scheduler import ciclo_piloto
     from ednna.eddy_vr_inbox_reconciliation import reconciliar_respostas_vr01
-    from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
     from ednna.eddy_global_config import enabled
 
     selected = tuple(dict.fromkeys(int(i) for i in (
@@ -83,22 +81,20 @@ def executar_carteira_vr01(*, ids=None, execute=False) -> dict:
                     elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or _cnpj(live) != cnpj:
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
+                        # Run the same audited executor for every eligible issue.
+                        # Approval payloads are scoped to the issue; never reuse
+                        # one customer's authorization for another ticket.
+                        approvals = (approvals_by_issue or {}).get(issue_id, {})
+                        try:
+                            entry.update(planejar_vr01(execute=True, approvals=approvals))
+                        except PermissionError:
+                            entry["estado"] = "AGUARDA_APROVACAO_ACAO"
+                        # Reply reconciliation is independent of dispatch.
                         ledger = _load()
-                        phase = ledger["fase"] if ledger else "PRONTO_PARA_ASSUMIR"
-                        # External actions remain delegated to existing audited
-                        # action-specific approvals; this bridge advances pure stages.
-                        if phase in ("ASSUMIDO_EDDY", "SOLICITACAO_ENVIADA",
-                                     "AGUARDA_CONFIRMACAO_CLIENTE"):
-                            if phase == "AGUARDA_CONFIRMACAO_CLIENTE" and not (
-                                ledger["autorizacao_confirmada"] and ledger["confirmacao_evidence_id"]
-                            ):
-                                if enabled("EDDY_VR01_REPLY_RECONCILIATION_READY"):
-                                    entry["inbox"] = reconciliar_respostas_vr01([issue_id])
-                                entry["estado"] = "AGUARDA_CONFIRMACAO"
-                            else:
-                                entry.update(planejar_vr01(execute=True))
-                        else:
-                            entry.update(ciclo_piloto(execute=False))
+                        if (ledger and ledger["fase"] == "AGUARDA_CONFIRMACAO_CLIENTE"
+                                and not ledger["autorizacao_confirmada"]
+                                and enabled("EDDY_VR01_REPLY_RECONCILIATION_READY")):
+                            entry["inbox"] = reconciliar_respostas_vr01([issue_id])
             entry["cliente"] = clients[0]
         except Exception as exc:
             entry["estado"] = "FALHA_SEGURA"
