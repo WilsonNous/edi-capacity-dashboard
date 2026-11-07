@@ -9,6 +9,10 @@ from ednna.recovery_guard import persistencia_operacional_disponivel
 
 
 class RecoveryGuardTests(unittest.TestCase):
+    def test_mysql_is_default_and_does_not_open_retired_database(self):
+        with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}, clear=True):
+            self.assertFalse(persistencia_operacional_disponivel())
+
     def test_mysql_never_activates_legacy_inclusion_queue(self):
         with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}):
             self.assertFalse(persistencia_operacional_disponivel())
