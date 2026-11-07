@@ -58,6 +58,8 @@ class Connection:
         normalized = query.strip()
         command = normalized.upper()
         if command == "BEGIN IMMEDIATE":
+            if self.in_transaction:
+                raise RuntimeError("Nested operational transaction is not supported")
             self.in_transaction = True
             return Result([], None)
         if command == "COMMIT":
@@ -102,7 +104,14 @@ class Connection:
 
     def close(self):
         if not self.closed:
-            self._unlock()
+            if self.in_transaction:
+                try:
+                    self.conn.rollback()
+                finally:
+                    self._unlock()
+                self.in_transaction = False
+            else:
+                self._unlock()
             self.context.__exit__(None, None, None)
             self.closed = True
 
