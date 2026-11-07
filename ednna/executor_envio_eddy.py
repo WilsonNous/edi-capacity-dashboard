@@ -28,6 +28,8 @@ def executar_envio_assistido(
     SQLite deve estar em volume compartilhado/persistente por todos os workers.
     Se o Graph aceitar mas a confirmação se perder, a operação fica INDETERMINADA.
     """
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        raise RuntimeError("Executor SQLite legado desativado em MySQL; utilizar acompanhamento_acoes")
     if int(chamado_id) <= 0:
         raise ValueError("chamado_id inválido")
     gate = avaliar_autorizacao_envio(minuta, aprovacao)
@@ -89,6 +91,8 @@ def executar_envio_assistido(
 
 def consultar_evidencia_envio(*, chamado_id: int, db_path: str) -> dict[str, Any]:
     """Consulta local sem enviar nem alterar o chamado; 202 não prova entrega."""
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        raise RuntimeError("Consulta SQLite legada desativada em MySQL; consultar evidencias Graph/MySQL")
     if int(chamado_id) <= 0:
         raise ValueError("chamado_id inválido")
     path = Path(db_path)
