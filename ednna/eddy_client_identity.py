@@ -51,6 +51,7 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     A multi-establishment BP remains explicit instead of silently choosing one.
     """
     from ednna.eddy_client_identity_store import consultar, registrar
+    from ednna.eddy_blueprint_identity_evidence import registrar_bp
     from ednna.eddy_blueprint_mysql_evidence import identidade_de_bp_mysql, candidatos_bp_mysql
     from ednna.eddy_vr_mysql_sync import clientes_do_redmine
     from ednna.mysql_blueprint_participants import _descobrir_fontes_redmine
@@ -109,6 +110,7 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
             abas = ler_excel(baixar(str(attachment.get("content_url") or "")), filename)
             if _eh_blueprint(filename, list(abas)):
                 cnpjs.update(cnpjs_blueprint(bp, abas))
+        registrar_bp(cliente, bp_id, cnpjs)
         if len(cnpjs) != 1:
             result = {"estado": "CNPJ_AMBIGUO" if cnpjs else "CNPJ_NAO_LOCALIZADO_BP",
                       "cnpj": None, "blueprint_id": bp_id, "quantidade_cnpjs": len(cnpjs)}
