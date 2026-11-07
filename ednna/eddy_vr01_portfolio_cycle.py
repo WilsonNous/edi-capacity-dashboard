@@ -30,7 +30,7 @@ def executar_carteira_vr01(*, ids=None, execute=False) -> dict:
     from ednna.eddy_vr01_integrated_scheduler import ciclo_piloto
     from ednna.eddy_vr_inbox_reconciliation import reconciliar_respostas_vr01
     from ednna.eddy_vr01_operation_readiness import verificar_prontidao_operacao_vr01
-    from os import getenv
+    from ednna.eddy_global_config import enabled
 
     selected = tuple(dict.fromkeys(int(i) for i in (
         listar_chamados_vr_mysql() if ids is None else ids
@@ -92,7 +92,7 @@ def executar_carteira_vr01(*, ids=None, execute=False) -> dict:
                             if phase == "AGUARDA_CONFIRMACAO_CLIENTE" and not (
                                 ledger["autorizacao_confirmada"] and ledger["confirmacao_evidence_id"]
                             ):
-                                if getenv("EDDY_VR01_REPLY_RECONCILIATION_READY", "").lower() == "true":
+                                if enabled("EDDY_VR01_REPLY_RECONCILIATION_READY"):
                                     entry["inbox"] = reconciliar_respostas_vr01([issue_id])
                                 entry["estado"] = "AGUARDA_CONFIRMACAO"
                             else:
