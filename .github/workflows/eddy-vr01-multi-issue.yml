@@ -1,0 +1,35 @@
+name: EDDY VR01 Multi-Issue Regression
+
+on:
+  push:
+    branches:
+      - feat/vr01-expand-all-issues-20261106
+  pull_request:
+    paths:
+      - "ednna/eddy_vr*"
+      - "ednna/eddy_global_config.py"
+      - "scripts/eddy_vr01_mysql_scheduler.py"
+      - "tests/test_eddy_vr01_*"
+      - "tests/test_eddy_global_config.py"
+      - ".github/workflows/eddy-vr01-multi-issue.yml"
+  workflow_dispatch:
+
+jobs:
+  vr01-multi-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile VR01 modules
+        run: python -m compileall -q ednna scripts/eddy_vr01_mysql_scheduler.py
+      - name: Execute multi-issue and global-config regressions
+        run: |
+          python -m pytest -q \
+            tests/test_eddy_vr01_multi_issue.py \
+            tests/test_eddy_vr01_portfolio.py \
+            tests/test_eddy_vr01_portfolio_cycle.py \
+            tests/test_eddy_global_config.py
