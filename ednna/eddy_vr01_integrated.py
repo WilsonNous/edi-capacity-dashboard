@@ -372,7 +372,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         if not EMAIL_RE.fullmatch(str(recipient)):
             raise PermissionError("Email interno do responsavel nao verificado")
         from ednna.email_sender import enviar_email_graph, localizar_email_enviado
-        subject = f"[EDDY VR01] #{_context()["chamado_id"]} - Autorizacao confirmada | MAMBO"
+        subject = f"[EDDY VR01] #{_context()['chamado_id']} - Autorizacao confirmada | MAMBO"
         sender = os.environ["EDNNA_EMAIL_FROM"]
         if localizar_email_enviado(remetente=sender, assunto=subject):
             raise RuntimeError("Notificacao anterior detectada; reconciliar")
