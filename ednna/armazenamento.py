@@ -77,9 +77,6 @@ def obter_caminho_banco() -> Path:
     3. Ambiente local -> data/ednna.db
     """
 
-    if os.getenv("EDDY_DB_ENGINE", "").strip().lower() == "mysql":
-        raise RuntimeError("EDNNA_SQLITE_LEGADO_DESATIVADO: usar repositorios MySQL")
-
     caminho_configurado = os.getenv(
         "EDNNA_DB_PATH",
         "",
@@ -105,10 +102,8 @@ def obter_caminho_banco() -> Path:
             "data/ednna.db"
         )
 
-    caminho.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() != "mysql":
+        caminho.parent.mkdir(parents=True, exist_ok=True)
 
     return caminho
 
@@ -135,6 +130,9 @@ def conectar() -> Iterator[
     busy_timeout evita falhas imediatas caso duas
     operações tentem acessar o SQLite ao mesmo tempo.
     """
+
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        raise RuntimeError("EDNNA_SQLITE_LEGADO_DESATIVADO: usar repositorios MySQL")
 
     conn = sqlite3.connect(
         DB_PATH,
