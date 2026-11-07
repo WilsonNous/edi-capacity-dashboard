@@ -37,3 +37,8 @@ def mensagem_followup(chamado_id: int, cnpj: str = "71.676.316/0033-23",
 <p>Para concluir, acesse <strong>Portal VR → Financeiro → Conciliação</strong>, selecione <strong>NETUNNA</strong> como conciliadora e confirme a habilitação.</p>
 <p>Por gentileza, poderia nos informar se a autorização já foi realizada? Caso esteja pendente ou tenha encontrado alguma dificuldade, basta responder a este e-mail para que possamos ajudar.</p>
 <p>Agradecemos pelo retorno.</p>""")
+
+
+def assunto_followup_vr01(chamado_id: int, cliente: str = "SUPERMERCADOS MAMBO") -> str:
+    """Unique subject avoids mistaking the original Graph send for a follow-up."""
+    return f"[VR | Follow-up | {cliente} | CN: {int(chamado_id)}]"
