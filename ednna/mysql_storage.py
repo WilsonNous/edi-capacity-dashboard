@@ -159,3 +159,34 @@ def record_storage_health() -> dict:
                 (health["database_bytes"], health["table_count"]),
             )
     return health
+
+
+def storage_table_sizes(*, limit: int = 30) -> list[dict]:
+    """Largest tables first; metadata-only query, no operational payload scans."""
+    with connect() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """SELECT table_name, COALESCE(data_length,0),
+                          COALESCE(index_length,0), COALESCE(table_rows,0)
+                     FROM information_schema.tables
+                    WHERE table_schema=%s AND table_type='BASE TABLE'
+                    ORDER BY (COALESCE(data_length,0)+COALESCE(index_length,0)) DESC
+                    LIMIT %s""",
+                (os.environ["EDDY_DB_NAME"], max(1, min(int(limit), 100))),
+            )
+            return [
+                {"table": str(name), "data_bytes": int(data),
+                 "index_bytes": int(index), "estimated_rows": int(rows)}
+                for name, data, index, rows in cursor.fetchall()
+            ]
+
+
+def storage_budget(*, warning_mb: int | None = None) -> dict:
+    """Advisory budget; never deletes data or blocks operational transactions."""
+    warning = int(warning_mb if warning_mb is not None else
+                  os.getenv("EDDY_DB_WARNING_MB", "512"))
+    if warning <= 0:
+        raise ValueError("EDDY_DB_WARNING_MB must be positive")
+    health = storage_health()
+    return {**health, "warning_bytes": warning * 1024 * 1024,
+            "over_budget": health["database_bytes"] >= warning * 1024 * 1024}
