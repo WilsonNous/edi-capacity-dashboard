@@ -76,7 +76,14 @@ PY
 # Worker separado da UI: monitoramento não depende de sessões Streamlit.
 if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_MYSQL_SYNC_ENABLED:-true}" == "true" ]]; then
   echo "[EDDY] Sincronização Redmine -> MySQL observacional ativa; sem envios externos."
-  python -m scripts.sync_eddy_mysql --loop --intervalo "${EDDY_MYSQL_SYNC_INTERVAL_SECONDS:-900}" &
+  python -m scripts.sync_eddy_mysql --loop --intervalo "${EDDY_MYSQL_SYNC_INTERVAL_SECONDS:-1800}" &
+  pids+=("$!")
+fi
+
+# Dedicated, low-frequency Blueprint enrichment; not coupled to VR01 cycles.
+if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_IDENTITY_REFRESH_ENABLED:-true}" == "true" ]]; then
+  echo "[EDDY] Identidade global: MySQL-first; enriquecimento BP diario independente."
+  python -m scripts.eddy_identity_mysql_refresh &
   pids+=("$!")
 fi
 
