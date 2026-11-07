@@ -44,14 +44,14 @@ def cnpjs_blueprint(blueprint, abas=None):
     return found
 
 
-def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False):
+def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False, cliente_override=None):
     """Read-only resolution through Redmine relations and BP Excel attachments.
 
     Returns a single CNPJ only when exactly one distinct legal entity is proven.
     A multi-establishment BP remains explicit instead of silently choosing one.
     """
     from ednna.eddy_client_identity_store import consultar, registrar
-    from ednna.eddy_blueprint_mysql_evidence import identidade_de_bp_mysql
+    from ednna.eddy_blueprint_mysql_evidence import identidade_de_bp_mysql, candidatos_bp_mysql
     from ednna.eddy_vr_mysql_sync import clientes_do_redmine
     from ednna.mysql_blueprint_participants import _descobrir_fontes_redmine
     from ednna.blueprint_knowledge import ler_excel, _eh_blueprint
@@ -60,7 +60,7 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     clientes = clientes_do_redmine(issue)
     if len(clientes) != 1:
         return {"estado": "CLIENTE_AMBIGUO" if clientes else "CLIENTE_AUSENTE", "cnpj": None}
-    cliente = clientes[0]
+    cliente = str(cliente_override or clientes[0]).strip()
     # A cached identity avoids Redmine requests on every five-minute VR01 cycle.
     # Store outages fail closed instead of creating a Redmine request storm.
     try:
@@ -89,9 +89,7 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
         int(iid), incluir_anexos=True, consulta_pontual=True))
     baixar = baixar or baixar_anexo_redmine
     try:
-        ids_mysql, _ = __import__(
-            "ednna.eddy_blueprint_mysql_evidence", fromlist=["candidatos_bp_mysql"]
-        ).candidatos_bp_mysql(cliente)
+        ids_mysql, _ = candidatos_bp_mysql(cliente)
         # A unique BP already indexed in MySQL avoids a relation walk.
         if len(ids_mysql) == 1:
             bp_id = next(iter(ids_mysql))
