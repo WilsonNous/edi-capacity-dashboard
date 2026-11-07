@@ -16,11 +16,11 @@ _DDL = """CREATE TABLE IF NOT EXISTS eddy_continuidade_decisoes (
     regra_id VARCHAR(191) NOT NULL DEFAULT '',
     decisao VARCHAR(191) NOT NULL,
     estado VARCHAR(191) NOT NULL,
-    proxima_acao TEXT NOT NULL,
+    proxima_acao VARCHAR(512) NOT NULL,
     responsavel_id BIGINT NULL,
     responsavel_nome VARCHAR(255) NOT NULL DEFAULT '',
-    motivo TEXT NOT NULL,
-    evidencia TEXT NOT NULL,
+    motivo VARCHAR(1024) NOT NULL,
+    evidencia VARCHAR(700) NOT NULL,
     prazo_revisao_em VARCHAR(40) NOT NULL DEFAULT '',
     assinatura CHAR(64) NOT NULL,
     versao INT NOT NULL,
@@ -57,6 +57,9 @@ def materializar(itens, *, agora=None, proposta_fn=None, schema=1):
                     if not proposta["prazo_revisao_em"]:
                         proposta["prazo_revisao_em"] = (anterior[1] if anterior else "") or (
                             agora + timedelta(hours=48)).isoformat(timespec="seconds")
+                    proposta["proxima_acao"] = str(proposta["proxima_acao"])[:512]
+                    proposta["motivo"] = str(proposta["motivo"])[:1024]
+                    proposta["evidencia"] = str(proposta["evidencia"])[:700]
                     values = {**proposta, "assinatura": assinatura,
                               "versao": schema, "atualizado_em": agora.isoformat()}
                     placeholders = ", ".join(["%s"] * len(_COLUMNS))
