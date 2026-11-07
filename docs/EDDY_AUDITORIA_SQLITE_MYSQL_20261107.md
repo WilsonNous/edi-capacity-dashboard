@@ -32,3 +32,13 @@ A busca de código cobriu `ednna.db`, `EDNNA_DB_PATH`, `sqlite3.connect` e `EDDY
 2. Estados, ações, aprovações, outbox, follow-ups e catálogos em repositórios MySQL, com idempotência.
 3. Testes de integração MySQL e regressão de cada motor, inclusive falhas de conexão.
 4. Remoção dos bloqueios de inicialização somente depois de homologação em produção.
+
+## Volume, desempenho e retenção (nova exigência)
+
+- `storage_table_sizes()` consulta somente `information_schema` e retorna as maiores tabelas com dados, índices e contagem **estimada** de linhas.
+- `storage_budget()` compara o tamanho estimado com `EDDY_DB_WARNING_MB` (padrão inicial: 512 MiB), apenas para alerta. Não interrompe atendimento e não apaga registros.
+- `eddy_continuidade_decisoes` mantém **uma linha por chamado**, sobrescrita idempotentemente; campos textuais têm limites explícitos. Não guarda histórico repetido a cada ciclo.
+- `eddy_chamados.payload_json` e `eddy_journals.detalhes_json` são os maiores candidatos a crescimento. Não eliminar journals, evidências Graph ou outbox sem uma política de retenção e reconstrução homologada.
+- Priorizar consultas por PK/chamado_id e índices de estado/data; evitar carregar todos os payloads para montar dashboards. `information_schema.table_rows` em InnoDB é aproximação, não contagem exata.
+- Próxima validação: registrar tamanho real por tabela, tamanho médio/p95 de payloads, latência p95 de leitura/escrita e evolução semanal. Não declarar o banco pequeno ou rápido antes dessas medições.
+- Nenhuma rotina de exclusão automática foi habilitada. Definir retenção por classe (cache descartável versus evidência operacional obrigatória) antes de implementar limpeza.
