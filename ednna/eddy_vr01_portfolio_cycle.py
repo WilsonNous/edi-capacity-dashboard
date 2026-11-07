@@ -199,10 +199,15 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     outcomes.append(entry)
                     continue
             clients = clientes_do_redmine(issue)
-            cnpj = _cnpj(issue)
+            from ednna.eddy_client_identity import resolver_identidade_cliente
+            identidade = resolver_identidade_cliente(issue) if len(clients) == 1 else {
+                "estado": "CLIENTE_AMBIGUO" if clients else "CLIENTE_AUSENTE",
+                "cnpj": None,
+            }
+            cnpj = identidade.get("cnpj")
             if len(clients) != 1 or not cnpj:
                 entry["estado"] = "IDENTIFICACAO_CLIENTE_PENDENTE"
-                entry["diagnostico_identificacao"] = diagnosticar_identificacao_cliente(issue)
+                entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"]}
                 outcomes.append(entry)
                 continue
             # The existing pilot ledger is authoritative about original ownership.
@@ -223,7 +228,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     live = _read_issue(issue_id)
                     if live.get("updated_on") != issue.get("updated_on"):
                         entry["estado"] = "SNAPSHOT_DESATUALIZADO"
-                    elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or _cnpj(live) != cnpj:
+                    elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or resolver_identidade_cliente(live).get("cnpj") != cnpj:
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
                         # Reconcile an existing Graph send before approving a new one.
