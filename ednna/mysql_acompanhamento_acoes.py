@@ -52,6 +52,7 @@ class Connection:
         self.conn = self.context.__enter__()
         self.in_transaction = False
         self.closed = False
+        self.lock_name = None
 
     def execute(self, query, params=()):
         normalized = query.strip()
@@ -61,16 +62,25 @@ class Connection:
             return Result([], None)
         if command == "COMMIT":
             self.conn.commit()
+            self._unlock()
             self.in_transaction = False
             return Result([], None)
         if command == "ROLLBACK":
             self.conn.rollback()
+            self._unlock()
             self.in_transaction = False
             return Result([], None)
         if command.startswith("CREATE TABLE") or command.startswith("ALTER TABLE") or command.startswith("PRAGMA"):
             raise RuntimeError("MySQL schema must be initialized separately")
         if not re.match(r"^(SELECT|INSERT|UPDATE)\\b", command):
             raise RuntimeError("Unsupported operational SQL")
+        if self.in_transaction and command.startswith("SELECT") and "FROM ACOES_OPERACIONAIS" in command and self.lock_name is None:
+            self.lock_name = f"eddy_action_{int(params[0])}_{str(params[1])}"[:64]
+            with self.conn.cursor() as lock_cursor:
+                lock_cursor.execute("SELECT GET_LOCK(%s, 10)", (self.lock_name,))
+                if lock_cursor.fetchone()[0] != 1:
+                    self.lock_name = None
+                    raise RuntimeError("MYSQL_ACTION_LOCK_TIMEOUT")
         query = re.sub(r"\\bacoes_operacionais\\b", "eddy_acoes_operacionais", query)
         query = query.replace("?", "%s")
         query = re.sub(r"ON CONFLICT\\s*\\(chamado_id,\\s*regra_id\\)\\s*DO UPDATE SET",
@@ -84,8 +94,15 @@ class Connection:
             self.conn.commit()
         return Result(rows, desc)
 
+    def _unlock(self):
+        if self.lock_name:
+            with self.conn.cursor() as cursor:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", (self.lock_name,))
+            self.lock_name = None
+
     def close(self):
         if not self.closed:
+            self._unlock()
             self.context.__exit__(None, None, None)
             self.closed = True
 
@@ -94,6 +111,7 @@ class Connection:
 
     def __exit__(self, exc_type, exc, tb):
         if exc_type:
+            self._unlock()
             self.context.__exit__(exc_type, exc, tb)
             self.closed = True
         else:
