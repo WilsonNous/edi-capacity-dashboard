@@ -19,6 +19,8 @@ def _db_path() -> Path:
 
 
 def _conn():
+    if os.getenv('EDDY_DB_ENGINE', 'sqlite').strip().lower() == 'mysql':
+        raise RuntimeError('Orquestrador de cancelamentos SQLite desativado em MySQL; persistencia MySQL pendente')
     p = _db_path(); p.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(p, timeout=10, isolation_level=None)
     c.row_factory = sqlite3.Row
