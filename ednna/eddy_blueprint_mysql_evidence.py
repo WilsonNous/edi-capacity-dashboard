@@ -62,13 +62,17 @@ def identidade_de_bp_mysql(cliente):
     ids, stored = candidatos_bp_mysql(cliente)
     if persisted["blueprint_ids"]:
         known = set(persisted["cnpjs"])
-        if len(known) == 1 and not (ids - set(persisted["blueprint_ids"]) - stored.keys()):
-            return {"estado": "RESOLVIDO", "cliente": cliente,
-                    "cnpj": next(iter(known)), "blueprint_id": min(persisted["blueprint_ids"]),
-                    "origem": "MYSQL_BP", "quantidade_cnpjs": 1}
+        # Combine evidence across ALL known BPs; never choose a random branch.
+        for bp in stored.values():
+            known.update(cnpjs_blueprint(bp))
+        unresolved = ids - set(persisted["blueprint_ids"]) - stored.keys()
         if len(known) > 1:
             return {"estado": "CNPJ_AMBIGUO", "cnpj": None,
                     "blueprint_ids": sorted(set(ids) | set(persisted["blueprint_ids"]))}
+        if len(known) == 1 and not unresolved:
+            return {"estado": "RESOLVIDO", "cliente": cliente,
+                    "cnpj": next(iter(known)), "blueprint_id": min(persisted["blueprint_ids"]),
+                    "origem": "MYSQL_BP", "quantidade_cnpjs": 1}
     if not ids:
         return {"estado": "SEM_BP_MYSQL", "cnpj": None}
     # A participant-only BP has no reliable CNPJ in the contacts table.
