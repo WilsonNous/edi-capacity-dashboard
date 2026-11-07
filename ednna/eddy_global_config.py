@@ -7,7 +7,17 @@ from __future__ import annotations
 
 import os
 
-ALIASES = {
+EDNNA_LEGACY_NAMES = (
+    "ADMIN_EMAILS", "DB_PATH", "EDI_EMAILS", "EMAIL_FROM",
+    "JOURNAL_COOLDOWN_SECONDS", "MAX_ERROS_CONSECUTIVOS",
+    "MONITOR_EMAIL_ENABLED", "MONITOR_EMAIL_INITIAL_DELAY_SECONDS",
+    "MONITOR_EMAIL_INTERVAL_SECONDS", "STATUS_RESPOSTA_RECEBIDA",
+    "SYNC_INTERVAL_SECONDS",
+)
+
+ALIASES = {**{
+    "EDDY_" + suffix: "EDNNA_" + suffix for suffix in EDNNA_LEGACY_NAMES
+},
     "EDDY_VR01_EXTERNAL_ENABLED": "EDDY_EXTERNAL_ENABLED",
     "EDDY_VR01_INTERVAL_SECONDS": "EDDY_INTERVAL_SECONDS",
     "EDDY_VR01_TRANSPORT_MYSQL_READY": "EDDY_TRANSPORT_MYSQL_READY",
@@ -22,11 +32,16 @@ ALIASES = {
 
 def setting(name: str, default: str = "", environ=None) -> str:
     env = os.environ if environ is None else environ
-    legacy = env.get(name)
-    if legacy is not None:
-        return str(legacy)
-    global_name = ALIASES.get(name, name)
-    return str(env.get(global_name, default))
+    # EDNNA -> EDDY: new canonical name wins; deployed legacy values
+    # remain valid until Azure is migrated.
+    if name.startswith("EDNNA_") and name[6:] in EDNNA_LEGACY_NAMES:
+        canonical = "EDDY_" + name[6:]
+        if canonical in env:
+            return str(env[canonical])
+    if name in env:
+        return str(env[name])
+    alternate = ALIASES.get(name, name)
+    return str(env.get(alternate, default))
 
 
 def enabled(name: str, default: str = "false", environ=None) -> bool:
