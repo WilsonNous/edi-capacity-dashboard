@@ -13,6 +13,13 @@ class RecoveryGuardTests(unittest.TestCase):
         with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}, clear=True):
             self.assertFalse(persistencia_operacional_disponivel())
 
+    def test_legacy_storage_rejects_mysql_connection(self):
+        from ednna import armazenamento
+        with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}):
+            with self.assertRaisesRegex(RuntimeError, "EDNNA_SQLITE_LEGADO_DESATIVADO"):
+                with armazenamento.conectar():
+                    pass
+
     def test_mysql_never_activates_legacy_inclusion_queue(self):
         with patch.dict(os.environ, {"EDDY_DB_ENGINE": "mysql"}):
             self.assertFalse(persistencia_operacional_disponivel())
