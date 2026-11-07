@@ -86,7 +86,9 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                         # one customer's authorization for another ticket.
                         approvals = (approvals_by_issue or {}).get(issue_id, {})
                         try:
-                            entry.update(planejar_vr01(execute=True, approvals=approvals))
+                            result = planejar_vr01(execute=True, approvals=approvals)
+                            entry.update(result)
+                            entry["execucao_externa"] = bool(result.get("externo"))
                         except PermissionError:
                             entry["estado"] = "AGUARDA_APROVACAO_ACAO"
                         # Reply reconciliation is independent of dispatch.
@@ -101,4 +103,5 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             entry["erro"] = type(exc).__name__
         outcomes.append(entry)
     return {"estado": "CARTEIRA_VR01_PROCESSADA", "avaliados": len(outcomes),
-            "chamados": outcomes, "execucao_externa": False}
+            "chamados": outcomes, "execucao_externa": any(
+                item.get("execucao_externa") for item in outcomes)}
