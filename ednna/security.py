@@ -139,8 +139,27 @@ def current_user() -> UserContext:
 
 def audit(event: str, detail: str = "", user: UserContext | None = None) -> None:
     try:
-        DATA.mkdir(parents=True, exist_ok=True)
         u = user or current_user()
+        if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+            from ednna.mysql_storage import connect
+            with connect() as con:
+                with con.cursor() as cur:
+                    cur.execute("""CREATE TABLE IF NOT EXISTS eddy_security_audit (
+                        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                        created_at VARCHAR(40) NOT NULL,
+                        email VARCHAR(320),
+                        role VARCHAR(32),
+                        event VARCHAR(128) NOT NULL,
+                        detail TEXT,
+                        INDEX idx_security_audit_created (created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+                    cur.execute(
+                        "INSERT INTO eddy_security_audit(created_at,email,role,event,detail) VALUES(%s,%s,%s,%s,%s)",
+                        (datetime.now(timezone.utc).isoformat(), u.email, u.role, event, detail[:2000]),
+                    )
+                con.commit()
+            return
+        DATA.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(AUDIT_DB) as con:
             con.execute("""CREATE TABLE IF NOT EXISTS security_audit (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
