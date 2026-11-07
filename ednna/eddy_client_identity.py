@@ -50,6 +50,7 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None):
     Returns a single CNPJ only when exactly one distinct legal entity is proven.
     A multi-establishment BP remains explicit instead of silently choosing one.
     """
+    from ednna.eddy_client_identity_store import consultar, registrar
     from ednna.eddy_vr_mysql_sync import clientes_do_redmine
     from ednna.mysql_blueprint_participants import _descobrir_fontes_redmine
     from ednna.blueprint_knowledge import ler_excel, _eh_blueprint
@@ -58,13 +59,25 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None):
     clientes = clientes_do_redmine(issue)
     if len(clientes) != 1:
         return {"estado": "CLIENTE_AMBIGUO" if clientes else "CLIENTE_AUSENTE", "cnpj": None}
+    cliente = clientes[0]
+    # A cached identity avoids Redmine requests on every five-minute VR01 cycle.
+    # Store outages fail closed instead of creating a Redmine request storm.
+    try:
+        cached = consultar(cliente)
+    except Exception as exc:
+        return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
+                "erro": type(exc).__name__}
+    if cached is not None:
+        return cached
     buscar = buscar or (lambda iid: buscar_detalhes_chamado(
         int(iid), incluir_anexos=True, consulta_pontual=True))
     baixar = baixar or baixar_anexo_redmine
     try:
         _, bp_id = _descobrir_fontes_redmine(int(issue["id"]))
         if not bp_id:
-            return {"estado": "BLUEPRINT_NAO_LOCALIZADO", "cnpj": None}
+            result = {"estado": "BLUEPRINT_NAO_LOCALIZADO", "cnpj": None}
+            registrar(cliente, result)
+            return result
         bp = buscar(bp_id)
         if int(bp.get("id") or 0) != bp_id:
             return {"estado": "BLUEPRINT_DIVERGENTE", "cnpj": None}
@@ -77,10 +90,22 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None):
             if _eh_blueprint(filename, list(abas)):
                 cnpjs.update(cnpjs_blueprint(bp, abas))
         if len(cnpjs) != 1:
-            return {"estado": "CNPJ_AMBIGUO" if cnpjs else "CNPJ_NAO_LOCALIZADO_BP",
-                    "cnpj": None, "blueprint_id": bp_id, "quantidade_cnpjs": len(cnpjs)}
-        return {"estado": "RESOLVIDO", "cliente": clientes[0], "cnpj": next(iter(cnpjs)),
-                "blueprint_id": bp_id}
+            result = {"estado": "CNPJ_AMBIGUO" if cnpjs else "CNPJ_NAO_LOCALIZADO_BP",
+                      "cnpj": None, "blueprint_id": bp_id, "quantidade_cnpjs": len(cnpjs)}
+            registrar(cliente, result)
+            return result
+        result = {"estado": "RESOLVIDO", "cliente": cliente, "cnpj": next(iter(cnpjs)),
+                  "blueprint_id": bp_id, "quantidade_cnpjs": 1}
+        registrar(cliente, result)
+        return result
     except Exception as exc:
+        # Existing identity can support offline planning, never external writes.
+        try:
+            stale = consultar(cliente, allow_stale=True)
+            if stale is not None:
+                stale["desatualizado"] = True
+                return stale
+        except Exception:
+            pass
         return {"estado": "FONTE_BP_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
