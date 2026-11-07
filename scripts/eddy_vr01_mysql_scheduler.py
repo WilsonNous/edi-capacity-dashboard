@@ -17,6 +17,7 @@ import os
 import time
 
 from scripts.eddy_vr01_mysql_worker import executar_worker_vr01
+from ednna.eddy_global_config import enabled, setting
 
 LOG = logging.getLogger("eddy.vr01.scheduler")
 
@@ -25,7 +26,7 @@ _LAST_PILOT_BOOTSTRAP_ATTEMPT = 0.0
 
 
 def flag_ativa(nome: str, default: str = "false") -> bool:
-    return os.getenv(nome, default).strip().lower() == "true"
+    return enabled(nome, default)
 
 
 def intervalo_segundos(raw: str | None) -> int:
@@ -535,7 +536,7 @@ def main() -> None:
         )
 
     interval = intervalo_segundos(
-        os.getenv("EDDY_VR01_INTERVAL_SECONDS")
+        setting("EDDY_VR01_INTERVAL_SECONDS")
     )
 
     LOG.info(
