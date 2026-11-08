@@ -228,10 +228,10 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                 except Exception as exc:
                     results.append({"chamado_id": issue_id, "attachment_id": attachment_id,
                                     "status": "ERRO_ANEXO", "erro": type(exc).__name__})
-            if aplicar and blueprint_verificado:
-                # Evidence belongs to the actual Blueprint issue, not the operational ticket.
-                from ednna.eddy_client_identity import cnpjs_blueprint
-                cnpjs_bp.update(cnpjs_blueprint(issue))
+            # The caller passes verified BP roots only; custom fields can carry
+            # identity even without an Excel attachment or participants sheet.
+            cnpjs_bp.update(cnpjs_blueprint(issue))
+            if aplicar and cnpjs_bp:
                 registrar_bp(cliente, issue_id, cnpjs_bp)
             if attachments and not excel_found:
                 results.append({"chamado_id": issue_id, "cliente": cliente,
