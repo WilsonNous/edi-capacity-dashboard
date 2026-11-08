@@ -71,8 +71,8 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     except Exception as exc:
         return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
-    if cached is not None and cached.get("estado") == "RESOLVIDO":
-        return cached
+    # Re-evaluate fresh MySQL Blueprint evidence before accepting cached CNPJ.
+    # A new BP may add a second entity and invalidate a previous single CNPJ.
     # Negative cache entries from PR #211 are not proof of BP absence.
     # Use already synchronized MySQL evidence before considering any API call.
     try:
@@ -83,6 +83,10 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     if mysql_bp["estado"] == "RESOLVIDO":
         registrar(cliente, mysql_bp)
         return mysql_bp
+    if cached is not None and cached.get("estado") == "RESOLVIDO":
+        if mysql_bp["estado"] in ("CNPJ_AMBIGUO", "BP_MYSQL_SEM_IDENTIFICACAO"):
+            return {"estado": mysql_bp["estado"], "cnpj": None, "origem": "MYSQL_BP"}
+        return cached
     if not allow_remote:
         if cached is not None and cached.get("estado") == "RESOLVIDO":
             return cached
