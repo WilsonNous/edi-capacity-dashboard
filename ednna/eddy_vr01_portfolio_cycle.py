@@ -41,7 +41,7 @@ def diagnosticar_identificacao_cliente(issue: dict) -> dict:
             raw = str(item or "").strip()
             if not raw:
                 continue
-            digits = re.sub(r"\\D", "", raw)
+            digits = re.sub(r"\D", "", raw)
             if len(digits) == 14:
                 cnpjs.add(digits)
             else:
@@ -164,6 +164,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
     )))
     outcomes = []
     for issue_id in selected:
+        etapa = "CARREGAR_SNAPSHOT"
         entry = {"chamado_id": issue_id, "execucao_externa": False}
         try:
             snapshot = carregar_snapshot(issue_id)
@@ -198,6 +199,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     entry["estado"] = "HISTORICO_INCOMPLETO"
                     outcomes.append(entry)
                     continue
+            etapa = "RESOLVER_IDENTIDADE_CLIENTE"
             clients = clientes_do_redmine(issue)
             from ednna.eddy_client_identity import resolver_identidade_cliente
             cliente_mysql = str(snapshot["chamado"].get("cliente") or "").strip()
@@ -217,6 +219,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 continue
             # The existing pilot ledger is authoritative about original ownership.
             # New issues use the current Redmine owner only when not already EDDY.
+            etapa = "CARREGAR_LEDGER"
             with escopo_vr01(issue_id, 1, clients[0], cnpj):
                 ledger = _load()
             original_owner = (int(ledger["original_owner_id"]) if ledger else
@@ -225,6 +228,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 entry["estado"] = "RESPONSAVEL_ORIGINAL_NAO_IDENTIFICADO"
                 outcomes.append(entry)
                 continue
+            etapa = "PLANEJAR_OU_EXECUTAR"
             with escopo_vr01(issue_id, original_owner, clients[0], cnpj):
                 if not execute:
                     entry.update(planejar_vr01(execute=False))
@@ -285,6 +289,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
         except Exception as exc:
             entry["estado"] = "FALHA_SEGURA"
             entry["erro"] = type(exc).__name__
+            entry["etapa_falha"] = etapa
         outcomes.append(entry)
     return {"estado": "CARTEIRA_VR01_PROCESSADA", "avaliados": len(outcomes),
             "chamados": outcomes, "execucao_externa": any(
