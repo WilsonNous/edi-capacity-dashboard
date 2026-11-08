@@ -54,7 +54,14 @@ def importar_evidencias_legadas(*, caminho=None, clientes=None, registrar=None):
     from ednna.eddy_blueprint_identity_evidence import registrar_bp
     registrar = registrar or registrar_bp
     records = evidencias_legadas(caminho, clientes=clientes)
+    # MySQL keys evidence by issue ID; reject conflicting legacy client labels.
+    owners = {}
+    for cliente, bp_id in records:
+        owners.setdefault(bp_id, set()).add(cliente)
+    conflicts = {bp_id for bp_id, labels in owners.items() if len(labels) != 1}
+    records = {(cliente, bp_id): values for (cliente, bp_id), values in records.items()
+               if bp_id not in conflicts}
     for (cliente, bp_id), cnpjs in sorted(records.items()):
         registrar(cliente, bp_id, cnpjs, fonte="EDNNA_SQLITE_LEGADO")
-    return {"blueprints": len(records),
+    return {"blueprints": len(records), "conflitos": len(conflicts),
             "clientes": len({cliente for cliente, _ in records})}
