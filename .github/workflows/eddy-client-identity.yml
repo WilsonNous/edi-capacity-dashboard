@@ -7,6 +7,8 @@ on:
       - "ednna/eddy_client_identity_store.py"
       - "ednna/eddy_blueprint_mysql_evidence.py"
       - "ednna/eddy_blueprint_identity_evidence.py"
+      - "ednna/mysql_blueprint_participants.py"
+      - "tests/test_eddy_redmine_bp_mysql_backfill.py"
       - "tests/test_eddy_blueprint_identity_evidence.py"
       - "scripts/eddy_identity_mysql_refresh.py"
       - "scripts/start_eddy.sh"
@@ -33,6 +35,6 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install pytest pymysql requests openpyxl xlrd
       - name: Compile identity modules
-        run: python -m py_compile ednna/eddy_client_identity.py ednna/eddy_client_identity_store.py ednna/eddy_blueprint_mysql_evidence.py ednna/eddy_blueprint_identity_evidence.py ednna/eddy_vr01_portfolio_cycle.py scripts/eddy_identity_mysql_refresh.py
+        run: python -m py_compile ednna/eddy_client_identity.py ednna/eddy_client_identity_store.py ednna/eddy_blueprint_mysql_evidence.py ednna/eddy_blueprint_identity_evidence.py ednna/mysql_blueprint_participants.py ednna/eddy_vr01_portfolio_cycle.py scripts/eddy_identity_mysql_refresh.py
       - name: Run identity regressions
-        run: python -m pytest -q tests/test_eddy_client_identity.py tests/test_eddy_client_identity_cache.py tests/test_eddy_blueprint_identity_evidence.py
+        run: python -m pytest -q tests/test_eddy_client_identity.py tests/test_eddy_client_identity_cache.py tests/test_eddy_blueprint_identity_evidence.py tests/test_eddy_redmine_bp_mysql_backfill.py

@@ -117,6 +117,8 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
         _email_valido, _participantes_legado_id_projeto,
     )
     from redmine_api import buscar_detalhes_chamado, baixar_anexo_redmine
+    from ednna.eddy_client_identity import cnpjs_blueprint
+    from ednna.eddy_blueprint_identity_evidence import registrar_bp
 
     def stable_id(*parts):
         digest = hashlib.sha256("|".join(map(str, parts)).encode("utf-8")).digest()
@@ -136,6 +138,8 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                 results.append({"chamado_id": issue_id, "cliente": cliente,
                                 "status": "SEM_ANEXOS_REDMINE", "participantes": 0})
             excel_found = False
+            cnpjs_bp = set()
+            blueprint_verificado = False
             for attachment in attachments:
                 filename = str(attachment.get("filename") or "")
                 if Path(filename).suffix.lower() not in (".xls", ".xlsx"):
@@ -165,6 +169,8 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                     abas = ler_excel(data, filename)
                     if not _eh_blueprint(filename, list(abas)):
                         continue
+                    blueprint_verificado = True
+                    cnpjs_bp.update(cnpjs_blueprint(issue, abas))
                     part_name = next((a for a in abas if _norm(a) == "PARTICIPANTES"), None)
                     participantes = []
                     if part_name:
@@ -222,6 +228,8 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                 except Exception as exc:
                     results.append({"chamado_id": issue_id, "attachment_id": attachment_id,
                                     "status": "ERRO_ANEXO", "erro": type(exc).__name__})
+            if aplicar and blueprint_verificado:
+                registrar_bp(cliente, issue_id, cnpjs_bp)
             if attachments and not excel_found:
                 results.append({"chamado_id": issue_id, "cliente": cliente,
                                 "status": "SEM_ANEXOS_EXCEL", "participantes": 0})
