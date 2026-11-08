@@ -175,3 +175,20 @@ def test_existing_ledger_observer_failure_is_isolated_and_never_sends():
     assert item["erro"] == "RuntimeError"
     assert item["execucao_externa"] is False
     assert "internal secret" not in str(result)
+
+
+def test_observation_does_not_require_executor_identity_or_redmine():
+    from ednna import eddy_vr01_integrated as integrated
+    ledger = {"fase": "AGUARDA_CONFIRMACAO_CLIENTE",
+              "operacao_pendente": None, "notificado": 0}
+    with patch.object(integrated, "_load", return_value=ledger), \
+         patch.object(integrated, "_identity",
+                      side_effect=RuntimeError("executor unavailable")) as identity, \
+         patch.object(integrated, "_read_issue",
+                      side_effect=RuntimeError("Redmine unavailable")) as read:
+        result = integrated.planejar_vr01(execute=False)
+    assert result["estado"] == "OBSERVACAO_LOCAL"
+    assert result["fase"] == "AGUARDA_CONFIRMACAO_CLIENTE"
+    assert result["externo"] is False
+    identity.assert_not_called()
+    read.assert_not_called()
