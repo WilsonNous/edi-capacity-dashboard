@@ -27,7 +27,7 @@ def test_legacy_bp_cnpj_migration_read_only(tmp_path):
     registrar = Mock()
     stats = importar_evidencias_legadas(
         caminho=path, clientes={"CLIENTE A"}, registrar=registrar)
-    assert stats == {"blueprints": 1, "clientes": 1}
+    assert stats == {"blueprints": 1, "conflitos": 0, "clientes": 1}
     registrar.assert_called_once_with(
         "CLIENTE A", 501, {"12345678000190"}, fonte="EDNNA_SQLITE_LEGADO")
     with sqlite3.connect(path) as db:
