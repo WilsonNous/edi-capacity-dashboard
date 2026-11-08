@@ -225,6 +225,14 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             original_owner = (int(ledger["original_owner_id"]) if ledger else
                               int((issue.get("assigned_to") or {}).get("id") or 0))
             if not original_owner or original_owner == _identity():
+                from ednna.eddy_vr_original_owner import recuperar_responsavel_por_journals
+                recovered_owner = recuperar_responsavel_por_journals(
+                    issue, snapshot.get("journals") or [], _identity()
+                )
+                if recovered_owner:
+                    original_owner = recovered_owner
+                    entry["responsavel_original_fonte"] = "JOURNAL_REDMINE_MYSQL"
+            if not original_owner or original_owner == _identity():
                 entry["estado"] = "RESPONSAVEL_ORIGINAL_NAO_IDENTIFICADO"
                 outcomes.append(entry)
                 continue
