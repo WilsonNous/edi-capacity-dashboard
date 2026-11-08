@@ -1,4 +1,4 @@
-"""Low-frequency client identity enrichment; VR01 planning remains MySQL-only.
+"""Global Blueprint enrichment for all EDDY/EDNNA rules; planning remains MySQL-only.
 
 One pass on startup, then every 30 minutes for unresolved identities. Never sends mail or writes Redmine.
 """
@@ -14,8 +14,6 @@ from ednna.mysql_storage import connect
 def executar_uma_vez(limite=20):
     from ednna.eddy_client_identity import resolver_identidade_cliente
     from ednna.eddy_client_identity_store import consultar
-    from ednna.eddy_vr_mysql_sync import clientes_do_redmine
-    from ednna.eddy_vr_origin import identificar_vr
 
     # Read from the existing persisted inventory; no Redmine list request.
     with connect() as conn:
@@ -28,8 +26,7 @@ def executar_uma_vez(limite=20):
     for issue_id, cliente, payload in rows:
         try:
             issue = json.loads(payload) if isinstance(payload, str) else payload
-            if (not isinstance(issue, dict) or not identificar_vr(issue)
-                    or len(clientes_do_redmine(issue)) != 1):
+            if not isinstance(issue, dict) or not issue.get("id"):
                 continue
             chosen.setdefault(cliente, issue)
         except (TypeError, ValueError):
