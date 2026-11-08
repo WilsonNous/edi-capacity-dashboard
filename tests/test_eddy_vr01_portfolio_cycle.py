@@ -151,3 +151,27 @@ def test_portfolio_error_reports_safe_stage_without_leaking_exception():
     assert item["erro"] == "RuntimeError"
     assert item["etapa_falha"] == "CARREGAR_SNAPSHOT"
     assert "secret" not in str(item)
+
+
+def test_existing_ledger_observer_failure_is_isolated_and_never_sends():
+    issue = {"id": 50318, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "status": {"is_closed": False},
+             "assigned_to": {"id": 97},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "CLIENTE"}}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"cnpj": "12345678000199", "estado": "OK"}), \
+         patch("ednna.eddy_vr01_integrated._load",
+               return_value={"original_owner_id": 97}), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=100), \
+         patch("ednna.eddy_vr01_integrated.planejar_vr01",
+               side_effect=RuntimeError("internal secret")):
+        result = module.executar_carteira_vr01(ids=(50318,), execute=False)
+    item = result["chamados"][0]
+    assert item["estado"] == "FALHA_SEGURA"
+    assert item["etapa_falha"] == "OBSERVAR_ESTADO_MYSQL"
+    assert item["erro"] == "RuntimeError"
+    assert item["execucao_externa"] is False
+    assert "internal secret" not in str(result)
