@@ -16,7 +16,8 @@ def test_global_worker_handles_non_vr_and_no_remote_second_walk():
                    {"resultados": [{"status": "IMPORTADO"}], "descoberta": [{"status": "CONTEXTO_RESOLVIDO"}]},
                ]) as discovery, \
          patch("ednna.eddy_client_identity.resolver_identidade_cliente",
-               side_effect=[{"estado": "SEM_BP_MYSQL"}, {"estado": "RESOLVIDO"}]) as identity:
+               side_effect=[{"estado": "SEM_BP_MYSQL"}, {"estado": "RESOLVIDO"}]) as identity, \
+         patch("scripts.eddy_identity_mysql_refresh._confirmar_progresso") as checkpoint:
         stats = executar_uma_vez()
     assert stats["clientes"] == 2
     assert stats["consultados"] == 2
@@ -24,6 +25,7 @@ def test_global_worker_handles_non_vr_and_no_remote_second_walk():
     assert stats["bp_sincronizados"] == 1
     assert identity.call_args_list[0].kwargs["allow_remote"] is False
     assert discovery.call_count == 2
+    assert [call.args[0] for call in checkpoint.call_args_list] == ["ALFA", "BETA"]
 
 
 def test_redmine_failure_stops_this_cycle_but_does_not_lose_cursor():
@@ -33,12 +35,14 @@ def test_redmine_failure_stops_this_cycle_but_does_not_lose_cursor():
                return_value=[("A", {"id": 1}), ("B", {"id": 2})]), \
          patch("ednna.mysql_blueprint_participants.descobrir_e_sincronizar_participantes_mysql",
                return_value={"resultados": [], "descoberta": [{"status": "CONTEXTO_INDISPONIVEL"}]}) as discovery, \
-         patch("ednna.eddy_client_identity.resolver_identidade_cliente") as identity:
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente") as identity, \
+         patch("scripts.eddy_identity_mysql_refresh._confirmar_progresso") as checkpoint:
         stats = executar_uma_vez()
     assert stats["interrompido_por_redmine"]
     assert stats["falhas_descoberta"] == 1
     assert discovery.call_count == 1
     identity.assert_not_called()
+    checkpoint.assert_not_called()
 
 
 def test_discovery_imports_only_verified_blueprint_root():
@@ -75,3 +79,22 @@ def test_cached_resolved_identity_invalidated_by_conflicting_bp_mysql():
     assert result["cnpj"] is None
     registrar.assert_called_once()
     assert registrar.call_args.args[1]["estado"] == "CNPJ_AMBIGUO"
+
+
+def test_checkpoint_only_after_first_client_when_second_fails():
+    with patch("scripts.eddy_identity_mysql_refresh._inventario",
+               return_value={"A": {"id": 1}, "B": {"id": 2}, "C": {"id": 3}}), \
+         patch("scripts.eddy_identity_mysql_refresh._lote",
+               return_value=[("A", {"id": 1}), ("B", {"id": 2}), ("C", {"id": 3})]), \
+         patch("ednna.mysql_blueprint_participants.descobrir_e_sincronizar_participantes_mysql",
+               side_effect=[
+                   {"resultados": [], "descoberta": [{"status": "CONTEXTO_RESOLVIDO"}]},
+                   {"resultados": [], "descoberta": [{"status": "CONTEXTO_INDISPONIVEL"}]},
+               ]) as discovery, \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"estado": "RESOLVIDO"}), \
+         patch("scripts.eddy_identity_mysql_refresh._confirmar_progresso") as checkpoint:
+        stats = executar_uma_vez()
+    assert stats["interrompido_por_redmine"] is True
+    assert discovery.call_count == 2
+    checkpoint.assert_called_once_with("A")
