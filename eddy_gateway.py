@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from eddy_api import CONTRACT_VERSION
 
 import httpx
 import websockets
@@ -84,8 +85,18 @@ async def healthz():
         "intelligence_api": f"{API_BASE}/api/intelligence/handshake",
     }.items():
         try:
-            response = await _client().get(url, timeout=3.0)
-            checks[name] = response.status_code in ({200} if name == "streamlit" else {200, 401, 422})
+            headers = {}
+            if name == "intelligence_api":
+                token = os.getenv("EDDY_INTELLIGENCE_TOKEN", "").strip()
+                if not token:
+                    checks[name] = False
+                    continue
+                headers = {
+                    "Authorization": "Bearer " + token,
+                    "X-EDNNA-Contract-Version": CONTRACT_VERSION,
+                }
+            response = await _client().get(url, timeout=3.0, headers=headers)
+            checks[name] = response.status_code == 200
         except Exception:
             checks[name] = False
     ok = all(checks.values())
