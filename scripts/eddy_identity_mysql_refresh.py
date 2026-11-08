@@ -34,10 +34,12 @@ def executar_uma_vez(limite=20):
             chosen.setdefault(cliente, issue)
         except (TypeError, ValueError):
             continue
-    stats = {"clientes": len(chosen), "consultados": 0, "resolvidos": 0,
+    from ednna.eddy_legacy_blueprint_backfill import importar_evidencias_legadas
+    legacy = importar_evidencias_legadas(clientes=set(chosen))
+    stats = {"clientes": len(chosen), "legado_bp": legacy["blueprints"], "consultados": 0, "resolvidos": 0,
              "indisponiveis": 0, "sem_bp": 0}
     for cliente, issue in list(chosen.items())[:max(1, min(int(limite), 50))]:
-        # Cache-positive identities are reused; missing BP is retried daily,
+        # Cache-positive identities are reused; missing BP is retried periodically,
         # not on every five-minute operational cycle.
         existing = consultar(cliente)
         if existing and existing["estado"] == "RESOLVIDO":
