@@ -350,6 +350,11 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
               "proxima_fase": target.value, "externo": False}
     if not execute:
         return report
+    # Waiting is an observational outcome, not an executable operation.
+    # Follow-ups are planned separately with a dedicated readiness gate.
+    if operation == "ACOMPANHAR_E_COBRAR":
+        return {**report, "estado": "AGUARDANDO_RETORNO_CLIENTE",
+                "envios_realizados": 0}
     readiness = verificar_prontidao_operacao_vr01(operation)
     if not readiness["pronto"]:
         return {**report, "estado": "BLOQUEADO_PRONTIDAO",
