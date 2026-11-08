@@ -91,6 +91,25 @@ def importar_snapshot_painel_mysql(caminho: str, *, limite: int = 50, aplicar: b
             with connect() as conn:
                 with conn.cursor() as cursor:
                     for row in converted[offset:offset + 50]:
+                        # The general panel importer must not discard the
+                        # journal-complete VR snapshot written by the dedicated
+                        # Redmine worker. Both writers share eddy_chamados.
+                        cursor.execute(
+                            "SELECT payload_json FROM eddy_chamados WHERE id=%s FOR UPDATE",
+                            (row["id"],),
+                        )
+                        previous_row = cursor.fetchone()
+                        if previous_row and previous_row[0]:
+                            try:
+                                previous = json.loads(previous_row[0]) if isinstance(previous_row[0], str) else previous_row[0]
+                            except (ValueError, TypeError):
+                                previous = None
+                            if (
+                                isinstance(previous, dict)
+                                and previous.get("_eddy_journals_completos") is True
+                                and str(previous.get("updated_on") or "") == str(row["payload_json"].get("updated_on") or "")
+                            ):
+                                row = {**row, "payload_json": previous}
                         _upsert(cursor, 'eddy_chamados', CHAMADO_FIELDS, row)
         duracao = round(perf_counter() - inicio, 3)
     return {

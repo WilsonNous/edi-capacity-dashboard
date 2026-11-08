@@ -27,6 +27,27 @@ from ednna.eddy_vr_observability import resumir_operacao_vr
 from ednna.eddy_vr_origin import identificar_vr
 
 
+def _snapshot_elegivel(chamado: dict) -> bool:
+    """Do not promote historical or journal-incomplete issues into VR queues."""
+    payload = chamado.get("payload_json") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            return False
+    if not isinstance(payload, dict) or payload.get("_eddy_journals_completos") is not True:
+        return False
+    status = payload.get("status") or {}
+    if not isinstance(status, dict):
+        return False
+    if status.get("is_closed") is True:
+        return False
+    state = str(status.get("name") or chamado.get("estado") or "").casefold()
+    return bool(state) and not any(
+        word in state for word in ("concluído", "concluido", "fechado", "rejeitado", "closed", "cancelado")
+    )
+
+
 def operacao_vr_mysql() -> dict:
     with connect() as conn:
         with conn.cursor() as cursor:
@@ -41,6 +62,8 @@ def operacao_vr_mysql() -> dict:
                 if not identificar_vr(chamado):
                     continue
                 vr_count += 1
+                if not _snapshot_elegivel(chamado):
+                    continue
                 cursor.execute(
                     "SELECT " + ", ".join(JOURNAL_FIELDS)
                     + " FROM eddy_journals WHERE chamado_id=%s ORDER BY id",
@@ -75,6 +98,8 @@ def operacao_vr_mysql() -> dict:
     })
     projection["fonte"] = "mysql"
     projection["total_snapshots_vr"] = vr_count
+    projection["snapshots_elegiveis"] = len(results)
+    projection["snapshots_sem_historico_completo_ou_terminais"] = vr_count - len(results)
     projection["aviso"] = (
         "Somente snapshots já sincronizados no MySQL; não garante cobertura "
         "de todos os chamados abertos no Redmine."
