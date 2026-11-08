@@ -44,7 +44,7 @@ def cnpjs_blueprint(blueprint, abas=None):
     return found
 
 
-def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False, cliente_override=None):
+def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False, cliente_override=None, refresh_mysql=False):
     """Read-only resolution through Redmine relations and BP Excel attachments.
 
     Returns a single CNPJ only when exactly one distinct legal entity is proven.
@@ -71,6 +71,10 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     except Exception as exc:
         return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
+    if cached is not None and cached.get("estado") == "RESOLVIDO" and not refresh_mysql:
+        return cached
+    # The global worker explicitly refreshes MySQL evidence; normal calls keep
+    # the cache fast path and never unexpectedly require another DB lookup.
     # Re-evaluate fresh MySQL Blueprint evidence before accepting cached CNPJ.
     # A new BP may add a second entity and invalidate a previous single CNPJ.
     # Negative cache entries from PR #211 are not proof of BP absence.
