@@ -228,7 +228,10 @@ def sincronizar_blueprints_redmine_mysql(pilotos, *, aplicar=False, skip_importe
                 except Exception as exc:
                     results.append({"chamado_id": issue_id, "attachment_id": attachment_id,
                                     "status": "ERRO_ANEXO", "erro": type(exc).__name__})
-            if aplicar and blueprint_verificado:
+            # The caller passes verified BP roots only; custom fields can carry
+            # identity even without an Excel attachment or participants sheet.
+            cnpjs_bp.update(cnpjs_blueprint(issue))
+            if aplicar and cnpjs_bp:
                 registrar_bp(cliente, issue_id, cnpjs_bp)
             if attachments and not excel_found:
                 results.append({"chamado_id": issue_id, "cliente": cliente,
@@ -320,7 +323,12 @@ def descobrir_e_sincronizar_participantes_mysql(chamados, *, aplicar=False, skip
             continue
         try:
             ids, bp_id = _descobrir_fontes_redmine(chamado_id)
-            for origem_id in sorted(ids):
+            if not bp_id:
+                diagnosticos.append({"chamado_id": chamado_id, "status": "BLUEPRINT_NAO_LOCALIZADO", "fontes_inspecionadas": len(ids)})
+                continue
+            # Import only verified BP roots. Related operational issues may have
+            # unrelated Excel files and must not become identity evidence.
+            for origem_id in (bp_id,):
                 anterior = fontes.get(origem_id)
                 if anterior and anterior != cliente:
                     conflitos.add(origem_id)

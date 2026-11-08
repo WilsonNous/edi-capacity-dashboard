@@ -44,7 +44,7 @@ def cnpjs_blueprint(blueprint, abas=None):
     return found
 
 
-def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False, cliente_override=None):
+def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote=False, cliente_override=None, refresh_mysql=False):
     """Read-only resolution through Redmine relations and BP Excel attachments.
 
     Returns a single CNPJ only when exactly one distinct legal entity is proven.
@@ -59,7 +59,9 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     from redmine_api import buscar_detalhes_chamado, baixar_anexo_redmine
 
     clientes = clientes_do_redmine(issue)
-    if len(clientes) != 1:
+    # A caller-supplied client label is trusted only for the separate MySQL
+    # inventory worker; operational paths without override still validate fields.
+    if not cliente_override and len(clientes) != 1:
         return {"estado": "CLIENTE_AMBIGUO" if clientes else "CLIENTE_AUSENTE", "cnpj": None}
     cliente = str(cliente_override or clientes[0]).strip()
     # A cached identity avoids Redmine requests on every five-minute VR01 cycle.
@@ -69,8 +71,12 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     except Exception as exc:
         return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
-    if cached is not None and cached.get("estado") == "RESOLVIDO":
+    if cached is not None and cached.get("estado") == "RESOLVIDO" and not refresh_mysql:
         return cached
+    # The global worker explicitly refreshes MySQL evidence; normal calls keep
+    # the cache fast path and never unexpectedly require another DB lookup.
+    # Re-evaluate fresh MySQL Blueprint evidence before accepting cached CNPJ.
+    # A new BP may add a second entity and invalidate a previous single CNPJ.
     # Negative cache entries from PR #211 are not proof of BP absence.
     # Use already synchronized MySQL evidence before considering any API call.
     try:
@@ -81,6 +87,14 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     if mysql_bp["estado"] == "RESOLVIDO":
         registrar(cliente, mysql_bp)
         return mysql_bp
+    if cached is not None and cached.get("estado") == "RESOLVIDO":
+        if mysql_bp["estado"] in ("CNPJ_AMBIGUO", "BP_MYSQL_SEM_IDENTIFICACAO"):
+            # Invalidate stale resolved cache when the Blueprint changed.
+            # Ambiguity is persisted so every rule sees the same restriction.
+            registrar(cliente, {"estado": "CNPJ_AMBIGUO", "cnpj": None,
+                                "quantidade_cnpjs": len(mysql_bp.get("blueprint_ids", []))})
+            return {"estado": mysql_bp["estado"], "cnpj": None, "origem": "MYSQL_BP"}
+        return cached
     if not allow_remote:
         if cached is not None and cached.get("estado") == "RESOLVIDO":
             return cached
