@@ -308,13 +308,13 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
     Confirmation must be persisted by a separate evidence-verification process.
     No email text alone can set autorizacao_confirmada.
     """
-    eddy_id = _identity()
-    # Observational cycles must not preflight Redmine every five minutes.
-    # External execution retains the mandatory fresh Redmine preflight below.
+    # Observation reads the existing ledger without requiring executor identity.
+    # External execution still validates the institutional identity and Redmine.
     if not execute:
         row = _load()
         from ednna.redmine_collection_policy import observational_state
         return observational_state(_context()["chamado_id"], row)
+    eddy_id = _identity()
     issue = _read_issue(_context()["chamado_id"])
     row = _load()
     if row is None:
