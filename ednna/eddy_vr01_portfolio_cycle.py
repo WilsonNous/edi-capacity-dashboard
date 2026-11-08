@@ -41,7 +41,7 @@ def diagnosticar_identificacao_cliente(issue: dict) -> dict:
             raw = str(item or "").strip()
             if not raw:
                 continue
-            digits = re.sub(r"\\D", "", raw)
+            digits = re.sub(r"\D", "", raw)
             if len(digits) == 14:
                 cnpjs.add(digits)
             else:
