@@ -89,6 +89,10 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
         return mysql_bp
     if cached is not None and cached.get("estado") == "RESOLVIDO":
         if mysql_bp["estado"] in ("CNPJ_AMBIGUO", "BP_MYSQL_SEM_IDENTIFICACAO"):
+            # Invalidate stale resolved cache when the Blueprint changed.
+            # Ambiguity is persisted so every rule sees the same restriction.
+            registrar(cliente, {"estado": "CNPJ_AMBIGUO", "cnpj": None,
+                                "quantidade_cnpjs": len(mysql_bp.get("blueprint_ids", []))})
             return {"estado": mysql_bp["estado"], "cnpj": None, "origem": "MYSQL_BP"}
         return cached
     if not allow_remote:
