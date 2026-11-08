@@ -34,9 +34,7 @@ def executar_uma_vez(limite=20):
             chosen.setdefault(cliente, issue)
         except (TypeError, ValueError):
             continue
-    from ednna.eddy_legacy_blueprint_backfill import importar_evidencias_legadas
-    legacy = importar_evidencias_legadas(clientes=set(chosen))
-    stats = {"clientes": len(chosen), "legado_bp": legacy["blueprints"], "consultados": 0, "resolvidos": 0,
+    stats = {"clientes": len(chosen), "bp_sincronizados": 0, "consultados": 0, "resolvidos": 0,
              "indisponiveis": 0, "sem_bp": 0}
     for cliente, issue in list(chosen.items())[:max(1, min(int(limite), 50))]:
         # Cache-positive identities are reused; missing BP is retried periodically,
@@ -44,6 +42,13 @@ def executar_uma_vez(limite=20):
         existing = consultar(cliente)
         if existing and existing["estado"] == "RESOLVIDO":
             continue
+        # Reuse the existing Redmine BP discovery and Excel parser, writing
+        # verified participants/CNPJ evidence to MySQL only.
+        from ednna.mysql_blueprint_participants import descobrir_e_sincronizar_participantes_mysql
+        discovery = descobrir_e_sincronizar_participantes_mysql(
+            {int(issue["id"]): cliente}, aplicar=True, skip_imported=False)
+        stats["bp_sincronizados"] += sum(
+            1 for row in discovery.get("resultados", []) if row.get("status") == "IMPORTADO")
         result = resolver_identidade_cliente(
             issue, allow_remote=True, cliente_override=cliente)
         stats["consultados"] += 1
