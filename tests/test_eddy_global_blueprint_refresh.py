@@ -58,3 +58,20 @@ def test_discovery_does_not_import_operational_excel_without_bp():
         result = descobrir_e_sincronizar_participantes_mysql({11: "ALFA"}, aplicar=True)
     sync.assert_not_called()
     assert result["descoberta"][0]["status"] == "BLUEPRINT_NAO_LOCALIZADO"
+
+
+def test_cached_resolved_identity_invalidated_by_conflicting_bp_mysql():
+    from ednna.eddy_client_identity import resolver_identidade_cliente
+    issue = {"id": 11, "custom_fields": []}
+    with patch("ednna.eddy_vr_mysql_sync.clientes_do_redmine", return_value=[]), \
+         patch("ednna.eddy_client_identity_store.consultar",
+               return_value={"estado": "RESOLVIDO", "cnpj": "12345678000190"}), \
+         patch("ednna.eddy_blueprint_mysql_evidence.identidade_de_bp_mysql",
+               return_value={"estado": "CNPJ_AMBIGUO", "blueprint_ids": [12, 13]}), \
+         patch("ednna.eddy_client_identity_store.registrar") as registrar:
+        result = resolver_identidade_cliente(
+            issue, cliente_override="ALFA", allow_remote=False, refresh_mysql=True)
+    assert result["estado"] == "CNPJ_AMBIGUO"
+    assert result["cnpj"] is None
+    registrar.assert_called_once()
+    assert registrar.call_args.args[1]["estado"] == "CNPJ_AMBIGUO"
