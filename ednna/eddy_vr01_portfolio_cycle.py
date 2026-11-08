@@ -231,9 +231,11 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             etapa = "PLANEJAR_OU_EXECUTAR"
             with escopo_vr01(issue_id, original_owner, clients[0], cnpj):
                 if not execute:
+                    etapa = "OBSERVAR_ESTADO_MYSQL"
                     entry.update(planejar_vr01(execute=False))
                 else:
                     # Never initiate a Redmine/Graph action from a stale snapshot.
+                    etapa = "PREFLIGHT_REDMINE"
                     live = _read_issue(issue_id)
                     if live.get("updated_on") != issue.get("updated_on"):
                         entry["estado"] = "SNAPSHOT_DESATUALIZADO"
@@ -274,6 +276,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                                 enabled_flag=enabled("EDDY_VR01_AUTO_SEND_PORTAL"),
                             ))
                         try:
+                            etapa = "EXECUTOR_VR01"
                             result = planejar_vr01(execute=True, approvals=approvals)
                             entry.update(result)
                             entry["execucao_externa"] = bool(result.get("externo"))
@@ -284,6 +287,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                         if (ledger and ledger["fase"] == "AGUARDA_CONFIRMACAO_CLIENTE"
                                 and not ledger["autorizacao_confirmada"]
                                 and enabled("EDDY_VR01_REPLY_RECONCILIATION_READY")):
+                            etapa = "RECONCILIAR_INBOX"
                             entry["inbox"] = reconciliar_respostas_vr01([issue_id])
             entry["cliente"] = clients[0]
         except Exception as exc:
