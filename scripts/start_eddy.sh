@@ -44,7 +44,7 @@ import urllib.request
 
 targets = [
     ("Streamlit", os.environ["EDDY_READY_UI_URL"], {200}),
-    ("Intelligence API", os.environ["EDDY_READY_API_URL"], {200, 401, 403, 422}),
+    ("Intelligence API", os.environ["EDDY_READY_API_URL"], {200}),
 ]
 
 for name, url, accepted in targets:
@@ -52,7 +52,16 @@ for name, url, accepted in targets:
     last_detail = "sem resposta"
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as response:
+            headers = {}
+            if name == "Intelligence API":
+                from eddy_api import CONTRACT_VERSION
+                headers["X-EDNNA-Contract-Version"] = CONTRACT_VERSION
+                token = os.environ.get("EDDY_INTELLIGENCE_TOKEN", "").strip()
+                if not token:
+                    raise RuntimeError("EDDY_INTELLIGENCE_TOKEN ausente")
+                headers["Authorization"] = "Bearer " + token
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=2) as response:
                 code = response.status
             last_detail = f"HTTP {code}"
             if code in accepted:
