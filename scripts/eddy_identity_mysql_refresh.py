@@ -80,7 +80,7 @@ def executar_uma_vez(limite=20):
             stats["interrompido_por_redmine"] = True
             break
         result = resolver_identidade_cliente(
-            issue, allow_remote=False, cliente_override=cliente)
+            issue, allow_remote=False, cliente_override=cliente, refresh_mysql=True)
         stats["consultados"] += 1
         if result["estado"] == "RESOLVIDO":
             stats["resolvidos"] += 1
