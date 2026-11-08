@@ -204,15 +204,15 @@ def test_waiting_customer_monitors_inbox_without_redmine_preflight():
               "fase": "AGUARDA_CONFIRMACAO_CLIENTE", "autorizacao_confirmada": 0,
               "operacao_pendente": None, "envio_graph_confirmado": 1}
     with patch.object(module, "carregar_snapshot", return_value=snapshot), \
-         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \\
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
          patch("ednna.eddy_client_identity.resolver_identidade_cliente",
-               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \\
-         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \\
-         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \\
-         patch("ednna.eddy_vr01_integrated._read_issue") as read, \\
+               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue") as read, \
          patch("ednna.eddy_vr01_integrated.planejar_vr01",
-               return_value={"estado": "AGUARDANDO_RETORNO_CLIENTE", "externo": False}), \\
-         patch("ednna.eddy_global_config.enabled", return_value=True), \\
+               return_value={"estado": "AGUARDANDO_RETORNO_CLIENTE", "externo": False}), \
+         patch("ednna.eddy_global_config.enabled", return_value=True), \
          patch("ednna.eddy_vr_inbox_reconciliation.reconciliar_respostas_vr01",
                return_value={"estado": "RESPOSTAS_RECONCILIADAS", "respostas": 0}) as inbox:
         result = module.executar_carteira_vr01(ids=[50318], execute=True)
@@ -234,12 +234,12 @@ def test_unconfirmed_eddy_ownership_still_requires_redmine_preflight():
     ledger = {"original_owner_id": 97, "eddy_owner_id": 166,
               "fase": "AGUARDA_CONFIRMACAO_CLIENTE", "autorizacao_confirmada": 0,
               "operacao_pendente": None, "envio_graph_confirmado": 1}
-    with patch.object(module, "carregar_snapshot", return_value=snapshot), \\
-         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \\
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
          patch("ednna.eddy_client_identity.resolver_identidade_cliente",
-               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \\
-         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \\
-         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \\
+               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
          patch("ednna.eddy_vr01_integrated._read_issue",
                side_effect=RuntimeError("unavailable")) as read:
         result = module.executar_carteira_vr01(ids=[50318], execute=True)
