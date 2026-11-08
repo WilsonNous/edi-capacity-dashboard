@@ -59,7 +59,9 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     from redmine_api import buscar_detalhes_chamado, baixar_anexo_redmine
 
     clientes = clientes_do_redmine(issue)
-    if len(clientes) != 1:
+    # A caller-supplied client label is trusted only for the separate MySQL
+    # inventory worker; operational paths without override still validate fields.
+    if not cliente_override and len(clientes) != 1:
         return {"estado": "CLIENTE_AMBIGUO" if clientes else "CLIENTE_AUSENTE", "cnpj": None}
     cliente = str(cliente_override or clientes[0]).strip()
     # A cached identity avoids Redmine requests on every five-minute VR01 cycle.
