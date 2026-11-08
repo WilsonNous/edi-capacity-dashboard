@@ -50,10 +50,17 @@ def _lote(chosen, limite):
             start = next((i for i, name in enumerate(names) if name > last), 0)
             batch = [names[(start + i) % len(names)]
                      for i in range(min(len(names), max(1, min(int(limite), 100))))]
+    return [(name, chosen[name]) for name in batch]
+
+
+def _confirmar_progresso(cliente):
+    """Advance cursor only after completing the client refresh."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(CURSOR_DDL)
             cur.execute("""INSERT INTO eddy_blueprint_refresh_cursor (worker, last_cliente)
                            VALUES (%s,%s) ON DUPLICATE KEY UPDATE last_cliente=VALUES(last_cliente)""",
-                        ("GLOBAL_BP", batch[-1]))
-    return [(name, chosen[name]) for name in batch]
+                        ("GLOBAL_BP", cliente))
 
 
 def executar_uma_vez(limite=20):
@@ -89,6 +96,7 @@ def executar_uma_vez(limite=20):
             break
         else:
             stats["sem_bp"] += 1
+        _confirmar_progresso(cliente)
     return stats
 
 
