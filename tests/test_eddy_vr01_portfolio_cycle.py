@@ -192,3 +192,57 @@ def test_observation_does_not_require_executor_identity_or_redmine():
     assert result["externo"] is False
     identity.assert_not_called()
     read.assert_not_called()
+
+
+def test_waiting_customer_monitors_inbox_without_redmine_preflight():
+    issue = {"id": 50318, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "updated_on": "v1",
+             "status": {"is_closed": False}, "assigned_to": {"id": 166},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "CLIENTE"}, "journals": []}
+    ledger = {"original_owner_id": 97, "eddy_owner_id": 166,
+              "fase": "AGUARDA_CONFIRMACAO_CLIENTE", "autorizacao_confirmada": 0,
+              "operacao_pendente": None, "envio_graph_confirmado": 1}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue") as read, \
+         patch("ednna.eddy_vr01_integrated.planejar_vr01",
+               return_value={"estado": "AGUARDANDO_RETORNO_CLIENTE", "externo": False}), \
+         patch("ednna.eddy_global_config.enabled", return_value=True), \
+         patch("ednna.eddy_vr_inbox_reconciliation.reconciliar_respostas_vr01",
+               return_value={"estado": "RESPOSTAS_RECONCILIADAS", "respostas": 0}) as inbox:
+        result = module.executar_carteira_vr01(ids=[50318], execute=True)
+    item = result["chamados"][0]
+    assert item["estado"] == "AGUARDANDO_RETORNO_CLIENTE"
+    assert item["preflight_redmine"] == "DISPENSADO_AGUARDANDO_CLIENTE"
+    assert item["inbox"]["respostas"] == 0
+    assert result["execucao_externa"] is False
+    read.assert_not_called()
+    inbox.assert_called_once_with([50318])
+
+
+def test_unconfirmed_eddy_ownership_still_requires_redmine_preflight():
+    issue = {"id": 50318, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "updated_on": "v1",
+             "status": {"is_closed": False}, "assigned_to": {"id": 97},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "CLIENTE"}, "journals": []}
+    ledger = {"original_owner_id": 97, "eddy_owner_id": 166,
+              "fase": "AGUARDA_CONFIRMACAO_CLIENTE", "autorizacao_confirmada": 0,
+              "operacao_pendente": None, "envio_graph_confirmado": 1}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+         patch("ednna.eddy_vr01_integrated._load", return_value=ledger), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue",
+               side_effect=RuntimeError("unavailable")) as read:
+        result = module.executar_carteira_vr01(ids=[50318], execute=True)
+    assert result["chamados"][0]["estado"] == "FALHA_SEGURA"
+    assert result["chamados"][0]["etapa_falha"] == "PREFLIGHT_REDMINE"
+    read.assert_called_once()

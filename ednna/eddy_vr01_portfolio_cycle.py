@@ -238,6 +238,27 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 continue
             etapa = "PLANEJAR_OU_EXECUTAR"
             with escopo_vr01(issue_id, original_owner, clients[0], cnpj):
+                # Waiting for a customer is not a Redmine mutation. The ledger
+                # and verified snapshot remain authoritative for observation;
+                # inbox reconciliation may detect new evidence independently.
+                # A later actionable transition still requires fresh Redmine
+                # preflight in the executor.
+                if (execute and ledger
+                        and ledger.get("fase") == "AGUARDA_CONFIRMACAO_CLIENTE"
+                        and not ledger.get("autorizacao_confirmada")
+                        and not ledger.get("operacao_pendente")
+                        and ledger.get("envio_graph_confirmado")
+                        and ledger.get("eddy_owner_id") == _identity()
+                        and (issue.get("assigned_to") or {}).get("id") == _identity()):
+                    etapa = "ACOMPANHAMENTO_LOCAL"
+                    entry.update(planejar_vr01(execute=False))
+                    entry["preflight_redmine"] = "DISPENSADO_AGUARDANDO_CLIENTE"
+                    if enabled("EDDY_VR01_REPLY_RECONCILIATION_READY"):
+                        etapa = "RECONCILIAR_INBOX"
+                        entry["inbox"] = reconciliar_respostas_vr01([issue_id])
+                    entry["cliente"] = clients[0]
+                    outcomes.append(entry)
+                    continue
                 if not execute:
                     etapa = "OBSERVAR_ESTADO_MYSQL"
                     entry.update(planejar_vr01(execute=False))
