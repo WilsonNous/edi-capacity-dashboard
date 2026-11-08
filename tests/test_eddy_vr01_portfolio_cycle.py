@@ -132,3 +132,22 @@ def test_ambiguous_existing_mail_never_advances_lifecycle():
             50318, {"updated_on": "2026-11-07T10:00:00Z"}, ledger)
     assert result["estado"] == "ENVIO_AMBIGUO"
     reserve.assert_not_called()
+
+
+def test_cnpj_diagnostic_accepts_formatted_value():
+    with patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]):
+        result = module.diagnosticar_identificacao_cliente({
+            "custom_fields": [{"name": "CNPJ", "value": "12.345.678/0001-99"}]
+        })
+    assert result["quantidade_cnpjs_validos"] == 1
+    assert result["motivos"] == []
+
+
+def test_portfolio_error_reports_safe_stage_without_leaking_exception():
+    with patch.object(module, "carregar_snapshot", side_effect=RuntimeError("secret")):
+        result = module.executar_carteira_vr01(ids=(50318,))
+    item = result["chamados"][0]
+    assert item["estado"] == "FALHA_SEGURA"
+    assert item["erro"] == "RuntimeError"
+    assert item["etapa_falha"] == "CARREGAR_SNAPSHOT"
+    assert "secret" not in str(item)
