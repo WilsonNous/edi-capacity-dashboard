@@ -421,15 +421,27 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verif
         if not sent.get("sentDateTime") or not (sent.get("id") or sent.get("internetMessageId")):
             raise RuntimeError("Graph envio pendente de conciliacao")
         _event("SOLICITACAO_CLIENTE", str(sent.get("internetMessageId") or sent["id"]))
-        # Email already sent: retain reservation on Redmine failure, preventing duplicate send.
-        from ednna.redmine_outbox import registrar_ou_enfileirar
-        from ednna.redmine_writer import obter_status_id_por_nome
-        result = registrar_ou_enfileirar(
-            chamado_id=_context()["chamado_id"],
-            regra_id="VR01",
-            nota="EDDY VR01: solicitacao de autorizacao enviada por e-mail. Aguardando retorno do cliente.",
-            status_nome="Aguardando Retorno Cliente",
-        )
+        # Read the actual Graph Sent Item before writing a historical journal.
+        # Never fabricate recipients, body, or timestamp from a proposed draft.
+        from ednna.email_sender import listar_emails_enviados_por_chamado
+        from ednna.redmine_outbox import registrar_ou_enfileirar, _nota_sent_item
+        from ednna.redmine_writer import obter_status_id_por_nome, nota_marcador_ja_existe
+        sent_id = str(sent.get("internetMessageId") or sent.get("id"))
+        matching = [item for item in listar_emails_enviados_por_chamado(
+            remetente=sender, chamado_id=_context()["chamado_id"]
+        ) if str(item.get("internetMessageId") or item.get("id")) == sent_id]
+        if len(matching) != 1 or not (
+            (matching[0].get("body") or {}).get("content") or matching[0].get("bodyPreview")
+        ):
+            raise RuntimeError("Graph sent item incomplete; reconcile without resending")
+        nota, marcador = _nota_sent_item(matching[0], 0)
+        if nota_marcador_ja_existe(_context()["chamado_id"], marcador):
+            result = {"ok": True, "ja_registrado": True}
+        else:
+            result = registrar_ou_enfileirar(
+                chamado_id=_context()["chamado_id"], regra_id="VR01",
+                nota=nota, status_nome="Aguardando Retorno Cliente",
+            )
         if result.get("pendente"):
             _event("AGUARDANDO_CLIENTE_REDMINE_PENDENTE", "VR01")
         elif result.get("ok"):
