@@ -46,6 +46,21 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
         return ({"id": "graph-sent-" + str(len(graph_sends)),
                  "sentDateTime": "2026-10-30T17:00:00Z"}
                 if assunto in sent_subjects else {})
+    def sent_items(*, remetente, chamado_id):
+        assert chamado_id == 50318
+        assert remetente == "eddy@example.invalid"
+        if not graph_sends:
+            return []
+        latest = graph_sends[-1]
+        return [{
+            "id": "graph-sent-" + str(len(graph_sends)),
+            "sentDateTime": "2026-10-30T17:00:00Z",
+            "subject": latest["assunto"],
+            "from": {"emailAddress": {"address": remetente}},
+            "toRecipients": [{"emailAddress": {"address": x}} for x in latest["para"]],
+            "ccRecipients": [{"emailAddress": {"address": x}} for x in latest.get("cc", [])],
+            "body": {"contentType": "text", "content": latest["corpo"]},
+        }]
     def approval(op):
         item = {"issue_id": 50318, "redmine_updated_on": "version-1"}
         if op == "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA":
@@ -66,6 +81,11 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
                return_value={"pronto": True, "bloqueios": []}), \
          patch("ednna.email_sender.enviar_email_graph", side_effect=send), \
          patch("ednna.email_sender.localizar_email_enviado", side_effect=locate), \
+         patch("ednna.email_sender.listar_emails_enviados_por_chamado",
+               side_effect=sent_items), \
+         patch("ednna.redmine_writer.nota_marcador_ja_existe", return_value=False), \
+         patch("ednna.redmine_outbox.registrar_ou_enfileirar",
+               return_value={"ok": True}) as journal, \
          patch.dict("os.environ", {"EDNNA_EMAIL_FROM": "eddy@example.invalid"}):
         for op in ("ASSUMIR_REDMINE", "BUSCAR_CONTATO_BP",
                    "SOLICITAR_AUTORIZACAO_PORTAL", "MONITORAR_CLIENTE"):
@@ -76,6 +96,9 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
         assert waiting["acao"] == "ACOMPANHAR_E_COBRAR"
         assert issue["assigned_to"]["id"] == 999
         assert len(graph_sends) == 1
+        journal.assert_called_once()
+        assert "cliente@example.invalid" in journal.call_args.kwargs["nota"]
+        assert "copias@example.invalid" in journal.call_args.kwargs["nota"]
         # Authorization is supplied by an independently reviewed Graph evidence.
         state["autorizacao_confirmada"] = 1
         state["confirmacao_evidence_id"] = "graph-reply-reviewed-1"
