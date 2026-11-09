@@ -129,7 +129,25 @@ def _verified_recipients() -> tuple[list[str], list[str]]:
     if not contacts:
         raise RuntimeError("Blueprint sem destinatario com origem comprovada")
     emails = list(dict.fromkeys(str(row["email"]).strip().lower() for row in contacts))
-    return emails[:1], []  # Do not CC every Blueprint participant
+    # A validated primary contact is configurable per client. Other verified
+    # Blueprint participants receive a copy, never a second primary delivery.
+    import json
+    from ednna.eddy_global_config import setting
+    raw = setting("EDDY_VR01_PRIMARY_CONTACTS_JSON") or "{}"
+    try:
+        preferences = json.loads(raw)
+        if not isinstance(preferences, dict):
+            raise ValueError("Primary contacts must be a JSON object")
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("Invalid VR01 primary contact configuration") from exc
+    client = str(_context()["cliente"]).strip().casefold()
+    primary = next((str(value).strip().lower() for key, value in preferences.items()
+                    if str(key).strip().casefold() == client), "")
+    if primary and primary not in emails:
+        raise RuntimeError("Configured primary contact is not verified in Blueprint")
+    if not primary:
+        primary = emails[0]
+    return [primary], [email for email in emails if email != primary]
 
 
 # Compatibility for callers that still import the original pilot helper.
