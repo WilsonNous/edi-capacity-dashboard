@@ -89,6 +89,7 @@ def test_existing_portal_email_reconciles_without_resending():
               "envio_graph_confirmado": 0}
     message = {"subject": "VR01 #50318", "sentDateTime": "2026-11-06T12:00:00Z",
                "internetMessageId": "<existing@example.com>",
+               "body": {"contentType": "text", "content": "Portal VR authorization requested"},
                "toRecipients": [{"emailAddress": {"address": "bp@example.com"}}]}
     with patch("ednna.eddy_global_config.setting", return_value="edi@example.com"), \
          patch("ednna.eddy_vr01_email_templates.assunto_vr01",
@@ -99,6 +100,9 @@ def test_existing_portal_email_reconciles_without_resending():
                return_value={"cliente": "MAMBO"}), \
          patch("ednna.eddy_vr01_integrated._valid_bp",
                return_value={"email": "bp@example.com", "source_id": 42}), \
+         patch("ednna.eddy_vr01_integrated._bp_contacts",
+               return_value=[{"email": "bp@example.com"}]), \
+         patch("ednna.redmine_writer.nota_marcador_ja_existe", return_value=False), \
          patch("ednna.eddy_vr01_integrated._reserve", return_value=True) as reserve, \
          patch("ednna.eddy_vr01_integrated._event") as event, \
          patch("ednna.eddy_vr01_integrated._advance") as advance, \
@@ -112,6 +116,9 @@ def test_existing_portal_email_reconciles_without_resending():
     reserve.assert_called_once()
     event.assert_called_once()
     outbox.assert_called_once()
+    assert "Portal VR authorization requested" in outbox.call_args.kwargs["nota"]
+    assert "bp@example.com" in outbox.call_args.kwargs["nota"]
+    assert "[EDNNA-EVIDENCIA:<existing@example.com>]" in outbox.call_args.kwargs["nota"]
     assert advance.call_args.kwargs["envio_graph_confirmado"] == 1
 
 
@@ -127,6 +134,8 @@ def test_ambiguous_existing_mail_never_advances_lifecycle():
                return_value={"cliente": "MAMBO"}), \
          patch("ednna.eddy_vr01_integrated._valid_bp",
                return_value={"email": "bp@example.com", "source_id": 42}), \
+         patch("ednna.eddy_vr01_integrated._bp_contacts",
+               return_value=[{"email": "bp@example.com"}]), \
          patch("ednna.eddy_vr01_integrated._reserve") as reserve:
         result = module._reconciliar_solicitacao_existente(
             50318, {"updated_on": "2026-11-07T10:00:00Z"}, ledger)
