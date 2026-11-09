@@ -302,7 +302,7 @@ def reconciliar_assuncao_pendente(*, issue: dict | None = None) -> dict:
     return {"estado": "ASSUNCAO_RECONCILIADA", "externo": False}
 
 
-def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> dict:
+def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verified_issue: dict | None = None) -> dict:
     """One pilot step per call. Default is read-only; never schedules itself.
 
     Confirmation must be persisted by a separate evidence-verification process.
@@ -315,7 +315,9 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False) -> di
         from ednna.redmine_collection_policy import observational_state
         return observational_state(_context()["chamado_id"], row)
     eddy_id = _identity()
-    issue = _read_issue(_context()["chamado_id"])
+    issue = verified_issue if verified_issue is not None else _read_issue(_context()["chamado_id"])
+    if int(issue.get("id") or 0) != _context()["chamado_id"] or not issue.get("updated_on"):
+        raise RuntimeError("Preflight Redmine sem identidade ou versao confirmada")
     row = _load()
     if row is None:
         if not execute:
