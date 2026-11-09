@@ -162,7 +162,7 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
     if not (result.get("ok") or result.get("pendente")):
         return {"estado": "REDMINE_PENDENTE"}
     _advance("AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL",
-             "SOLICITACAO_ENVIADA", destinatario=next(iter(sorted(recipients))),
+             "SOLICITACAO_ENVIADA", destinatario=str((message["toRecipients"][0]["emailAddress"])["address"]).strip().lower(),
              bp_source_id=bp["source_id"], envio_graph_confirmado=1)
     return {"estado": "ENVIO_EXISTENTE_RECONCILIADO", "envios_realizados": 0}
 
