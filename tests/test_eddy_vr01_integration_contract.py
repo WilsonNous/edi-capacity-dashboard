@@ -15,7 +15,7 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
         "confirmacao_evidence_id": None, "evidencias_registradas": 0,
         "notificado": 0, "destinatario": None, "bp_source_id": None,
     }
-    issue = {"assigned_to": {"id": 97}, "updated_on": "version-1"}
+    issue = {"id": 50318, "assigned_to": {"id": 97}, "updated_on": "version-1"}
     events = []
     graph_sends = []
     sent_subjects = set()

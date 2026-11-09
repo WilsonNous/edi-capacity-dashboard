@@ -246,3 +246,35 @@ def test_unconfirmed_eddy_ownership_still_requires_redmine_preflight():
     assert result["chamados"][0]["estado"] == "FALHA_SEGURA"
     assert result["chamados"][0]["etapa_falha"] == "PREFLIGHT_REDMINE"
     read.assert_called_once()
+
+
+def test_executor_reuses_verified_issue_without_second_preflight():
+    from ednna import eddy_vr01_integrated as integrated
+    live = {"id": 48786, "updated_on": "v1", "assigned_to": {"id": 166}}
+    ledger = {"original_owner_id": 97, "eddy_owner_id": 166,
+              "fase": "AGUARDA_CONFIRMACAO_CLIENTE", "operacao_pendente": None,
+              "envio_graph_confirmado": 1, "autorizacao_confirmada": 0,
+              "confirmacao_evidence_id": None, "evidencias_registradas": 0,
+              "notificado": 0}
+    with integrated.escopo_vr01(48786, 97, "CLIENTE", "12345678000199"), \
+         patch.object(integrated, "_identity", return_value=166), \
+         patch.object(integrated, "_read_issue") as read, \
+         patch.object(integrated, "_load", return_value=ledger):
+        result = integrated.planejar_vr01(execute=True, verified_issue=live)
+    assert result["estado"] == "AGUARDANDO_RETORNO_CLIENTE"
+    read.assert_not_called()
+
+
+def test_executor_rejects_verified_issue_for_different_ticket():
+    from ednna import eddy_vr01_integrated as integrated
+    with integrated.escopo_vr01(48786, 97, "CLIENTE", "12345678000199"), \
+         patch.object(integrated, "_identity", return_value=166), \
+         patch.object(integrated, "_read_issue") as read:
+        try:
+            integrated.planejar_vr01(execute=True, verified_issue={
+                "id": 49119, "updated_on": "v1"})
+        except RuntimeError as exc:
+            assert "identidade" in str(exc)
+        else:
+            assert False, "Mismatched issue must be rejected"
+    read.assert_not_called()
