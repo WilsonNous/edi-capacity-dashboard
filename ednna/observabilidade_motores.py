@@ -15,6 +15,26 @@ INTERVALO_MINIMO = 60
 
 
 def executar_ciclo() -> dict:
+    if os.getenv("EDDY_DB_ENGINE", "sqlite").strip().lower() == "mysql":
+        from ednna.motores_mysql_repository import inventario, listar_homologacoes, listar_propostas, obter_autorizacao
+        status = inventario()
+        homologacoes = listar_homologacoes()
+        aberturas = []
+        for h in homologacoes:
+            if str(h.get("regra_id") or "").startswith("ABERTURA-"):
+                autorizacao = obter_autorizacao(h["regra_id"])
+                aberturas.append({"regra_id": h["regra_id"], "estado": h["estado"],
+                                  "modo": autorizacao["modo"], "executavel": False})
+        falta = [h for h in homologacoes if str(h.get("regra_id") or "").upper().startswith(("FALTA-ARQUIVO-", "FALTA_ARQUIVO-", "AUSENCIA-ARQUIVO-"))]
+        resultado = {"aberturas": len(aberturas),
+                     "aberturas_estados": dict(Counter(x["estado"] for x in aberturas)),
+                     "falta_arquivo_regras": len(falta),
+                     "falta_arquivo_demandas_confirmadas": 0,
+                     "envios_externos": 0,
+                     "fonte": "MYSQL", "migracao": status,
+                     "propostas_abertura": len(listar_propostas())}
+        LOG.info("[EDDY] Observabilidade motores MySQL | %s", resultado)
+        return resultado
     from ednna.motor_aberturas import avaliar_aberturas_homologadas
     from ednna.motor_falta_arquivo import listar_regras_aprendidas
 

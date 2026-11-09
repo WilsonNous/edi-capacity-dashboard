@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 """EDNNA v3.34.10 — mineração histórica com estudo progressivo e holdout seguro."""
-import json, re
+import json, re, os
+
+
+def _mysql():
+    return os.getenv('EDDY_DB_ENGINE','sqlite').strip().lower() == 'mysql'
+
 from collections import Counter, defaultdict
 from typing import Iterable
 from ednna.armazenamento import conectar, agora_brasil_iso
@@ -19,6 +24,9 @@ PLAYER_ALIASES={'ITAU':['ITAÚ','ITAU'],'SICREDI':['SICREDI'],'SAFRAPAY':['SAFRA
 REDE_EXPLICITA_RE=re.compile(r"(?i)(?:^|[\[\]():;,_/\-\s])REDE(?:$|[\[\]():;,_/\-\s])")
 
 def _init():
+    if _mysql():
+        from ednna.motores_mysql_repository import preparar_modelo
+        return preparar_modelo()
     with conectar() as conn: conn.executescript('''CREATE TABLE IF NOT EXISTS mineracao_aberturas (chamado_id INTEGER PRIMARY KEY, player TEXT NOT NULL, status TEXT, assunto TEXT, score INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL, minerado_em TEXT NOT NULL); CREATE TABLE IF NOT EXISTS propostas_regras_abertura (regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'CANDIDATA', evidencias INTEGER NOT NULL DEFAULT 0, compatibilidade INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL);''')
 def _texto(i): return '\n'.join([str(i.get('subject') or ''),str(i.get('description') or '')]+[str(j.get('notes')) for j in i.get('journals',[]) or [] if j.get('notes')])
 def _player_em_texto(t,aceitar_rede=False):
@@ -65,6 +73,9 @@ def _etapas_evidenciadas(i):
 def minerar_issue(i):
     score,s=_score(i); return {'chamado_id':int(i.get('id') or 0),'player':identificar_player(i),'status':_status_nome(i),'assunto':str(i.get('subject') or ''),'score':score,'sinais':s,'etapas':_etapas_evidenciadas(i),'minerar_em':agora_brasil_iso()}
 def salvar_mineracao(r):
+    if _mysql():
+        from ednna.motores_mysql_repository import salvar_mineracao_abertura
+        return salvar_mineracao_abertura(r,agora_brasil_iso())
     _init()
     with conectar() as c:c.execute('''INSERT INTO mineracao_aberturas(chamado_id,player,status,assunto,score,payload_json,minerado_em) VALUES(?,?,?,?,?,?,?) ON CONFLICT(chamado_id) DO UPDATE SET player=excluded.player,status=excluded.status,assunto=excluded.assunto,score=excluded.score,payload_json=excluded.payload_json,minerado_em=excluded.minerado_em''',(r['chamado_id'],r['player'],r['status'],r['assunto'],r['score'],json.dumps(r,ensure_ascii=False),agora_brasil_iso()))
 def _politicas_da_proposta(): return [{'codigo':c,**d} for c,d in POLITICAS_HOMOLOGADAS.items()]
@@ -78,9 +89,16 @@ def gerar_propostas(resultados:Iterable[dict],minimo_evidencias=2):
         for cod,n in freq.most_common():
             resp,desc=CAPACIDADES[cod]; rec=round(100*n/max(1,len(base))); etapas.append({'codigo':cod,'responsavel':resp,'descricao':desc,'ocorrencias':n,'recorrencia_pct':rec,'origem':INFERENCIA_EDNNA,'base_origem':EVIDENCIA_HISTORICA,'confianca':'ALTA' if n>=minimo_evidencias and rec>=60 else 'A_VALIDAR'})
         pol=_politicas_da_proposta(); aut=sum(1 for e in etapas if e['responsavel']=='EDNNA' and e['confianca']=='ALTA')+sum(1 for e in pol if e['responsavel']=='EDNNA'); chk=sum(1 for e in etapas if e['responsavel']=='CHECKPOINT_HUMANO' and e['confianca']=='ALTA'); compat=round(sum(c.get('score',0) for c in base)/max(1,len(base))); p={'regra_id':f'ABERTURA-{player}-001','player':player,'estado':'CANDIDATA','evidencias':len(base),'casos_ids':[c['chamado_id'] for c in base],'compatibilidade':compat,'etapas':etapas,'politicas_homologadas':pol,'automatizaveis_agora':aut,'checkpoints_humanos':chk,'pronta_para_revisao':len(base)>=minimo_evidencias and any(e['confianca']=='ALTA' for e in etapas),'governanca':{'historico':EVIDENCIA_HISTORICA,'inferencias':INFERENCIA_EDNNA,'politicas':POLITICA_HOMOLOGADA},'nota':'Candidata inferida do histórico; não autorizada para execução.'}; props.append(p)
+        if _mysql():
+            from ednna.motores_mysql_repository import salvar_proposta_abertura
+            salvar_proposta_abertura(p,agora_brasil_iso())
+            continue
         with conectar() as c:c.execute('''INSERT INTO propostas_regras_abertura(regra_id,player,estado,evidencias,compatibilidade,payload_json,atualizado_em) VALUES(?,?,?,?,?,?,?) ON CONFLICT(regra_id) DO UPDATE SET player=excluded.player,estado=excluded.estado,evidencias=excluded.evidencias,compatibilidade=excluded.compatibilidade,payload_json=excluded.payload_json,atualizado_em=excluded.atualizado_em''',(p['regra_id'],player,'CANDIDATA',len(base),compat,json.dumps(p,ensure_ascii=False),agora_brasil_iso()))
     return props
 def listar_propostas():
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_propostas as mysql_listar
+        return mysql_listar()
     _init()
     with conectar() as c:rows=c.execute('SELECT payload_json FROM propostas_regras_abertura ORDER BY player').fetchall()
     return [json.loads(r[0]) for r in rows]
@@ -109,13 +127,21 @@ def descobrir_no_redmine(*,limite_detalhes_por_player=6,limite_prova_surpresa_po
     ids_estudo={i for v in reservas.values() for i in v['estudo_ids']}; propostas=gerar_propostas([r for r in detalhados if r['chamado_id'] in ids_estudo])
     for p in propostas:
         rv=reservas.get(p['player'],{}); p['universo_encontrado']=rv.get('universo',p['evidencias']); p['prova_surpresa_ids']=rv.get('prova_surpresa_ids',[]); p['prova_surpresa_planejada']=rv.get('prova_surpresa_planejada',0); p['prova_surpresa_completa']=rv.get('prova_surpresa_completa',True)
+        if _mysql():
+            from ednna.motores_mysql_repository import atualizar_proposta_abertura
+            atualizar_proposta_abertura(p,agora_brasil_iso())
+            continue
         with conectar() as c:c.execute('UPDATE propostas_regras_abertura SET payload_json=?,atualizado_em=? WHERE regra_id=?',(json.dumps(p,ensure_ascii=False),agora_brasil_iso(),p['regra_id']))
     return {'candidatos_rasos':len(candidatos),'detalhados':len(detalhados),'players':len([p for p in por if p!='NAO_IDENTIFICADO']),'propostas':propostas,'erros':erros,'executado_em':agora_brasil_iso()}
 def _simular_ids(proposta,ids):
     ids=set(int(x) for x in ids); _init(); casos=[]
-    with conectar() as c:rows=c.execute('SELECT payload_json FROM mineracao_aberturas WHERE player=?',(proposta.get('player'),)).fetchall()
-    for r in rows:
-        x=json.loads(r[0])
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_mineracoes_player
+        registros=listar_mineracoes_player(proposta.get('player'))
+    else:
+        with conectar() as c:rows=c.execute('SELECT payload_json FROM mineracao_aberturas WHERE player=?',(proposta.get('player'),)).fetchall()
+        registros=[json.loads(r[0]) for r in rows]
+    for x in registros:
         if int(x.get('chamado_id',0)) in ids: casos.append(x)
     esperadas={e['codigo'] for e in proposta.get('etapas',[]) if e.get('confianca')=='ALTA' and e.get('origem')==INFERENCIA_EDNNA}; detalhes=[]
     for c in casos:
