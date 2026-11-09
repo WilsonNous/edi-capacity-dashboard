@@ -9,6 +9,8 @@ from __future__ import annotations
 from ednna.mysql_storage import connect
 
 DDL = (
+    """CREATE TABLE IF NOT EXISTS eddy_aprendizados_operacionais (regra_id VARCHAR(191) NOT NULL PRIMARY KEY, player VARCHAR(191) NOT NULL, operacao VARCHAR(80) NOT NULL, estado VARCHAR(80) NOT NULL, completude INT NOT NULL DEFAULT 0, payload_json LONGTEXT NOT NULL, atualizado_em VARCHAR(40) NOT NULL, KEY idx_aprendizado_estado (estado), KEY idx_aprendizado_player (player,operacao)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    """CREATE TABLE IF NOT EXISTS eddy_revisoes_regras_operacionais (regra_id VARCHAR(191) NOT NULL PRIMARY KEY, estado VARCHAR(80) NOT NULL DEFAULT 'PENDENTE_REVISAO', destinatario_confirmado TEXT, observacoes TEXT, revisado_por VARCHAR(191), revisado_em VARCHAR(40), homologado_em VARCHAR(40), payload_json LONGTEXT NOT NULL, atualizado_em VARCHAR(40) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
     """CREATE TABLE IF NOT EXISTS eddy_mineracao_aberturas (
        chamado_id BIGINT NOT NULL PRIMARY KEY,
        player VARCHAR(191) NOT NULL,
@@ -225,3 +227,106 @@ def listar_mineracoes_player(player: str) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute("SELECT payload_json FROM eddy_mineracao_aberturas WHERE player=%s",(player,))
             return [json.loads(row[0]) for row in cur.fetchall()]
+
+def salvar_aprendizado_operacional(resultado: dict) -> None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_aprendizados_operacionais
+                (regra_id,player,operacao,estado,completude,payload_json,atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE player=VALUES(player),operacao=VALUES(operacao),
+                estado=VALUES(estado),completude=VALUES(completude),
+                payload_json=VALUES(payload_json),atualizado_em=VALUES(atualizado_em)""",
+                (resultado["regra_id"],resultado["player"],resultado["operacao"],
+                 resultado["estado"],resultado["completude"],json.dumps(resultado,ensure_ascii=False),
+                 resultado["aprendido_em"]))
+
+def obter_aprendizado_operacional(regra_id: str) -> dict | None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT payload_json FROM eddy_aprendizados_operacionais WHERE regra_id=%s",(regra_id,))
+            row=cur.fetchone()
+            return json.loads(row[0]) if row else None
+
+def listar_aprendizados_incompletos() -> list[dict]:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT payload_json FROM eddy_aprendizados_operacionais
+                        WHERE estado IN ('APRENDIZADO_INCOMPLETO','AGUARDANDO_ENRIQUECIMENTO')""")
+            return [json.loads(row[0]) for row in cur.fetchall()]
+
+def obter_revisao_operacional(regra_id: str) -> dict:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM eddy_revisoes_regras_operacionais WHERE regra_id=%s",(regra_id,))
+            row=cur.fetchone()
+            if not row:
+                return {"regra_id":regra_id,"estado":"PENDENTE_REVISAO"}
+            d=dict(zip([x[0] for x in cur.description],row))
+            try:
+                d["payload"]=json.loads(d.get("payload_json") or "{}")
+            except (ValueError,TypeError):
+                d["payload"]={}
+            return d
+
+def salvar_revisao_operacional(regra_id: str, email: str, observacoes: str,
+                              revisado_por: str, payload: dict, agora: str) -> None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_revisoes_regras_operacionais
+                (regra_id,estado,destinatario_confirmado,observacoes,revisado_por,revisado_em,payload_json,atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE estado='REVISADA',
+                destinatario_confirmado=VALUES(destinatario_confirmado),
+                observacoes=VALUES(observacoes),revisado_por=VALUES(revisado_por),
+                revisado_em=VALUES(revisado_em),payload_json=VALUES(payload_json),
+                atualizado_em=VALUES(atualizado_em)""",
+                (regra_id,"REVISADA",email,observacoes,revisado_por,agora,
+                 json.dumps(payload,ensure_ascii=False),agora))
+
+def homologar_revisao_operacional(regra_id: str, revisado_por: str, agora: str) -> None:
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE eddy_revisoes_regras_operacionais
+                SET estado='HOMOLOGADA',revisado_por=%s,homologado_em=%s,atualizado_em=%s
+                WHERE regra_id=%s AND estado IN ('REVISADA','HOMOLOGADA')""",
+                (revisado_por,agora,agora,regra_id))
+            if cur.rowcount != 1:
+                raise ValueError("Revisao nao homologavel")
+
+def listar_regras_operacionais() -> list[dict]:
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT a.regra_id,a.player,a.operacao,a.estado,a.completude,a.payload_json,a.atualizado_em,
+                r.estado AS estado_revisao,r.destinatario_confirmado,r.observacoes,
+                r.revisado_em,r.homologado_em
+                FROM eddy_aprendizados_operacionais a
+                LEFT JOIN eddy_revisoes_regras_operacionais r ON r.regra_id=a.regra_id
+                WHERE a.operacao='INCLUSAO' ORDER BY a.player,a.regra_id""")
+            cols=[x[0] for x in cur.description]
+            return [dict(zip(cols,row)) for row in cur.fetchall()]
+
+def salvar_autorizacao_motor(regra_id: str, modo: str, autorizado_por: str,
+                            observacoes: str, agora: str) -> None:
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_autorizacoes_motor
+                (regra_id,modo,autorizado_por,autorizado_em,observacoes,atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE modo=VALUES(modo),autorizado_por=VALUES(autorizado_por),
+                autorizado_em=VALUES(autorizado_em),observacoes=VALUES(observacoes),
+                atualizado_em=VALUES(atualizado_em)""",
+                (regra_id,modo,autorizado_por,agora,observacoes,agora))
