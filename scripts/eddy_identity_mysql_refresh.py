@@ -152,7 +152,7 @@ def main():
                   json.dumps(executar_uma_vez(), ensure_ascii=False), flush=True)
         except Exception as exc:
             print("[EDDY-IDENTIDADE-MYSQL] falha=" + type(exc).__name__, flush=True)
-        time.sleep(interval)
+        time.sleep(min(interval, _retry_delay_seconds()))
 
 
 if __name__ == "__main__":
