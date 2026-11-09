@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime, timedelta, timezone
 
 from ednna.mysql_storage import connect
 
@@ -63,10 +64,52 @@ def _confirmar_progresso(cliente):
                         ("GLOBAL_BP", cliente))
 
 
+
+def _retry_delay_seconds():
+    try:
+        return max(60, min(int(os.getenv("EDDY_BP_REDMINE_RETRY_SECONDS", "300")), 3600))
+    except (ValueError, TypeError):
+        return 300
+
+
+def _cooldown_active():
+    """Durable global Redmine cooldown, shared across all rules and workers."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_bp_redmine_cooldown (
+                worker VARCHAR(64) NOT NULL PRIMARY KEY,
+                retry_after DATETIME(6) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("SELECT retry_after FROM eddy_bp_redmine_cooldown WHERE worker=%s",
+                        ("GLOBAL_BP",))
+            row = cur.fetchone()
+    if not row:
+        return False
+    retry_after = row[0]
+    if isinstance(retry_after, str):
+        retry_after = datetime.fromisoformat(retry_after)
+    if retry_after.tzinfo:
+        retry_after = retry_after.astimezone(timezone.utc).replace(tzinfo=None)
+    return retry_after > datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _set_cooldown():
+    retry_after = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+        seconds=_retry_delay_seconds())
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_bp_redmine_cooldown(worker, retry_after)
+                VALUES (%s,%s) ON DUPLICATE KEY UPDATE retry_after=VALUES(retry_after)""",
+                ("GLOBAL_BP", retry_after))
+
+
 def executar_uma_vez(limite=20):
     from ednna.eddy_client_identity import resolver_identidade_cliente
     from ednna.mysql_blueprint_participants import descobrir_e_sincronizar_participantes_mysql
     chosen = _inventario()
+    if _cooldown_active():
+        return {"clientes": len(chosen), "selecionados": 0, "estado": "REDMINE_COOLDOWN",
+                "interrompido_por_redmine": True, "retry_seconds": _retry_delay_seconds()}
     batch = _lote(chosen, limite)
     stats = {"clientes": len(chosen), "selecionados": len(batch), "bp_sincronizados": 0,
              "consultados": 0, "resolvidos": 0, "indisponiveis": 0,
@@ -85,6 +128,7 @@ def executar_uma_vez(limite=20):
         if "CONTEXTO_INDISPONIVEL" in contexts:
             stats["indisponiveis"] += 1
             stats["interrompido_por_redmine"] = True
+            _set_cooldown()
             break
         result = resolver_identidade_cliente(
             issue, allow_remote=False, cliente_override=cliente, refresh_mysql=True)
