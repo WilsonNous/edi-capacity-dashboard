@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import os
+
+
+def _mysql():
+    return os.getenv('EDDY_DB_ENGINE','sqlite').strip().lower() == 'mysql'
+
 from collections import Counter, defaultdict
 
 from ednna.armazenamento import conectar, agora_brasil_iso
@@ -345,6 +351,9 @@ def aprender_procedimento_inclusao(aprendizado: dict, regra: dict, *, force: boo
 
 
 def salvar_aprendizado(resultado: dict) -> None:
+    if _mysql():
+        from ednna.motores_mysql_repository import salvar_aprendizado_operacional
+        return salvar_aprendizado_operacional(resultado)
     with conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
@@ -359,6 +368,9 @@ def salvar_aprendizado(resultado: dict) -> None:
 
 
 def obter_aprendizado(regra_id: str) -> dict | None:
+    if _mysql():
+        from ednna.motores_mysql_repository import obter_aprendizado_operacional
+        return obter_aprendizado_operacional(regra_id)
     with conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
@@ -371,8 +383,12 @@ def obter_aprendizado(regra_id: str) -> dict | None:
 def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = None) -> dict:
     """Reavalia regras incompletas após o worker enriquecer suas fontes."""
     atualizados = {int(x) for x in (ids_atualizados or [])}
-    with conectar() as conn:
-        rows = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE estado IN ('APRENDIZADO_INCOMPLETO','AGUARDANDO_ENRIQUECIMENTO')").fetchall()
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_aprendizados_incompletos
+        rows = [{'payload_json': json.dumps(r,ensure_ascii=False)} for r in listar_aprendizados_incompletos()]
+    else:
+        with conectar() as conn:
+            rows = conn.execute("SELECT payload_json FROM aprendizados_operacionais WHERE estado IN ('APRENDIZADO_INCOMPLETO','AGUARDANDO_ENRIQUECIMENTO')").fetchall()
     reprocessadas, erros = [], []
     for row in rows:
         try:
@@ -398,6 +414,9 @@ def reprocessar_aprendizados_incompletos(ids_atualizados: list[int] | None = Non
 # ============================================================
 
 def _garantir_tabela_revisoes() -> None:
+    if _mysql():
+        from ednna.motores_mysql_repository import preparar_modelo
+        return preparar_modelo()
     with conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS revisoes_regras_operacionais (
             regra_id TEXT PRIMARY KEY,
@@ -413,6 +432,9 @@ def _garantir_tabela_revisoes() -> None:
 
 
 def obter_revisao(regra_id: str) -> dict:
+    if _mysql():
+        from ednna.motores_mysql_repository import obter_revisao_operacional
+        return obter_revisao_operacional(str(regra_id))
     _garantir_tabela_revisoes()
     with conectar() as conn:
         row = conn.execute(
@@ -452,6 +474,10 @@ def salvar_revisao_assistida(
         "workflow": obter_workflow(aprendido.get("player")),
     }
     agora = agora_brasil_iso()
+    if _mysql():
+        from ednna.motores_mysql_repository import salvar_revisao_operacional
+        salvar_revisao_operacional(regra_id,email,str(observacoes or '').strip(),revisado_por,payload,agora)
+        return obter_revisao(regra_id)
     with conectar() as conn:
         conn.execute("""INSERT INTO revisoes_regras_operacionais
         (regra_id,estado,destinatario_confirmado,observacoes,revisado_por,revisado_em,payload_json,atualizado_em)
@@ -480,6 +506,10 @@ def homologar_regra_assistida(regra_id: str, *, revisado_por: str = "OPERADOR") 
         if not destinatario and not (aprendido.get("destinatarios_recorrentes") or []):
             raise ValueError("Confirme ao menos um destinatário para este workflow por e-mail.")
     agora = agora_brasil_iso()
+    if _mysql():
+        from ednna.motores_mysql_repository import homologar_revisao_operacional
+        homologar_revisao_operacional(regra_id,revisado_por,agora)
+        return obter_revisao(regra_id)
     with conectar() as conn:
         conn.execute("""UPDATE revisoes_regras_operacionais
             SET estado='HOMOLOGADA', revisado_por=?, homologado_em=?, atualizado_em=?
@@ -499,9 +529,13 @@ def listar_regras_operacionais() -> list[dict]:
     homologada deixa de voltar à fila de descoberta e passa a ser patrimônio
     operacional consultável. Nenhuma execução externa é feita aqui.
     """
-    _garantir_tabela_revisoes()
-    with conectar() as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_regras_operacionais as mysql_listar
+        rows = mysql_listar()
+    else:
+        _garantir_tabela_revisoes()
+        with conectar() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS aprendizados_operacionais (
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
             estado TEXT NOT NULL, completude INTEGER NOT NULL DEFAULT 0,
             payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
@@ -561,6 +595,9 @@ def obter_regra_homologada(player: str, operacao: str = 'INCLUSAO') -> dict | No
 # ============================================================
 
 def _garantir_tabela_autorizacoes_motor() -> None:
+    if _mysql():
+        from ednna.motores_mysql_repository import preparar_modelo
+        return preparar_modelo()
     with conectar() as conn:
         conn.execute("""CREATE TABLE IF NOT EXISTS autorizacoes_motor (
             regra_id TEXT PRIMARY KEY,
@@ -573,6 +610,9 @@ def _garantir_tabela_autorizacoes_motor() -> None:
 
 
 def obter_autorizacao_motor(regra_id: str) -> dict:
+    if _mysql():
+        from ednna.motores_mysql_repository import obter_autorizacao
+        return obter_autorizacao(str(regra_id))
     _garantir_tabela_autorizacoes_motor()
     with conectar() as conn:
         row = conn.execute("SELECT * FROM autorizacoes_motor WHERE regra_id=?", (str(regra_id),)).fetchone()
@@ -603,6 +643,10 @@ def autorizar_regra_motor(regra_id: str, *, modo: str = "ASSISTIDA", autorizado_
     if modo in {"ASSISTIDA", "AUTOMATICA"} and workflow.get("prontidao") != "ASSISTIDA_DISPONIVEL":
         raise ValueError("O executor deste workflow ainda não está disponível para operação.")
     agora = agora_brasil_iso()
+    if _mysql():
+        from ednna.motores_mysql_repository import salvar_autorizacao_motor
+        salvar_autorizacao_motor(regra_id,modo,autorizado_por,str(observacoes or ''),agora)
+        return obter_autorizacao_motor(regra_id)
     with conectar() as conn:
         conn.execute("""INSERT INTO autorizacoes_motor
             (regra_id,modo,autorizado_por,autorizado_em,observacoes,atualizado_em)
