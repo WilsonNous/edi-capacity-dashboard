@@ -84,6 +84,7 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
          patch("ednna.email_sender.listar_emails_enviados_por_chamado",
                side_effect=sent_items), \
          patch("ednna.redmine_writer.nota_marcador_ja_existe", return_value=False), \
+         patch("ednna.redmine_writer.obter_status_id_por_nome", return_value=5), \
          patch("ednna.redmine_outbox.registrar_ou_enfileirar",
                return_value={"ok": True}) as journal, \
          patch.dict("os.environ", {"EDNNA_EMAIL_FROM": "eddy@example.invalid"}):
