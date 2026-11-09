@@ -15,5 +15,3 @@ def test_mysql_opening_mining_routes(monkeypatch):
     assert captured==[("mining",123)]
     assert m.listar_propostas()[0]["regra_id"]=="ABERTURA-CIELO-001"
     assert m._simular_ids({"player":"CIELO","etapas":[]},[123])["completa"]
-    proposta={"regra_id":"ABERTURA-CIELO-001","player":"CIELO","estado":"CANDIDATA","evidencias":2,"compatibilidade":75}
-    db.salvar_proposta_abertura(proposta,"now") if False else None
