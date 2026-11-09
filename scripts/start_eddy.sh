@@ -17,14 +17,19 @@ shutdown() {
 }
 trap shutdown TERM INT EXIT
 
-# Fail closed during a persistence incident; never enable operational workers
-# solely because the frontend is responding.
+# Run the MySQL-native VR01 portfolio, not the legacy SQLite worker.
+# Respect explicit Azure settings; production operators can disable any gate.
 if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" ]]; then
   export EDNNA_MONITOR_EMAIL_ENABLED=false
   export EDNNA_AUTO_EXECUTE=false
   export EDNNA_FOLLOWUP_AUTO=false
-  export EDDY_MOTORES_OBSERVABILIDADE_ENABLED=false
-  echo "[EDDY] MySQL configured but operational persistence not migrated: external automation disabled."
+  export EDDY_VR01_OFFLINE_FIRST="${EDDY_VR01_OFFLINE_FIRST:-false}"
+  export EDDY_VR01_PORTFOLIO_ENABLED="${EDDY_VR01_PORTFOLIO_ENABLED:-true}"
+  export EDDY_VR01_PORTFOLIO_INTERNAL_ADVANCE="${EDDY_VR01_PORTFOLIO_INTERNAL_ADVANCE:-true}"
+  export EDDY_VR01_EXTERNAL_ENABLED="${EDDY_VR01_EXTERNAL_ENABLED:-true}"
+  export EDDY_VR01_REPLY_RECONCILIATION_READY="${EDDY_VR01_REPLY_RECONCILIATION_READY:-true}"
+  export EDDY_VR01_AUTO_SEND_PORTAL="${EDDY_VR01_AUTO_SEND_PORTAL:-true}"
+  echo "[EDDY] MySQL VR01 operational portfolio enabled; legacy SQLite worker disabled."
 fi
 
 EDNNA_MONITOR_EMAIL_ENABLED=false python -m streamlit run app.py --server.port "$UI_PORT" --server.address 127.0.0.1 &
@@ -84,7 +89,7 @@ PY
 
 # Worker separado da UI: monitoramento não depende de sessões Streamlit.
 if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_MYSQL_SYNC_ENABLED:-true}" == "true" ]]; then
-  echo "[EDDY] Sincronização Redmine -> MySQL observacional ativa; sem envios externos."
+  echo "[EDDY] Sincronização Redmine -> MySQL ativa; ações externas exclusivas do executor VR01."
   python -m scripts.sync_eddy_mysql --loop --intervalo "${EDDY_MYSQL_SYNC_INTERVAL_SECONDS:-1800}" &
   pids+=("$!")
 fi
@@ -96,12 +101,10 @@ if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_IDENTITY_REFRESH_ENABLED
   pids+=("$!")
 fi
 
-# VR01 independent MySQL observer. Does not enable legacy SQLite motor,
-# external emails, follow-ups or Redmine writes. Advisory lock protects
-# overlapping cycles across Azure instances.
+# VR01 MySQL scheduler: internal transitions and external operations are
+# governed by per-issue preflight, reconciliation and readiness checks.
 if [[ "${EDDY_DB_ENGINE:-sqlite}" == "mysql" && "${EDDY_VR01_OBSERVER_ENABLED:-true}" == "true" ]]; then
-  export EDDY_VR01_OFFLINE_FIRST="${EDDY_VR01_OFFLINE_FIRST:-true}"
-  echo "[EDDY] VR01 MySQL observer iniciado; offline_first=${EDDY_VR01_OFFLINE_FIRST}; sem envios externos."
+  echo "[EDDY] VR01 MySQL scheduler iniciado; offline_first=${EDDY_VR01_OFFLINE_FIRST}; portfolio=${EDDY_VR01_PORTFOLIO_ENABLED}; external=${EDDY_VR01_EXTERNAL_ENABLED}."
   python -m scripts.eddy_vr01_mysql_scheduler &
   pids+=("$!")
 fi
