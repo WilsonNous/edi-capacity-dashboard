@@ -9,6 +9,39 @@ from ednna.aprendizado_operacional import obter_autorizacao_motor
 from ednna.homologacao import estado_regra, listar_homologacoes_mais_recentes
 from ednna.minerador_aberturas import listar_propostas
 from ednna.armazenamento import conectar, agora_brasil_iso
+import os
+
+
+def _mysql():
+    return os.getenv('EDDY_DB_ENGINE', 'sqlite').strip().lower() == 'mysql'
+
+
+def _homologacoes():
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_homologacoes
+        return listar_homologacoes()
+    return listar_homologacoes_mais_recentes()
+
+
+def _estado(regra_id):
+    if _mysql():
+        return next((h for h in _homologacoes() if h['regra_id'] == regra_id), None)
+    return estado_regra(regra_id)
+
+
+def _autorizacao(regra_id):
+    if _mysql():
+        from ednna.motores_mysql_repository import obter_autorizacao
+        return obter_autorizacao(regra_id)
+    return obter_autorizacao_motor(regra_id)
+
+
+def _propostas():
+    if _mysql():
+        from ednna.motores_mysql_repository import listar_propostas as mysql_propostas
+        return mysql_propostas()
+    return listar_propostas()
+
 
 
 def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
@@ -17,13 +50,13 @@ def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
     dados = dict(dados or {})
     if not rid.startswith("ABERTURA-"):
         return {"regra_id": rid, "estado": "OPERACAO_INCOMPATIVEL", "executavel": False}
-    homologacao = estado_regra(rid) or {}
+    homologacao = _estado(rid) or {}
     if homologacao.get("estado") not in {"ATIVA", "EM_OBSERVACAO"}:
         return {"regra_id": rid, "estado": "NAO_HOMOLOGADA_OU_SUSPENSA", "executavel": False}
-    autorizacao = obter_autorizacao_motor(rid) or {}
+    autorizacao = _autorizacao(rid) or {}
     modo = str(autorizacao.get("modo") or "BLOQUEADA").upper()
     player = str(homologacao.get("player") or "").strip().upper()
-    propostas = {str(p.get("regra_id") or ""): p for p in listar_propostas()}
+    propostas = {str(p.get("regra_id") or ""): p for p in _propostas()}
     proposta = propostas.get(rid) or {}
     etapas = list(proposta.get("etapas") or [])
     checkpoints = [e for e in etapas if str(e.get("responsavel") or "").upper() == "CHECKPOINT_HUMANO"]
@@ -47,7 +80,7 @@ def avaliar_abertura(regra_id: str, *, dados: dict | None = None) -> dict:
 
 def avaliar_aberturas_homologadas() -> list[dict]:
     """Inventário do motor de abertura, sem disparos externos."""
-    return [avaliar_abertura(h["regra_id"]) for h in listar_homologacoes_mais_recentes()
+    return [avaliar_abertura(h["regra_id"]) for h in _homologacoes()
             if str(h.get("regra_id") or "").startswith("ABERTURA-")]
 
 
@@ -67,6 +100,10 @@ def autorizar_abertura_assistida(regra_id: str, *, responsavel: str, justificati
     proposta = propostas.get(rid) or {}
     if not any(e.get("confianca") == "ALTA" for e in proposta.get("etapas") or []):
         raise ValueError("Abertura sem etapas aprendidas com confiança ALTA; autorização assistida bloqueada.")
+    if _mysql():
+        from ednna.motores_mysql_repository import autorizar_abertura_assistida as mysql_autorizar
+        mysql_autorizar(rid, responsavel, justificativa, agora_brasil_iso())
+        return avaliar_abertura(rid)
     from ednna.aprendizado_operacional import _garantir_tabela_autorizacoes_motor
     _garantir_tabela_autorizacoes_motor()
     agora = agora_brasil_iso()
