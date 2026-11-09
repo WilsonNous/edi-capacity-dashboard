@@ -113,3 +113,63 @@ def autorizar_abertura_assistida(regra_id: str, responsavel: str, justificativa:
               observacoes=VALUES(observacoes), atualizado_em=VALUES(atualizado_em)""",
               (regra_id,"ASSISTIDA",responsavel,agora,
                "Motor de abertura: somente preparação assistida; sem envio externo. "+justificativa,agora))
+
+def estado_regra(regra_id: str) -> dict | None:
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""SELECT regra_id,versao,player,estado,homologado_por,homologado_em,
+                        nota,snapshot_sha256,motivo FROM eddy_homologacoes_regras
+                        WHERE regra_id=%s ORDER BY versao DESC LIMIT 1""", (regra_id,))
+            row=cur.fetchone()
+            return dict(zip([d[0] for d in cur.description],row)) if row else None
+
+def homologar(regra_id: str, player: str, estado: str, professor: str,
+              nota: int, raw: str, sha: str, motivo: str, agora: str) -> dict:
+    """Version allocation serialized by MySQL advisory lock across processes."""
+    preparar_modelo()
+    if not regra_id or not professor or estado not in ("ATIVA","EM_OBSERVACAO"):
+        raise ValueError("Homologacao invalida")
+    # Named lock prevents two workers from allocating the same version.
+    import hashlib
+    lock="eddy_homologacao_"+hashlib.sha256(regra_id.encode()).hexdigest()[:32]
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT GET_LOCK(%s, 10)", (lock,))
+            if cur.fetchone()[0] != 1:
+                raise TimeoutError("Homologacao concorrente: bloqueio indisponivel")
+            try:
+                cur.execute("SELECT COALESCE(MAX(versao),0) FROM eddy_homologacoes_regras WHERE regra_id=%s", (regra_id,))
+                versao=int(cur.fetchone()[0])+1
+                cur.execute("""UPDATE eddy_homologacoes_regras SET estado='SUSPENSA',atualizado_em=%s
+                            WHERE regra_id=%s AND estado IN ('ATIVA','EM_OBSERVACAO')""", (agora,regra_id))
+                cur.execute("""INSERT INTO eddy_homologacoes_regras
+                  (regra_id,versao,player,estado,homologado_por,homologado_em,nota,snapshot_json,snapshot_sha256,motivo,atualizado_em)
+                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                  (regra_id,versao,player,estado,professor,agora,nota,raw,sha,motivo,agora))
+                conn.commit()
+            finally:
+                cur.execute("SELECT RELEASE_LOCK(%s)", (lock,))
+    return {"regra_id":regra_id,"versao":versao,"estado":estado,"nota":nota,
+            "homologado_por":professor,"homologado_em":agora,"snapshot_sha256":sha}
+
+def alterar_estado(regra_id: str, estado: str, professor: str, motivo: str, agora: str) -> dict:
+    if estado not in ("ATIVA","EM_OBSERVACAO","SUSPENSA"):
+        raise ValueError("Estado invalido")
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM eddy_homologacoes_regras WHERE regra_id=%s ORDER BY versao DESC LIMIT 1 FOR UPDATE",(regra_id,))
+            row=cur.fetchone()
+            if not row:
+                raise ValueError("Regra ainda nao homologada")
+            cur.execute("UPDATE eddy_homologacoes_regras SET estado=%s,motivo=%s,atualizado_em=%s WHERE id=%s",
+                        (estado,(professor+": "+motivo).strip(),agora,row[0]))
+    return estado_regra(regra_id)
+
+def atualizar_motivo(regra_id: str, versao: int, motivo: str, agora: str) -> None:
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE eddy_homologacoes_regras SET motivo=%s,atualizado_em=%s WHERE regra_id=%s AND versao=%s",
+                        (motivo,agora,regra_id,versao))
