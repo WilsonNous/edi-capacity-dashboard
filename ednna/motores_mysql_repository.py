@@ -97,3 +97,19 @@ def listar_propostas() -> list[dict]:
         with conn.cursor() as cur:
             cur.execute("SELECT payload_json FROM eddy_propostas_regras_abertura ORDER BY player")
             return [json.loads(row[0]) for row in cur.fetchall()]
+
+def autorizar_abertura_assistida(regra_id: str, responsavel: str, justificativa: str, agora: str) -> None:
+    """Atomic authorization for assisted preparation only; never permits dispatch."""
+    if not regra_id.startswith("ABERTURA-") or not responsavel or len(justificativa.strip()) < 20:
+        raise ValueError("Autorizacao de abertura invalida")
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_autorizacoes_motor
+              (regra_id,modo,autorizado_por,autorizado_em,observacoes,atualizado_em)
+              VALUES (%s,%s,%s,%s,%s,%s)
+              ON DUPLICATE KEY UPDATE modo=VALUES(modo),
+              autorizado_por=VALUES(autorizado_por), autorizado_em=VALUES(autorizado_em),
+              observacoes=VALUES(observacoes), atualizado_em=VALUES(atualizado_em)""",
+              (regra_id,"ASSISTIDA",responsavel,agora,
+               "Motor de abertura: somente preparação assistida; sem envio externo. "+justificativa,agora))
