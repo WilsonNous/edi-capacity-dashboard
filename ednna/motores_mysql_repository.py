@@ -9,6 +9,13 @@ from __future__ import annotations
 from ednna.mysql_storage import connect
 
 DDL = (
+    """CREATE TABLE IF NOT EXISTS eddy_mineracao_aberturas (
+       chamado_id BIGINT NOT NULL PRIMARY KEY,
+       player VARCHAR(191) NOT NULL,
+       status VARCHAR(191), assunto TEXT, score INT NOT NULL DEFAULT 0,
+       payload_json LONGTEXT NOT NULL, minerado_em VARCHAR(40) NOT NULL,
+       KEY idx_mineracao_player (player)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
     """CREATE TABLE IF NOT EXISTS eddy_homologacoes_regras (
        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
        regra_id VARCHAR(191) NOT NULL,
@@ -173,3 +180,48 @@ def atualizar_motivo(regra_id: str, versao: int, motivo: str, agora: str) -> Non
         with conn.cursor() as cur:
             cur.execute("UPDATE eddy_homologacoes_regras SET motivo=%s,atualizado_em=%s WHERE regra_id=%s AND versao=%s",
                         (motivo,agora,regra_id,versao))
+
+def salvar_mineracao_abertura(r: dict, agora: str) -> None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_mineracao_aberturas
+              (chamado_id,player,status,assunto,score,payload_json,minerado_em)
+              VALUES (%s,%s,%s,%s,%s,%s,%s)
+              ON DUPLICATE KEY UPDATE player=VALUES(player),status=VALUES(status),
+              assunto=VALUES(assunto),score=VALUES(score),
+              payload_json=VALUES(payload_json),minerado_em=VALUES(minerado_em)""",
+              (r["chamado_id"],r["player"],r["status"],r["assunto"],r["score"],
+               json.dumps(r,ensure_ascii=False),agora))
+
+def salvar_proposta_abertura(p: dict, agora: str) -> None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""INSERT INTO eddy_propostas_regras_abertura
+              (regra_id,player,estado,evidencias,compatibilidade,payload_json,atualizado_em)
+              VALUES (%s,%s,%s,%s,%s,%s,%s)
+              ON DUPLICATE KEY UPDATE player=VALUES(player),estado=VALUES(estado),
+              evidencias=VALUES(evidencias),compatibilidade=VALUES(compatibilidade),
+              payload_json=VALUES(payload_json),atualizado_em=VALUES(atualizado_em)""",
+              (p["regra_id"],p["player"],p["estado"],p["evidencias"],p["compatibilidade"],
+               json.dumps(p,ensure_ascii=False),agora))
+
+def atualizar_proposta_abertura(p: dict, agora: str) -> None:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""UPDATE eddy_propostas_regras_abertura SET payload_json=%s,
+                           atualizado_em=%s WHERE regra_id=%s""",
+                        (json.dumps(p,ensure_ascii=False),agora,p["regra_id"]))
+
+def listar_mineracoes_player(player: str) -> list[dict]:
+    import json
+    preparar_modelo()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT payload_json FROM eddy_mineracao_aberturas WHERE player=%s",(player,))
+            return [json.loads(row[0]) for row in cur.fetchall()]
