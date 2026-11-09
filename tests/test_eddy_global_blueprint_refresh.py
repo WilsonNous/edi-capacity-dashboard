@@ -7,7 +7,9 @@ from ednna.mysql_blueprint_participants import descobrir_e_sincronizar_participa
 
 def test_global_worker_handles_non_vr_and_no_remote_second_walk():
     chosen = {"ALFA": {"id": 11}, "BETA": {"id": 22}}
-    with patch("scripts.eddy_identity_mysql_refresh._inventario", return_value=chosen), \
+    with patch("scripts.eddy_identity_mysql_refresh._cooldown_active", return_value=False), \
+         patch("scripts.eddy_identity_mysql_refresh._set_cooldown"), \
+         patch("scripts.eddy_identity_mysql_refresh._inventario", return_value=chosen), \
          patch("scripts.eddy_identity_mysql_refresh._lote",
                return_value=list(chosen.items())), \
          patch("ednna.mysql_blueprint_participants.descobrir_e_sincronizar_participantes_mysql",
@@ -29,7 +31,9 @@ def test_global_worker_handles_non_vr_and_no_remote_second_walk():
 
 
 def test_redmine_failure_stops_this_cycle_but_does_not_lose_cursor():
-    with patch("scripts.eddy_identity_mysql_refresh._inventario",
+    with patch("scripts.eddy_identity_mysql_refresh._cooldown_active", return_value=False), \
+         patch("scripts.eddy_identity_mysql_refresh._set_cooldown"), \
+         patch("scripts.eddy_identity_mysql_refresh._inventario",
                return_value={"A": {"id": 1}, "B": {"id": 2}}), \
          patch("scripts.eddy_identity_mysql_refresh._lote",
                return_value=[("A", {"id": 1}), ("B", {"id": 2})]), \
@@ -82,7 +86,9 @@ def test_cached_resolved_identity_invalidated_by_conflicting_bp_mysql():
 
 
 def test_checkpoint_only_after_first_client_when_second_fails():
-    with patch("scripts.eddy_identity_mysql_refresh._inventario",
+    with patch("scripts.eddy_identity_mysql_refresh._cooldown_active", return_value=False), \
+         patch("scripts.eddy_identity_mysql_refresh._set_cooldown"), \
+         patch("scripts.eddy_identity_mysql_refresh._inventario",
                return_value={"A": {"id": 1}, "B": {"id": 2}, "C": {"id": 3}}), \
          patch("scripts.eddy_identity_mysql_refresh._lote",
                return_value=[("A", {"id": 1}), ("B", {"id": 2}), ("C", {"id": 3})]), \
@@ -98,3 +104,22 @@ def test_checkpoint_only_after_first_client_when_second_fails():
     assert stats["interrompido_por_redmine"] is True
     assert discovery.call_count == 2
     checkpoint.assert_called_once_with("A")
+
+def test_global_bp_worker_defers_redmine_until_cooldown_expires():
+    with patch("scripts.eddy_identity_mysql_refresh._inventario",
+               return_value={"A": {"id": 1}}), \
+         patch("scripts.eddy_identity_mysql_refresh._cooldown_active",
+               return_value=True), \
+         patch("scripts.eddy_identity_mysql_refresh._lote") as batch:
+        result = executar_uma_vez()
+    assert result["estado"] == "REDMINE_COOLDOWN"
+    assert result["retry_seconds"] >= 60
+    batch.assert_not_called()
+
+
+def test_global_bp_retry_delay_is_bounded():
+    from scripts.eddy_identity_mysql_refresh import _retry_delay_seconds
+    with patch.dict("os.environ", {"EDDY_BP_REDMINE_RETRY_SECONDS": "2"}):
+        assert _retry_delay_seconds() == 60
+    with patch.dict("os.environ", {"EDDY_BP_REDMINE_RETRY_SECONDS": "99999"}):
+        assert _retry_delay_seconds() == 3600
