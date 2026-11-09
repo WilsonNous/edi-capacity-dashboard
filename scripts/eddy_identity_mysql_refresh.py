@@ -55,7 +55,11 @@ def _lote(chosen, limite):
 
 
 def _confirmar_progresso(cliente):
-    """Advance cursor only after completing the client refresh."""
+    """Advance the scan cursor after an attempt, including a failed remote probe.
+
+    This is a scan position, not a claim that the client has been resolved.
+    The circular inventory revisits the client on a subsequent rotation.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(CURSOR_DDL)
@@ -114,8 +118,10 @@ def executar_uma_vez(limite=20):
     stats = {"clientes": len(chosen), "selecionados": len(batch), "bp_sincronizados": 0,
              "consultados": 0, "resolvidos": 0, "indisponiveis": 0,
              "sem_bp": 0, "sem_blueprint": 0, "falhas_descoberta": 0,
-             "falhas_anexo": 0, "interrompido_por_redmine": False}
+             "falhas_anexo": 0, "interrompido_por_redmine": False,
+             "ultimo_cliente_tentado": None, "cursor_avancado_apos_falha": False}
     for cliente, issue in batch:
+        stats["ultimo_cliente_tentado"] = cliente
         discovery = descobrir_e_sincronizar_participantes_mysql(
             {int(issue["id"]): cliente}, aplicar=True, skip_imported=False)
         statuses = [row.get("status") for row in discovery.get("resultados", [])]
@@ -128,6 +134,8 @@ def executar_uma_vez(limite=20):
         if "CONTEXTO_INDISPONIVEL" in contexts:
             stats["indisponiveis"] += 1
             stats["interrompido_por_redmine"] = True
+            _confirmar_progresso(cliente)
+            stats["cursor_avancado_apos_falha"] = True
             _set_cooldown()
             break
         result = resolver_identidade_cliente(

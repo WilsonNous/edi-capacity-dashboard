@@ -30,7 +30,7 @@ def test_global_worker_handles_non_vr_and_no_remote_second_walk():
     assert [call.args[0] for call in checkpoint.call_args_list] == ["ALFA", "BETA"]
 
 
-def test_redmine_failure_stops_this_cycle_but_does_not_lose_cursor():
+def test_redmine_failure_stops_cycle_and_advances_scan_cursor():
     with patch("scripts.eddy_identity_mysql_refresh._cooldown_active", return_value=False), \
          patch("scripts.eddy_identity_mysql_refresh._set_cooldown"), \
          patch("scripts.eddy_identity_mysql_refresh._inventario",
@@ -46,7 +46,8 @@ def test_redmine_failure_stops_this_cycle_but_does_not_lose_cursor():
     assert stats["falhas_descoberta"] == 1
     assert discovery.call_count == 1
     identity.assert_not_called()
-    checkpoint.assert_not_called()
+    checkpoint.assert_called_once_with("A")
+    assert stats["cursor_avancado_apos_falha"] is True
 
 
 def test_discovery_imports_only_verified_blueprint_root():
@@ -85,7 +86,7 @@ def test_cached_resolved_identity_invalidated_by_conflicting_bp_mysql():
     assert registrar.call_args.args[1]["estado"] == "CNPJ_AMBIGUO"
 
 
-def test_checkpoint_only_after_first_client_when_second_fails():
+def test_checkpoint_includes_failed_client_to_avoid_starvation():
     with patch("scripts.eddy_identity_mysql_refresh._cooldown_active", return_value=False), \
          patch("scripts.eddy_identity_mysql_refresh._set_cooldown"), \
          patch("scripts.eddy_identity_mysql_refresh._inventario",
@@ -103,7 +104,8 @@ def test_checkpoint_only_after_first_client_when_second_fails():
         stats = executar_uma_vez()
     assert stats["interrompido_por_redmine"] is True
     assert discovery.call_count == 2
-    checkpoint.assert_called_once_with("A")
+    assert [call.args[0] for call in checkpoint.call_args_list] == ["A", "B"]
+    assert stats["cursor_avancado_apos_falha"] is True
 
 def test_global_bp_worker_defers_redmine_until_cooldown_expires():
     with patch("scripts.eddy_identity_mysql_refresh._inventario",
