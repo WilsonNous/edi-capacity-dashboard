@@ -539,15 +539,15 @@ def listar_regras_operacionais() -> list[dict]:
             regra_id TEXT PRIMARY KEY, player TEXT NOT NULL, operacao TEXT NOT NULL,
             estado TEXT NOT NULL, completude INTEGER NOT NULL DEFAULT 0,
             payload_json TEXT NOT NULL, atualizado_em TEXT NOT NULL)""")
-        rows = conn.execute("""
-            SELECT a.regra_id,a.player,a.operacao,a.estado,a.completude,a.payload_json,a.atualizado_em,
-                   r.estado AS estado_revisao,r.destinatario_confirmado,r.observacoes,
-                   r.revisado_em,r.homologado_em
-              FROM aprendizados_operacionais a
-              LEFT JOIN revisoes_regras_operacionais r ON r.regra_id=a.regra_id
-             WHERE a.operacao='INCLUSAO'
-             ORDER BY a.player,a.regra_id
-        """).fetchall()
+            rows = conn.execute("""
+                SELECT a.regra_id,a.player,a.operacao,a.estado,a.completude,a.payload_json,a.atualizado_em,
+                       r.estado AS estado_revisao,r.destinatario_confirmado,r.observacoes,
+                       r.revisado_em,r.homologado_em
+                  FROM aprendizados_operacionais a
+                  LEFT JOIN revisoes_regras_operacionais r ON r.regra_id=a.regra_id
+                 WHERE a.operacao='INCLUSAO'
+                 ORDER BY a.player,a.regra_id
+            """).fetchall()
     saida=[]
     for row in rows:
         d=dict(row)
