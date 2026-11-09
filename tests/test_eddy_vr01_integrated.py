@@ -51,7 +51,7 @@ def test_receipt_is_never_automatically_validated():
 
 
 def test_external_step_rejects_unexpected_redmine_owner():
-    issue = {"assigned_to": {"id": 777}, "updated_on": "2026-11-06T12:00:00Z"}
+    issue = {"id": 50318, "assigned_to": {"id": 777}, "updated_on": "2026-11-06T12:00:00Z"}
     row = {"fase": "AGUARDA_CONTATO_BP", "original_owner_id": 97,
            "eddy_owner_id": 166, "operacao_pendente": None}
     with patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
@@ -64,7 +64,7 @@ def test_external_step_rejects_unexpected_redmine_owner():
 
 
 def test_post_handoff_allows_original_owner_without_false_block():
-    issue = {"assigned_to": {"id": 97}, "updated_on": "2026-11-06T12:00:00Z"}
+    issue = {"id": 50318, "assigned_to": {"id": 97}, "updated_on": "2026-11-06T12:00:00Z"}
     row = {"fase": "NOTIFICACAO_INTERNA_CONFIRMADA", "original_owner_id": 97,
            "eddy_owner_id": 166, "operacao_pendente": None,
            "autorizacao_confirmada": 1, "confirmacao_evidence_id": "graph-1",
