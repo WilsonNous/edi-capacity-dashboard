@@ -61,6 +61,10 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
             "ccRecipients": [{"emailAddress": {"address": x}} for x in latest.get("cc", [])],
             "body": {"contentType": "text", "content": latest["corpo"]},
         }]
+    def journal_write(**kwargs):
+        assert kwargs["chamado_id"] == 50318
+        issue["status"] = {"id": 5, "name": "Aguardando Retorno Cliente"}
+        return {"ok": True}
     def approval(op):
         item = {"issue_id": 50318, "redmine_updated_on": "version-1"}
         if op == "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA":
@@ -86,7 +90,7 @@ def test_redmine_bp_graph_mysql_end_to_end_without_external_calls():
          patch("ednna.redmine_writer.nota_marcador_ja_existe", return_value=False), \
          patch("ednna.redmine_writer.obter_status_id_por_nome", return_value=5), \
          patch("ednna.redmine_outbox.registrar_ou_enfileirar",
-               return_value={"ok": True}) as journal, \
+               side_effect=journal_write) as journal, \
          patch.dict("os.environ", {"EDNNA_EMAIL_FROM": "eddy@example.invalid"}):
         for op in ("ASSUMIR_REDMINE", "BUSCAR_CONTATO_BP",
                    "SOLICITAR_AUTORIZACAO_PORTAL", "MONITORAR_CLIENTE"):
