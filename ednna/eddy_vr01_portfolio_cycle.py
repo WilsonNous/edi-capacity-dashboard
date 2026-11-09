@@ -306,7 +306,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                             ))
                         try:
                             etapa = "EXECUTOR_VR01"
-                            result = planejar_vr01(execute=True, approvals=approvals)
+                            result = planejar_vr01(execute=True, approvals=approvals, verified_issue=live)
                             entry.update(result)
                             entry["execucao_externa"] = bool(result.get("externo"))
                         except PermissionError:
