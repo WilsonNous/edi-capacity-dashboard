@@ -47,7 +47,11 @@ def avaliar_falta_arquivo(demanda: dict[str, Any]) -> dict[str, Any]:
 
 def listar_regras_aprendidas() -> list[dict]:
     """Inventaria homologações reais de falta de arquivo da Escola."""
-    from ednna.homologacao import listar_homologacoes_mais_recentes
+    import os
+    if os.getenv('EDDY_DB_ENGINE', 'sqlite').strip().lower() == 'mysql':
+        from ednna.motores_mysql_repository import listar_homologacoes as listar_homologacoes_mais_recentes
+    else:
+        from ednna.homologacao import listar_homologacoes_mais_recentes
     prefixos = ("FALTA-ARQUIVO-", "FALTA_ARQUIVO-", "AUSENCIA-ARQUIVO-")
     return [
         {"regra_id": h["regra_id"], "player": h.get("player"),
