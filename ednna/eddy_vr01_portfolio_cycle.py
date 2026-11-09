@@ -106,7 +106,7 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
     from ednna.email_sender import listar_emails_enviados_por_chamado
     from ednna.eddy_vr01_email_templates import assunto_vr01
     from ednna.eddy_vr01_integrated import (
-        _context, _valid_bp, _advance, _event,
+        _context, _valid_bp, _bp_contacts, _advance, _event,
     )
     sender = setting("EDDY_EMAIL_FROM")
     bp = _valid_bp()
@@ -114,6 +114,8 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
         return {"estado": "AGUARDA_EVIDENCIAS"}
     subject = assunto_vr01(issue_id, _context()["cliente"])
     items = listar_emails_enviados_por_chamado(remetente=sender, chamado_id=issue_id)
+    verified = {str(row["email"]).strip().casefold() for row in _bp_contacts()}
+    verified.add(str(bp["email"]).strip().casefold())
     matching = []
     for item in items:
         if str(item.get("subject") or "").strip() != subject:
@@ -124,7 +126,15 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
             str((x.get("emailAddress") or {}).get("address") or "").strip().casefold()
             for x in (item.get("toRecipients") or [])
         }
-        if recipients != {str(bp["email"]).strip().casefold()}:
+        copied = {
+            str((x.get("emailAddress") or {}).get("address") or "").strip().casefold()
+            for x in (item.get("ccRecipients") or [])
+        }
+        # Historical deliveries may use an older primary and multiple CCs.
+        # Never rewrite their real recipient headers.
+        if not recipients or not recipients.issubset(verified) or not copied.issubset(verified):
+            continue
+        if not (item.get("body") or {}).get("content") and not item.get("bodyPreview"):
             continue
         matching.append(item)
     if len(matching) != 1:
@@ -138,17 +148,21 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
         return {"estado": "RESERVA_CONCORRENTE"}
     message = matching[0]
     _event("SOLICITACAO_CLIENTE", str(message.get("internetMessageId") or message["id"]))
-    # The shared outbox records the historical send without sending mail again.
-    from ednna.redmine_outbox import registrar_ou_enfileirar
-    result = registrar_ou_enfileirar(
-        chamado_id=issue_id, regra_id="VR01",
-        nota="EDDY VR01: solicitacao de autorizacao ja enviada; envio conciliado com Graph. Aguardando retorno do cliente.",
-        status_nome="Aguardando Retorno Cliente",
-    )
+    # Reuse the existing Sent Items journal formatter and marker deduplication.
+    from ednna.redmine_outbox import registrar_ou_enfileirar, _nota_sent_item
+    from ednna.redmine_writer import nota_marcador_ja_existe
+    nota, marcador = _nota_sent_item(message, 0)
+    if nota_marcador_ja_existe(issue_id, marcador):
+        result = {"ok": True, "ja_registrado": True}
+    else:
+        result = registrar_ou_enfileirar(
+            chamado_id=issue_id, regra_id="VR01",
+            nota=nota, status_nome="Aguardando Retorno Cliente",
+        )
     if not (result.get("ok") or result.get("pendente")):
         return {"estado": "REDMINE_PENDENTE"}
     _advance("AGUARDA_CONTATO_BP", "SOLICITAR_AUTORIZACAO_PORTAL",
-             "SOLICITACAO_ENVIADA", destinatario=bp["email"],
+             "SOLICITACAO_ENVIADA", destinatario=str((message["toRecipients"][0]["emailAddress"])["address"]).strip().lower(),
              bp_source_id=bp["source_id"], envio_graph_confirmado=1)
     return {"estado": "ENVIO_EXISTENTE_RECONCILIADO", "envios_realizados": 0}
 

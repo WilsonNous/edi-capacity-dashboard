@@ -71,6 +71,7 @@ def _nota_sent_item(item: dict, indice: int) -> tuple[str,str]:
     titulo="E-mail inicial" if indice==0 else f"Follow-up {indice}"
     nota=(
         f"*EDDY — {titulo} recuperado de Itens Enviados*\n\n"
+        f"*De:* {_emails([item.get('from')])}\n"
         f"*Enviado em:* {item.get('sentDateTime') or ''}\n"
         f"*Para:* {_emails(item.get('toRecipients'))}\n"
         f"*Cc:* {_emails(item.get('ccRecipients'))}\n"
