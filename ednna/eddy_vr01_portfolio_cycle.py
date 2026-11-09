@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 from datetime import datetime, timezone
 from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
 from ednna.mysql_snapshot_repository import carregar_snapshot
@@ -323,6 +324,15 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             entry["estado"] = "FALHA_SEGURA"
             entry["erro"] = type(exc).__name__
             entry["etapa_falha"] = etapa
+            # Keep logs actionable without leaking credentials, client data or raw URLs.
+            # Fingerprints group recurring failures without persisting exception messages.
+            origin = type(exc).__module__ + "." + type(exc).__qualname__
+            entry["erro_fingerprint"] = hashlib.sha256(
+                (etapa + ":" + origin).encode("utf-8")
+            ).hexdigest()[:16]
+            entry["erro_causa"] = (
+                type(exc.__cause__).__name__ if exc.__cause__ else None
+            )
         outcomes.append(entry)
     return {"estado": "CARTEIRA_VR01_PROCESSADA", "avaliados": len(outcomes),
             "chamados": outcomes, "execucao_externa": any(
