@@ -20,6 +20,7 @@ def test_offline_mode_skips_all_external_work(monkeypatch):
 
 def test_legacy_mode_remains_explicitly_unchanged(monkeypatch):
     monkeypatch.delenv("EDDY_VR01_OFFLINE_FIRST", raising=False)
+    monkeypatch.setenv("EDDY_VR01_CYCLE_SOURCE", "redmine")
     with patch.object(scheduler, "sincronizar_carteira_vr_mysql", return_value={"cobertura_completa": False}) as sync, \
          patch.object(scheduler, "operacao_vr_mysql", return_value={"chamados": []}):
         result = scheduler.executar_ciclo_vr01()
