@@ -321,3 +321,64 @@ def test_identity_diagnostic_reports_missing_cnpj_without_exposing_client():
         })
     assert diagnosis["motivos"] == ["CNPJ_AUSENTE"]
     assert diagnosis["quantidade_clientes"] == 1
+
+
+def test_50428_targeted_identity_probe_resolves_from_blueprint():
+    issue = {"id": 50428, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "status": {"is_closed": False},
+             "assigned_to": {"id": 97},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "MARTMINAS"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "MARTMINAS"}, "journals": []}
+    from ednna import eddy_vr01_integrated as integrated
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["MARTMINAS"]), \
+         patch.object(module, "_reservar_consulta_identidade", return_value=True) as reserve, \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               side_effect=[{"estado": "SEM_BP_MYSQL", "cnpj": None},
+                            {"estado": "RESOLVIDO", "cnpj": "12345678000199"}]) as resolver, \
+         patch.object(integrated, "_load", return_value=None), \
+         patch.object(integrated, "_identity", return_value=166), \
+         patch.object(integrated, "_read_issue", side_effect=RuntimeError("offline")):
+        result = module.executar_carteira_vr01(ids=[50428], execute=True)
+    assert result["chamados"][0]["identidade_consulta_pontual"] == "RESOLVIDO"
+    assert result["chamados"][0]["etapa_falha"] == "PREFLIGHT_REDMINE"
+    reserve.assert_called_once_with(50428)
+    assert resolver.call_args_list[1].kwargs["allow_remote"] is True
+
+
+def test_50428_cooldown_prevents_repeated_remote_probe():
+    issue = {"id": 50428, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "status": {"is_closed": False},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "MARTMINAS"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "MARTMINAS"}, "journals": []}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["MARTMINAS"]), \
+         patch.object(module, "_reservar_consulta_identidade", return_value=False), \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"estado": "SEM_BP_MYSQL", "cnpj": None}) as resolver:
+        result = module.executar_carteira_vr01(ids=[50428], execute=True)
+    assert result["chamados"][0]["estado"] == "IDENTIFICACAO_CLIENTE_PENDENTE"
+    assert resolver.call_count == 1
+
+
+def test_executor_diagnostic_48786_49119_classifies_without_exposing_message():
+    from ednna import eddy_vr01_integrated as integrated
+    for cid in (48786, 49119):
+        issue = {"id": cid, "_eddy_journals_completos": True,
+                 "subject": "VR BENEFICIO", "updated_on": "v1",
+                 "status": {"is_closed": False}, "assigned_to": {"id": 97},
+                 "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]}
+        snapshot = {"chamado": {"payload_json": issue, "cliente": "CLIENTE"}, "journals": []}
+        with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+             patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
+             patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+                   return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+             patch.object(integrated, "_load", return_value=None), \
+             patch.object(integrated, "_identity", return_value=166), \
+             patch.object(integrated, "_read_issue", return_value=issue), \
+             patch.object(integrated, "planejar_vr01",
+                          side_effect=RuntimeError("Transicao nao reconciliada")):
+            result = module.executar_carteira_vr01(ids=[cid], execute=True)
+        item = result["chamados"][0]
+        assert item["executor_diagnostico"] == "TRANSICAO_MYSQL_NAO_RECONCILIADA"
+        assert "Transicao nao reconciliada" not in str(item)
