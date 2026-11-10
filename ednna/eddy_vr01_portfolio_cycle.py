@@ -229,7 +229,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 continue
             if len(clients) != 1 or not cnpj:
                 entry["estado"] = "IDENTIFICACAO_CLIENTE_PENDENTE"
-                entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"]}
+                entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"], **diagnosticar_identificacao_cliente(issue)}
                 outcomes.append(entry)
                 continue
             # The existing pilot ledger is authoritative about original ownership.
@@ -347,6 +347,13 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             entry["erro_causa"] = (
                 type(exc.__cause__).__name__ if exc.__cause__ else None
             )
+            # Stable operational reason codes; never log raw exception text.
+            if etapa == "PREFLIGHT_REDMINE" and isinstance(exc, RuntimeError):
+                entry["motivo_operacional"] = "PREFLIGHT_REDMINE_INDISPONIVEL_OU_BLOQUEADO"
+            elif etapa == "EXECUTOR_VR01" and isinstance(exc, RuntimeError):
+                entry["motivo_operacional"] = "EXECUTOR_REJEITOU_TRANSICAO"
+            elif etapa == "RECONCILIAR_INBOX":
+                entry["motivo_operacional"] = "CONCILIACAO_RESPOSTAS_FALHOU"
         outcomes.append(entry)
     return {"estado": "CARTEIRA_VR01_PROCESSADA", "avaliados": len(outcomes),
             "chamados": outcomes, "execucao_externa": any(

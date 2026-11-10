@@ -287,3 +287,37 @@ def test_executor_rejects_verified_issue_for_different_ticket():
         else:
             assert False, "Mismatched issue must be rejected"
     read.assert_not_called()
+
+
+
+def test_executor_failure_reports_stable_reason_without_sensitive_message():
+    issue = {"id": 48786, "_eddy_journals_completos": True,
+             "subject": "VR BENEFICIO", "updated_on": "v1",
+             "status": {"is_closed": False}, "assigned_to": {"id": 97},
+             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]}
+    snapshot = {"chamado": {"payload_json": issue, "cliente": "CLIENTE"}, "journals": []}
+    with patch.object(module, "carregar_snapshot", return_value=snapshot), \
+         patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]), \
+         patch("ednna.eddy_client_identity.resolver_identidade_cliente",
+               return_value={"cnpj": "12345678000199", "estado": "RESOLVIDO"}), \
+         patch("ednna.eddy_vr01_integrated._load",
+               return_value={"original_owner_id": 97, "fase": "PRONTO_PARA_ASSUMIR"}), \
+         patch("ednna.eddy_vr01_integrated._identity", return_value=166), \
+         patch("ednna.eddy_vr01_integrated._read_issue", return_value=issue), \
+         patch("ednna.eddy_vr01_integrated.planejar_vr01",
+               side_effect=RuntimeError("sensitive internal executor detail")):
+        result = module.executar_carteira_vr01(ids=[48786], execute=True)
+    item = result["chamados"][0]
+    assert item["estado"] == "FALHA_SEGURA"
+    assert item["etapa_falha"] == "EXECUTOR_VR01"
+    assert item["motivo_operacional"] == "EXECUTOR_REJEITOU_TRANSICAO"
+    assert "sensitive internal executor detail" not in str(result)
+
+
+def test_identity_diagnostic_reports_missing_cnpj_without_exposing_client():
+    with patch.object(module, "clientes_do_redmine", return_value=["CLIENTE"]):
+        diagnosis = module.diagnosticar_identificacao_cliente({
+            "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]
+        })
+    assert diagnosis["motivos"] == ["CNPJ_AUSENTE"]
+    assert diagnosis["quantidade_clientes"] == 1
