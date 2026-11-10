@@ -25,7 +25,11 @@ def executar_ciclo_vr01() -> dict:
     # Offline-first never reads Redmine, Graph or SQLite, and never dispatches.
     if os.getenv("EDDY_VR01_OFFLINE_FIRST", "false").lower() == "true":
         return executar_ciclo_local_vr01()
-    # MySQL is the operational source. The separate periodic sync owns Redmine\n    # collection; do not duplicate full issue listings every VR01 cycle.\n    # Legacy inline collection is an explicit opt-in for isolated deployments.\n    if os.getenv("EDDY_VR01_CYCLE_SOURCE", "mysql").strip().lower() != "redmine":\n        return executar_ciclo_local_vr01()\n    sync = sincronizar_carteira_vr_mysql()
+    # MySQL is the operational source. The dedicated sync owns Redmine collection.
+    # Legacy inline Redmine collection requires an explicit opt-in.
+    if os.getenv("EDDY_VR01_CYCLE_SOURCE", "mysql").strip().lower() != "redmine":
+        return executar_ciclo_local_vr01()
+    sync = sincronizar_carteira_vr_mysql()
     if not sync["cobertura_completa"]:
         # Read-only observability must survive Redmine outages; stale data must
         # never authorize sends, follow-ups or Redmine writes.
