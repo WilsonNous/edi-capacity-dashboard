@@ -167,6 +167,29 @@ def _reconciliar_solicitacao_existente(issue_id: int, live: dict, ledger: dict |
     return {"estado": "ENVIO_EXISTENTE_RECONCILIADO", "envios_realizados": 0}
 
 
+
+def _reservar_consulta_identidade(issue_id: int) -> bool:
+    """MySQL-backed cooldown shared by scheduler replicas; no Redmine storm."""
+    from ednna.mysql_storage import connect
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_vr01_identity_probe (
+                chamado_id BIGINT NOT NULL PRIMARY KEY,
+                ultima_tentativa DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""INSERT IGNORE INTO eddy_vr01_identity_probe
+                (chamado_id, ultima_tentativa) VALUES (%s, UTC_TIMESTAMP())""",
+                (issue_id,))
+            if cur.rowcount == 1:
+                return True
+            cur.execute("""UPDATE eddy_vr01_identity_probe
+                SET ultima_tentativa=UTC_TIMESTAMP()
+                WHERE chamado_id=%s
+                AND ultima_tentativa <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)""",
+                (issue_id,))
+            return cur.rowcount == 1
+
+
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _load, _identity, _read_issue, escopo_vr01, planejar_vr01,
@@ -226,7 +249,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             # Remote Blueprint reads are explicit; a failed probe cannot authorize
             # an external action or silently select one of multiple CNPJs.
             if (execute and issue_id == 50428 and len(clients) == 1
-                    and not identidade.get("cnpj")):
+                    and not identidade.get("cnpj") and _reservar_consulta_identidade(issue_id)):
                 try:
                     recovered_identity = resolver_identidade_cliente(
                         issue, cliente_override=cliente_mysql, allow_remote=True,
