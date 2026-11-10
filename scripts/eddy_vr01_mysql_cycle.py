@@ -20,6 +20,49 @@ from ednna.eddy_vr_dispatcher import executar_fila_vr01
 from ednna.eddy_vr_mysql_followups import listar_followups_vr01
 
 
+
+def executar_ciclo_mysql_operacional() -> dict:
+    """Plan from MySQL; reconcile Graph and dispatch only with live preflight.
+
+    A failed or partial mailbox scan must never authorize dispatch. The
+    dispatcher independently verifies Redmine version, ownership, approval
+    and idempotency before any external side effect.
+    """
+    local = executar_ciclo_local_vr01()
+    if local.get("estado") != "VR01_ANALISE_LOCAL_COM_PROPOSTAS":
+        return local
+    from ednna.eddy_vr01_offline_proposals import listar_chamados_vr_mysql
+    ids = sorted(set(listar_chamados_vr_mysql()))
+    if not ids:
+        return {**local, "estado": "VR01_MYSQL_SEM_CHAMADOS",
+                "envios_realizados": 0}
+    try:
+        evidence = reconciliar_envios_vr01(ids)
+        replies = reconciliar_respostas_vr01(ids)
+    except Exception as exc:
+        return {**local, "estado": "BLOQUEADO_RECONCILIACAO",
+                "erro": type(exc).__name__, "envios_realizados": 0}
+    result = {**local, "evidencias_graph": evidence, "respostas_graph": replies}
+    if (evidence.get("estado") != "EVIDENCIAS_RECONCILIADAS"
+            or replies.get("estado") != "RESPOSTAS_RECONCILIADAS"):
+        return {**result, "estado": "BLOQUEADO_RECONCILIACAO",
+                "envios_realizados": 0}
+    try:
+        readiness = verificar_prontidao_vr01()
+        result["prontidao_externa"] = readiness
+        if not readiness.get("pronto"):
+            return {**result, "estado": "BLOQUEADO_PRONTIDAO",
+                    "envios_realizados": 0}
+        dispatch = executar_fila_vr01()
+    except Exception as exc:
+        return {**result, "estado": "BLOQUEADO_EXECUTOR",
+                "erro": type(exc).__name__, "envios_realizados": 0}
+    return {**result, "estado": "CICLO_VR01_MYSQL_COM_EXECUTOR_CONTROLADO",
+            "execucao": dispatch,
+            "envios_realizados": dispatch.get("envios_confirmados", 0)}
+
+
+
 def executar_ciclo_vr01() -> dict:
     # Explicit opt-in: preserve legacy behavior until operational validation.
     # Offline-first never reads Redmine, Graph or SQLite, and never dispatches.
@@ -28,7 +71,7 @@ def executar_ciclo_vr01() -> dict:
     # MySQL is the operational source. The dedicated sync owns Redmine collection.
     # Legacy inline Redmine collection requires an explicit opt-in.
     if os.getenv("EDDY_VR01_CYCLE_SOURCE", "mysql").strip().lower() != "redmine":
-        return executar_ciclo_local_vr01()
+        return executar_ciclo_mysql_operacional()
     sync = sincronizar_carteira_vr_mysql()
     if not sync["cobertura_completa"]:
         # Read-only observability must survive Redmine outages; stale data must
