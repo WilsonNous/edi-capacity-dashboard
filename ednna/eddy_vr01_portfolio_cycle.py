@@ -222,6 +222,20 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 "estado": "CLIENTE_AMBIGUO" if clients else "CLIENTE_AUSENTE",
                 "cnpj": None,
             }
+            # A bounded, targeted recovery for an issue with confirmed customer reply.
+            # Remote Blueprint reads are explicit; a failed probe cannot authorize
+            # an external action or silently select one of multiple CNPJs.
+            if (execute and issue_id == 50428 and len(clients) == 1
+                    and not identidade.get("cnpj")):
+                try:
+                    recovered_identity = resolver_identidade_cliente(
+                        issue, cliente_override=cliente_mysql, allow_remote=True,
+                    )
+                    entry["identidade_consulta_pontual"] = recovered_identity.get("estado")
+                    if recovered_identity.get("cnpj") and not recovered_identity.get("desatualizado"):
+                        identidade = recovered_identity
+                except Exception as exc:
+                    entry["identidade_consulta_pontual"] = type(exc).__name__
             cnpj = identidade.get("cnpj")
             if execute and identidade.get("desatualizado"):
                 entry["estado"] = "IDENTIDADE_DESATUALIZADA_EXECUCAO_SUSPENSA"
@@ -347,6 +361,16 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             entry["erro_causa"] = (
                 type(exc.__cause__).__name__ if exc.__cause__ else None
             )
+            # Classify the known executor rejection without exposing exception
+            # messages or customer details in production logs.
+            if etapa == "EXECUTOR_VR01" and isinstance(exc, RuntimeError):
+                reason = str(exc)
+                entry["executor_diagnostico"] = {
+                    "Responsavel original divergente: nao assumir": "RESPONSAVEL_ORIGINAL_DIVERGENTE",
+                    "Transicao nao reconciliada": "TRANSICAO_MYSQL_NAO_RECONCILIADA",
+                    "Redmine preflight bloqueado": "PREFLIGHT_INTERNO_BLOQUEADO",
+                    "Blueprint sem destinatario com origem comprovada": "BLUEPRINT_DESTINATARIO_AUSENTE",
+                }.get(reason, "EXECUTOR_RUNTIME_NAO_CLASSIFICADO")
             # Stable operational reason codes; never log raw exception text.
             if etapa == "PREFLIGHT_REDMINE" and isinstance(exc, RuntimeError):
                 entry["motivo_operacional"] = "PREFLIGHT_REDMINE_INDISPONIVEL_OU_BLOQUEADO"
