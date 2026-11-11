@@ -273,6 +273,10 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"], **diagnosticar_identificacao_cliente(issue)}
                 outcomes.append(entry)
                 continue
+            # Operational routing is a suggestion, never a substitute for a
+            # verified Redmine assignee, complete journals or lifecycle ledger.
+            from ednna.eddy_owner_routing import sugerir_responsavel
+            entry["distribuicao_humana"] = sugerir_responsavel(clients[0])
             # The existing pilot ledger is authoritative about original ownership.
             # New issues use the current Redmine owner only when not already EDDY.
             etapa = "CARREGAR_LEDGER"
