@@ -1,3 +1,11 @@
+import pytest
+
+@pytest.fixture(autouse=True)
+def _mock_pending_queue():
+    from unittest.mock import patch
+    with patch('scripts.eddy_identity_mysql_refresh._registrar_pendente'), patch('scripts.eddy_identity_mysql_refresh._limpar_pendente'):
+        yield
+
 """Regression: a failed Redmine probe cannot pin the global BP scan cursor."""
 from unittest.mock import patch
 
