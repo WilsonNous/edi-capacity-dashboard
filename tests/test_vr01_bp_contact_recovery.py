@@ -40,3 +40,25 @@ def test_cooldown_prevents_repeat_discovery():
         result = recuperar_contatos_blueprint(48786, "246")
     assert result["estado"] == "AGUARDA_RECONSULTA_BP"
     discover.assert_not_called()
+
+
+def test_diagnostic_ignores_establishment_cnpj_on_issue():
+    from ednna.eddy_vr01_portfolio_cycle import diagnosticar_identificacao_cliente
+    issue = {"custom_fields": [
+        {"id": 1, "name": "Clientes", "value": "246"},
+        {"name": "CNPJ", "value": "12.345.678/0001-90"},
+    ]}
+    with patch("ednna.eddy_vr01_portfolio_cycle.clientes_do_redmine", return_value=["246"]):
+        result = diagnosticar_identificacao_cliente(issue, {"estado": "CNPJ_NAO_LOCALIZADO_BP"})
+    assert result["motivos"] == ["CNPJ_NAO_LOCALIZADO_BP"]
+    assert result["origem_identidade"] == "BLUEPRINT"
+    assert result["cnpj_estabelecimento_nao_utilizado"] is True
+
+
+def test_diagnostic_does_not_require_issue_cnpj_when_bp_resolved():
+    from ednna.eddy_vr01_portfolio_cycle import diagnosticar_identificacao_cliente
+    issue = {"custom_fields": [{"id": 1, "name": "Clientes", "value": "185"}]}
+    with patch("ednna.eddy_vr01_portfolio_cycle.clientes_do_redmine", return_value=["185"]):
+        result = diagnosticar_identificacao_cliente(issue, {"estado": "RESOLVIDO", "cnpj": "12345678000190"})
+    assert result["motivos"] == []
+    assert "CNPJ_AUSENTE" not in result["motivos"]
