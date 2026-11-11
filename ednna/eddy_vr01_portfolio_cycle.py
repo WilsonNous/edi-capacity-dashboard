@@ -214,7 +214,11 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             if isinstance(issue, str):
                 issue = json.loads(issue)
             if (not isinstance(issue, dict) or int(issue.get("id") or 0) != issue_id
-                    or not identificar_vr(issue) or (issue.get("status") or {}).get("is_closed")):
+                    or not identificar_vr(issue) or (issue.get("status") or {}).get("is_closed")
+                    or issue.get("closed_on") or any(
+                        word in str((issue.get("status") or {}).get("name") or "").casefold()
+                        for word in ("conclu", "fechad", "cancelad", "rejeitad")
+                    )):
                 entry["estado"] = "NAO_ELEGIVEL"
                 outcomes.append(entry)
                 continue
