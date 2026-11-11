@@ -366,7 +366,25 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                             ))
                         try:
                             etapa = "EXECUTOR_VR01"
-                            result = planejar_vr01(execute=True, approvals=approvals, verified_issue=live)
+                            # Reconcile a legacy EDDY assignment only with complete journals
+                            # from the exact live Redmine version and matching human owner.
+                            recovered_owner_id = None
+                            if ledger is None and (live.get("assigned_to") or {}).get("id") == _identity():
+                                from ednna.eddy_vr_original_owner import recuperar_responsavel_por_journals
+                                journal_issue = dict(issue)
+                                journal_issue["_eddy_journals_completos"] = (
+                                    issue.get("_eddy_journals_completos") is True
+                                    and issue.get("updated_on") == live.get("updated_on")
+                                )
+                                candidate = recuperar_responsavel_por_journals(
+                                    journal_issue, snapshot.get("journals") or [], _identity()
+                                )
+                                if candidate == original_owner:
+                                    recovered_owner_id = candidate
+                            result = planejar_vr01(
+                                execute=True, approvals=approvals, verified_issue=live,
+                                recovered_owner_id=recovered_owner_id,
+                            )
                             entry.update(result)
                             entry["execucao_externa"] = bool(result.get("externo"))
                         except PermissionError:
