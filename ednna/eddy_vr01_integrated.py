@@ -174,8 +174,21 @@ def _load() -> dict | None:
     return dict(zip(keys, row))
 
 
-def _initialize(issue: dict, eddy_id: int) -> dict:
-    if _assignee(issue) != _context()["original_owner_id"]:
+def _initialize(issue: dict, eddy_id: int, *, recovered_owner_id: int | None = None) -> dict:
+    """Initialize from the human owner or reconcile a proven historical EDDY takeover.
+
+    A recovered owner must come from complete Redmine journals verified by the
+    portfolio caller against the same fresh issue version. Never take ownership
+    or overwrite an existing audit record here.
+    """
+    owner = _assignee(issue)
+    original = _context()["original_owner_id"]
+    if owner == original:
+        phase = VR01State.PRONTO_PARA_ASSUMIR.value
+    elif (owner == eddy_id and type(recovered_owner_id) is int
+          and recovered_owner_id == original and original != eddy_id):
+        phase = VR01State.ASSUMIDO_EDDY.value
+    else:
         raise RuntimeError("Responsavel original divergente: nao assumir")
     with connect() as conn:
         with conn.cursor() as cur:
@@ -183,8 +196,11 @@ def _initialize(issue: dict, eddy_id: int) -> dict:
             cur.execute("""INSERT IGNORE INTO eddy_vr01_lifecycle_audit
                 (chamado_id, fase, original_owner_id, eddy_owner_id)
                 VALUES (%s,%s,%s,%s)""",
-                (_context()["chamado_id"], VR01State.PRONTO_PARA_ASSUMIR.value, _context()["original_owner_id"], eddy_id))
-    return _load()
+                (_context()["chamado_id"], phase, original, eddy_id))
+    row = _load()
+    if not row or row["original_owner_id"] != original or row["eddy_owner_id"] != eddy_id:
+        raise RuntimeError("Ledger VR01 com identidade divergente")
+    return row
 
 
 def _reserve(phase: str, operation: str) -> bool:
@@ -320,7 +336,7 @@ def reconciliar_assuncao_pendente(*, issue: dict | None = None) -> dict:
     return {"estado": "ASSUNCAO_RECONCILIADA", "externo": False}
 
 
-def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verified_issue: dict | None = None) -> dict:
+def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verified_issue: dict | None = None, recovered_owner_id: int | None = None) -> dict:
     """One pilot step per call. Default is read-only; never schedules itself.
 
     Confirmation must be persisted by a separate evidence-verification process.
@@ -341,7 +357,7 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verif
         if not execute:
             return {"estado": "AGUARDA_INICIALIZACAO_MYSQL", "externo": False}
         # Initial MySQL ledger write is not an external Redmine/Graph action.
-        row = _initialize(issue, eddy_id)
+        row = _initialize(issue, eddy_id, recovered_owner_id=recovered_owner_id)
     if row["original_owner_id"] != _context()["original_owner_id"] or row["eddy_owner_id"] != eddy_id:
         return {"estado": "BLOQUEADO_IDENTIDADE", "externo": False}
     if row["operacao_pendente"] == "ASSUMIR_REDMINE":

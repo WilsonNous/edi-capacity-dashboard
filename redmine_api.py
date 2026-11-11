@@ -827,6 +827,38 @@ def buscar_chamados_projetos(
 
     snapshot = painel_carregar_snapshot(chave)
 
+    # Navigation must never synchronously refresh Redmine when a usable
+    # active-portfolio snapshot already exists. The dedicated MySQL sync
+    # owns remote refresh; force_refresh is not permission to block a page.
+    if snapshot and status_id == "open" and os.getenv(
+        "EDDY_DB_ENGINE", "mysql"
+    ).strip().lower() == "mysql":
+        cached = snapshot.get("payload") or []
+        if isinstance(cached, list):
+            try:
+                from ednna.mysql_active_reader import carregar_carteira_mysql
+                ids_mysql = {int(item["id"]) for item in cached
+                             if isinstance(item, dict) and item.get("id") is not None}
+                if ids_mysql and len(ids_mysql) == len(cached):
+                    matched = carregar_carteira_mysql(
+                        ids_mysql, str(snapshot.get("atualizado_em") or ""))
+                    if matched is not None:
+                        cached = matched
+            except Exception:
+                pass  # Valid snapshot remains the read-only fallback.
+            cached = [item for item in cached if isinstance(item, dict)
+                      and not (item.get("status") or {}).get("is_closed")
+                      and not item.get("closed_on")]
+            _LAST_DIAGNOSTICO = {
+                "fonte_dados": "mysql_ou_snapshot_ativo",
+                "chamados_encontrados": len(cached),
+                "cache_idade_s": snapshot.get("idade_s"),
+                "refresh_remoto_navegacao": False,
+                "tempo_listagem_s": 0.0, "tempo_detalhes_s": 0.0,
+                "tempo_total_s": 0.0,
+            }
+            return cached
+
     if (
         snapshot
         and not force_refresh

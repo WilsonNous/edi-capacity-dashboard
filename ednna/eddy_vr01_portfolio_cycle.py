@@ -214,7 +214,11 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             if isinstance(issue, str):
                 issue = json.loads(issue)
             if (not isinstance(issue, dict) or int(issue.get("id") or 0) != issue_id
-                    or not identificar_vr(issue) or (issue.get("status") or {}).get("is_closed")):
+                    or not identificar_vr(issue) or (issue.get("status") or {}).get("is_closed")
+                    or issue.get("closed_on") or any(
+                        word in str((issue.get("status") or {}).get("name") or "").casefold()
+                        for word in ("conclu", "fechad", "cancelad", "rejeitad")
+                    )):
                 entry["estado"] = "NAO_ELEGIVEL"
                 outcomes.append(entry)
                 continue
@@ -269,6 +273,10 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"], **diagnosticar_identificacao_cliente(issue)}
                 outcomes.append(entry)
                 continue
+            # Operational routing is a suggestion, never a substitute for a
+            # verified Redmine assignee, complete journals or lifecycle ledger.
+            from ednna.eddy_owner_routing import sugerir_responsavel
+            entry["distribuicao_humana"] = sugerir_responsavel(clients[0])
             # The existing pilot ledger is authoritative about original ownership.
             # New issues use the current Redmine owner only when not already EDDY.
             etapa = "CARREGAR_LEDGER"
@@ -320,7 +328,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     live = _read_issue(issue_id)
                     if live.get("updated_on") != issue.get("updated_on"):
                         entry["estado"] = "SNAPSHOT_DESATUALIZADO"
-                    elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or resolver_identidade_cliente(live, cliente_override=cliente_mysql).get("cnpj") != cnpj:
+                    elif (len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or (resolver_identidade_cliente(live, cliente_override=cliente_mysql, allow_remote=False).get("cnpj") not in (None, cnpj)) or (_cnpj(live) is not None and _cnpj(live) != cnpj)):
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
                         # Reconcile an existing Graph send before approving a new one.
@@ -358,7 +366,25 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                             ))
                         try:
                             etapa = "EXECUTOR_VR01"
-                            result = planejar_vr01(execute=True, approvals=approvals, verified_issue=live)
+                            # Reconcile a legacy EDDY assignment only with complete journals
+                            # from the exact live Redmine version and matching human owner.
+                            recovered_owner_id = None
+                            if ledger is None and (live.get("assigned_to") or {}).get("id") == _identity():
+                                from ednna.eddy_vr_original_owner import recuperar_responsavel_por_journals
+                                journal_issue = dict(issue)
+                                journal_issue["_eddy_journals_completos"] = (
+                                    issue.get("_eddy_journals_completos") is True
+                                    and issue.get("updated_on") == live.get("updated_on")
+                                )
+                                candidate = recuperar_responsavel_por_journals(
+                                    journal_issue, snapshot.get("journals") or [], _identity()
+                                )
+                                if candidate == original_owner:
+                                    recovered_owner_id = candidate
+                            result = planejar_vr01(
+                                execute=True, approvals=approvals, verified_issue=live,
+                                recovered_owner_id=recovered_owner_id,
+                            )
                             entry.update(result)
                             entry["execucao_externa"] = bool(result.get("externo"))
                         except PermissionError:
