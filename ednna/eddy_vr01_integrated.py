@@ -391,16 +391,19 @@ def planejar_vr01(*, approvals: dict | None = None, execute: bool = False, verif
     if operation == "ACOMPANHAR_E_COBRAR":
         return {**report, "estado": "AGUARDANDO_RETORNO_CLIENTE",
                 "envios_realizados": 0}
-    readiness = verificar_prontidao_operacao_vr01(operation)
-    if not readiness["pronto"]:
-        return {**report, "estado": "BLOQUEADO_PRONTIDAO",
-                "bloqueios_prontidao": readiness["bloqueios"]}
+    # Non-actionable lifecycle decisions must not enter the operation readiness
+    # gate: it reports OPERACAO_DESCONHECIDA for legitimate wait states.
     if operation not in {"ASSUMIR_REDMINE", "BUSCAR_CONTATO_BP",
                          "SOLICITAR_AUTORIZACAO_PORTAL", "MONITORAR_CLIENTE",
                          "CONFIRMACAO_VALIDADA", "REGISTRAR_EVIDENCIAS_REDMINE",
                          "DEVOLVER_AO_RESPONSAVEL_ORIGINAL",
                          "NOTIFICAR_RESPONSAVEL_COM_CRONOLOGIA"}:
-        return report
+        return {**report, "estado": "AGUARDANDO_PRECONDICAO",
+                "bloqueio_ciclo": operation, "envios_realizados": 0}
+    readiness = verificar_prontidao_operacao_vr01(operation)
+    if not readiness["pronto"]:
+        return {**report, "estado": "BLOQUEADO_PRONTIDAO",
+                "bloqueios_prontidao": readiness["bloqueios"]}
     # Pure state transitions need no external approval.
     if operation in {"BUSCAR_CONTATO_BP", "MONITORAR_CLIENTE", "CONFIRMACAO_VALIDADA"}:
         if not _reserve(phase.value, operation):
