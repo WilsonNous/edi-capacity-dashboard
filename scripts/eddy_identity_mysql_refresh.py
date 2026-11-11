@@ -42,6 +42,46 @@ def _inventario():
     return chosen
 
 
+PENDING_DDL = """CREATE TABLE IF NOT EXISTS eddy_blueprint_refresh_pending (
+    cliente VARCHAR(255) NOT NULL PRIMARY KEY,
+    tentativas INT NOT NULL DEFAULT 0,
+    proxima_tentativa DATETIME(6) NOT NULL,
+    atualizado_em DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"""
+
+
+def _registrar_pendente(cliente):
+    """Keep failed clients durable without pinning the fair scan cursor."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(PENDING_DDL)
+            cur.execute("""INSERT INTO eddy_blueprint_refresh_pending
+                (cliente, tentativas, proxima_tentativa, atualizado_em)
+                VALUES (%s, 1, DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 60 SECOND), UTC_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE
+                tentativas=tentativas+1,
+                proxima_tentativa=DATE_ADD(UTC_TIMESTAMP(6),
+                    INTERVAL LEAST(3600, 60 * POW(2, LEAST(tentativas, 6))) SECOND),
+                atualizado_em=UTC_TIMESTAMP(6)""", (cliente,))
+
+
+def _limpar_pendente(cliente):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(PENDING_DDL)
+            cur.execute("DELETE FROM eddy_blueprint_refresh_pending WHERE cliente=%s", (cliente,))
+
+
+def _pendentes_prontos(chosen, limite):
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(PENDING_DDL)
+            cur.execute("""SELECT cliente FROM eddy_blueprint_refresh_pending
+                WHERE proxima_tentativa <= UTC_TIMESTAMP(6)
+                ORDER BY proxima_tentativa, atualizado_em LIMIT %s""", (int(limite),))
+            return [row[0] for row in cur.fetchall() if row[0] in chosen]
+
+
 def _lote(chosen, limite):
     """Durable cursor: failure in one cycle cannot starve the other clients."""
     # Prioritize active VR, then rotate fairly across the entire inventory.
@@ -61,7 +101,11 @@ def _lote(chosen, limite):
             start = (names.index(last) + 1) % len(names) if last in names else 0
             batch = [names[(start + i) % len(names)]
                      for i in range(min(len(names), max(1, min(int(limite), 100))))]
-    return [(name, chosen[name]) for name in batch]
+    # Retry due failures first, while reserving at least half the batch for
+    # circular inventory coverage so a sick customer cannot starve others.
+    pending = _pendentes_prontos(chosen, max(1, len(batch) // 2))
+    selected = list(dict.fromkeys(pending + batch))[:len(batch)]
+    return [(name, chosen[name]) for name in selected]
 
 
 def _confirmar_progresso(cliente):
@@ -144,6 +188,7 @@ def executar_uma_vez(limite=20):
         if "CONTEXTO_INDISPONIVEL" in contexts:
             stats["indisponiveis"] += 1
             stats["interrompido_por_redmine"] = True
+            _registrar_pendente(cliente)
             _confirmar_progresso(cliente)
             stats["cursor_avancado_apos_falha"] = True
             _set_cooldown()
@@ -155,9 +200,11 @@ def executar_uma_vez(limite=20):
             stats["resolvidos"] += 1
         elif result["estado"] == "IDENTIDADE_MYSQL_INDISPONIVEL":
             stats["indisponiveis"] += 1
+            _registrar_pendente(cliente)
             break
         else:
             stats["sem_bp"] += 1
+        _limpar_pendente(cliente)
         _confirmar_progresso(cliente)
     return stats
 
