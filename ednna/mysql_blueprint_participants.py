@@ -350,3 +350,41 @@ def descobrir_e_sincronizar_participantes_mysql(chamados, *, aplicar=False, skip
     resultado["descoberta"] = diagnosticos
     resultado["fontes_descobertas"] = len(fontes)
     return resultado
+
+def recuperar_contatos_blueprint(chamado_id, cliente, *, intervalo_minutos=30):
+    """Shared Redmine BP recovery, used by operational rules and enrichment jobs.
+
+    A per-issue MySQL reservation bounds remote discovery across workers.
+    Never sends mail, changes Redmine, or accepts an unverified BP source.
+    """
+    contatos = selecionar_contatos_cliente_mysql(cliente, limite=1)
+    if contatos:
+        return {"estado": "CONTATOS_BP_JA_DISPONIVEIS"}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_blueprint_discovery_probe (
+                chamado_id BIGINT NOT NULL PRIMARY KEY,
+                ultima_tentativa DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
+            cur.execute("""INSERT IGNORE INTO eddy_blueprint_discovery_probe
+                (chamado_id, ultima_tentativa) VALUES (%s, UTC_TIMESTAMP())""",
+                (int(chamado_id),))
+            reservado = cur.rowcount == 1
+            if not reservado:
+                cur.execute("""UPDATE eddy_blueprint_discovery_probe
+                    SET ultima_tentativa=UTC_TIMESTAMP()
+                    WHERE chamado_id=%s AND ultima_tentativa <=
+                    DATE_SUB(UTC_TIMESTAMP(), INTERVAL %s MINUTE)""",
+                    (int(chamado_id), max(1, int(intervalo_minutos))))
+                reservado = cur.rowcount == 1
+    if not reservado:
+        return {"estado": "AGUARDA_RECONSULTA_BP"}
+    resultado = descobrir_e_sincronizar_participantes_mysql(
+        {int(chamado_id): cliente}, aplicar=True, skip_imported=True)
+    contatos = selecionar_contatos_cliente_mysql(cliente, limite=1)
+    return {
+        "estado": "CONTATOS_BP_RECUPERADOS" if contatos else "CONTATOS_BP_PENDENTES",
+        "descoberta": resultado.get("descoberta", []),
+        "fontes_descobertas": resultado.get("fontes_descobertas", 0),
+    }
+

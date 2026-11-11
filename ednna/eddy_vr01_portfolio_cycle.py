@@ -190,6 +190,12 @@ def _reservar_consulta_identidade(issue_id: int) -> bool:
             return cur.rowcount == 1
 
 
+def _recuperar_contatos_bp_pendentes(issue_id: int, cliente: str) -> dict:
+    """Delegate recovery to the shared Blueprint engine."""
+    from ednna.mysql_blueprint_participants import recuperar_contatos_blueprint
+    return recuperar_contatos_blueprint(issue_id, cliente)
+
+
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
     from ednna.eddy_vr01_integrated import (
         _load, _identity, _read_issue, escopo_vr01, planejar_vr01,
@@ -334,6 +340,15 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                         # Reconcile an existing Graph send before approving a new one.
                         # A Graph failure fails closed and cannot trigger dispatch.
                         if ledger and ledger.get("fase") == "AGUARDA_CONTATO_BP":
+                            etapa = "RECUPERAR_CONTATOS_BP"
+                            try:
+                                entry["recuperacao_bp"] = _recuperar_contatos_bp_pendentes(
+                                    issue_id, clients[0]
+                                )
+                            except Exception as exc:
+                                entry["recuperacao_bp"] = {"estado": "FONTE_BP_INDISPONIVEL",
+                                                         "erro": type(exc).__name__}
+                            etapa = "RECONCILIAR_ENVIO_ANTERIOR"
                             try:
                                 entry["envio_anterior"] = _reconciliar_solicitacao_existente(
                                     issue_id, live, ledger
