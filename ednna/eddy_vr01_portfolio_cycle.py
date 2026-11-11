@@ -26,38 +26,19 @@ def _cnpj(issue: dict) -> str | None:
 
 
 def diagnosticar_identificacao_cliente(issue: dict) -> dict:
-    """Explain VR01 identity failures without exposing CNPJ or client names.
+    """Diagnose customer selection, not establishment CNPJs on the ticket.
 
-    Keep the existing fail-closed rule: exactly one Clientes (field id 1)
-    and exactly one explicit 14-digit CNPJ in a named custom field.
+    The authoritative legal identity is returned separately by the Blueprint
+    resolver. Operational ticket CNPJ fields can describe multiple branches.
     """
     clients = clientes_do_redmine(issue)
-    cnpjs = set()
-    invalid_cnpj = False
-    for field in issue.get("custom_fields") or []:
-        if not isinstance(field, dict) or "cnpj" not in str(field.get("name") or "").casefold():
-            continue
-        value = field.get("value")
-        for item in (value if isinstance(value, list) else [value]):
-            raw = str(item or "").strip()
-            if not raw:
-                continue
-            digits = re.sub(r"\D", "", raw)
-            if len(digits) == 14:
-                cnpjs.add(digits)
-            else:
-                invalid_cnpj = True
     reasons = []
     if not clients:
         reasons.append("CLIENTE_AUSENTE")
     elif len(clients) > 1:
         reasons.append("CLIENTE_AMBIGUO")
-    if not cnpjs:
-        reasons.append("CNPJ_INVALIDO" if invalid_cnpj else "CNPJ_AUSENTE")
-    elif len(cnpjs) > 1:
-        reasons.append("CNPJ_AMBIGUO")
     return {"motivos": reasons, "quantidade_clientes": len(clients),
-            "quantidade_cnpjs_validos": len(cnpjs)}
+            "fonte_cnpj_cliente": "BLUEPRINT"}
 
 
 def _recuperar_historico(issue_id: int, issue: dict) -> dict | None:
@@ -334,7 +315,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     live = _read_issue(issue_id)
                     if live.get("updated_on") != issue.get("updated_on"):
                         entry["estado"] = "SNAPSHOT_DESATUALIZADO"
-                    elif (len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or (resolver_identidade_cliente(live, cliente_override=cliente_mysql, allow_remote=False).get("cnpj") not in (None, cnpj)) or (_cnpj(live) is not None and _cnpj(live) != cnpj)):
+                    elif (len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or (resolver_identidade_cliente(live, cliente_override=cliente_mysql, allow_remote=False).get("cnpj") not in (None, cnpj))):
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
                         # Reconcile an existing Graph send before approving a new one.

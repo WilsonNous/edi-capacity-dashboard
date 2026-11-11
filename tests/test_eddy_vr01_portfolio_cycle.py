@@ -148,7 +148,7 @@ def test_cnpj_diagnostic_accepts_formatted_value():
         result = module.diagnosticar_identificacao_cliente({
             "custom_fields": [{"name": "CNPJ", "value": "12.345.678/0001-99"}]
         })
-    assert result["quantidade_cnpjs_validos"] == 1
+    assert result["fonte_cnpj_cliente"] == "BLUEPRINT"
     assert result["motivos"] == []
 
 
@@ -319,7 +319,7 @@ def test_identity_diagnostic_reports_missing_cnpj_without_exposing_client():
         diagnosis = module.diagnosticar_identificacao_cliente({
             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]
         })
-    assert diagnosis["motivos"] == ["CNPJ_AUSENTE"]
+    assert diagnosis["motivos"] == []
     assert diagnosis["quantidade_clientes"] == 1
 
 

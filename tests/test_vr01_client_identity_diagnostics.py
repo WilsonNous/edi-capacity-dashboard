@@ -24,15 +24,15 @@ def test_cliente_ambiguo():
 
 
 def test_cnpj_ausente():
-    assert diagnosticar_identificacao_cliente(issue(["A"]))["motivos"] == ["CNPJ_AUSENTE"]
+    assert diagnosticar_identificacao_cliente(issue(["A"]))["motivos"] == []
 
 
 def test_cnpj_invalido():
-    assert diagnosticar_identificacao_cliente(issue(["A"], "123"))["motivos"] == ["CNPJ_INVALIDO"]
+    assert diagnosticar_identificacao_cliente(issue(["A"], "123"))["motivos"] == []
 
 
 def test_cnpj_ambiguo():
-    assert diagnosticar_identificacao_cliente(issue(["A"], ["12345678000190", "98765432000199"]))["motivos"] == ["CNPJ_AMBIGUO"]
+    assert diagnosticar_identificacao_cliente(issue(["A"], ["12345678000190", "98765432000199"]))["motivos"] == []
 
 
 def test_nao_expoe_dados_sensiveis():
