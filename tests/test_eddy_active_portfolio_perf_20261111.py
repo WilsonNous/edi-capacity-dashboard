@@ -26,11 +26,25 @@ def test_inventory_excludes_completed_and_keeps_active():
     assert list(chosen) == ["ACTIVE"]
 
 
-def test_explicit_closed_vr_issue_never_creates_proposal():
+def test_closed_issue_is_blocked_before_intent_creation():
     closed = {"id": 1, "status": {"is_closed": True}, "subject": "VR"}
+    class Cursor:
+        rowcount = 0
+        def execute(self, *_): pass
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def cursor(self):
+            class Ctx:
+                def __enter__(self): return Cursor()
+                def __exit__(self, *_): pass
+            return Ctx()
     with patch.object(proposals, "carregar_snapshot", return_value={
         "chamado": {"payload_json": closed}, "journals": [],
-    }), patch.object(proposals, "criar_intencao") as create:
-        # Validate the closed guard independently of persistence.
-        assert (closed.get("status") or {}).get("is_closed") is True
-        create.assert_not_called()
+    }), patch.object(proposals, "criar_intencao") as create, \
+         patch.object(proposals, "connect", return_value=Conn()):
+        result = proposals.preparar_intencoes_locais(ids=[1])
+    assert result["bloqueados"] == [
+        {"chamado_id": 1, "motivo": "CHAMADO_CONCLUIDO_HISTORICO"}
+    ]
+    create.assert_not_called()
