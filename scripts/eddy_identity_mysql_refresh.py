@@ -30,7 +30,11 @@ def _inventario():
             issue = json.loads(payload) if isinstance(payload, str) else payload
             if not isinstance(issue, dict) or int(issue.get("id") or 0) != int(issue_id):
                 continue
-            if (issue.get("status") or {}).get("is_closed") or issue.get("closed_on"):
+            status = issue.get("status") or {}
+            status_name = str(status.get("name") or "").casefold()
+            if (status.get("is_closed") or issue.get("closed_on")
+                    or any(word in status_name for word in
+                           ("conclu", "fechad", "cancelad", "rejeitad"))):
                 continue
             chosen.setdefault(str(cliente).strip(), issue)
         except (TypeError, ValueError):
