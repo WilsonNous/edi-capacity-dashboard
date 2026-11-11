@@ -148,7 +148,7 @@ def test_cnpj_diagnostic_accepts_formatted_value():
         result = module.diagnosticar_identificacao_cliente({
             "custom_fields": [{"name": "CNPJ", "value": "12.345.678/0001-99"}]
         })
-    assert result["quantidade_cnpjs_validos"] == 1
+    assert result["fonte_cnpj_cliente"] == "BLUEPRINT"
     assert result["motivos"] == []
 
 
