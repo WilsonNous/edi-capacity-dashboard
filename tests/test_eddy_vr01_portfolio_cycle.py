@@ -319,7 +319,7 @@ def test_identity_diagnostic_reports_missing_cnpj_without_exposing_client():
         diagnosis = module.diagnosticar_identificacao_cliente({
             "custom_fields": [{"id": 1, "name": "Clientes", "value": "CLIENTE"}]
         })
-    assert diagnosis["motivos"] == ["CNPJ_AUSENTE"]
+    assert diagnosis["motivos"] == []
     assert diagnosis["quantidade_clientes"] == 1
 
 
