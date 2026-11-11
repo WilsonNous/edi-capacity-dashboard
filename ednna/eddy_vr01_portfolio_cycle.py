@@ -191,40 +191,9 @@ def _reservar_consulta_identidade(issue_id: int) -> bool:
 
 
 def _recuperar_contatos_bp_pendentes(issue_id: int, cliente: str) -> dict:
-    """Import a verified Blueprint for one waiting issue, at most every 30 min.
-
-    Discovery and import never send email or modify Redmine. The normal
-    executor must still verify recipients and all external prerequisites.
-    """
-    from ednna.mysql_storage import connect
-    from ednna.mysql_blueprint_participants import (
-        selecionar_contatos_cliente_mysql, descobrir_e_sincronizar_participantes_mysql,
-    )
-    if selecionar_contatos_cliente_mysql(cliente, limite=1):
-        return {"estado": "CONTATOS_BP_JA_DISPONIVEIS"}
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""CREATE TABLE IF NOT EXISTS eddy_vr01_bp_contact_probe (
-                chamado_id BIGINT NOT NULL PRIMARY KEY,
-                ultima_tentativa DATETIME NOT NULL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
-            cur.execute("""INSERT IGNORE INTO eddy_vr01_bp_contact_probe
-                (chamado_id, ultima_tentativa) VALUES (%s, UTC_TIMESTAMP())""", (issue_id,))
-            reserved = cur.rowcount == 1
-            if not reserved:
-                cur.execute("""UPDATE eddy_vr01_bp_contact_probe
-                    SET ultima_tentativa=UTC_TIMESTAMP()
-                    WHERE chamado_id=%s AND ultima_tentativa <=
-                    DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 MINUTE)""", (issue_id,))
-                reserved = cur.rowcount == 1
-    if not reserved:
-        return {"estado": "AGUARDA_RECONSULTA_BP"}
-    result = descobrir_e_sincronizar_participantes_mysql(
-        {issue_id: cliente}, aplicar=True, skip_imported=True,
-    )
-    contacts = selecionar_contatos_cliente_mysql(cliente, limite=1)
-    return {"estado": "CONTATOS_BP_RECUPERADOS" if contacts else "CONTATOS_BP_PENDENTES",
-            "fontes_descobertas": result.get("fontes_descobertas", 0)}
+    """Delegate recovery to the shared Blueprint engine."""
+    from ednna.mysql_blueprint_participants import recuperar_contatos_blueprint
+    return recuperar_contatos_blueprint(issue_id, cliente)
 
 
 def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) -> dict:
