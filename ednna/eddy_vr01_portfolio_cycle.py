@@ -328,7 +328,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                     live = _read_issue(issue_id)
                     if live.get("updated_on") != issue.get("updated_on"):
                         entry["estado"] = "SNAPSHOT_DESATUALIZADO"
-                    elif len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or resolver_identidade_cliente(live, cliente_override=cliente_mysql).get("cnpj") != cnpj:
+                    elif (len(clientes_do_redmine(live)) != 1 or clientes_do_redmine(live)[0] != clients[0] or (resolver_identidade_cliente(live, cliente_override=cliente_mysql, allow_remote=False).get("cnpj") not in (None, cnpj)) or (_cnpj(live) is not None and _cnpj(live) != cnpj)):
                         entry["estado"] = "DADOS_CLIENTE_DIVERGENTES"
                     else:
                         # Reconcile an existing Graph send before approving a new one.
