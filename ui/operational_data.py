@@ -159,10 +159,7 @@ def chamados_ativos_df():
 
     # Contingência somente para não derrubar a interface durante uma carga inicial.
     # O rótulo permite distinguir que não é a fonte oficial da carteira ativa.
-    df=chamados_df()
-    if not df.empty:
-        df=df.copy(); df['_fonte_operacional']='ednna.db/fallback'
-    return df
+    return pd.DataFrame()  # Never recurse into chamados_df() in MySQL mode.
 
 @st.cache_data(ttl=20, show_spinner=False)
 def regras_df():
