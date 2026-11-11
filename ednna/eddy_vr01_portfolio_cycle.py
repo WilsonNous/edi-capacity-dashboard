@@ -25,39 +25,28 @@ def _cnpj(issue: dict) -> str | None:
     return next(iter(candidates)) if len(candidates) == 1 else None
 
 
-def diagnosticar_identificacao_cliente(issue: dict) -> dict:
-    """Explain VR01 identity failures without exposing CNPJ or client names.
+def diagnosticar_identificacao_cliente(issue: dict, identidade: dict | None = None) -> dict:
+    """Diagnose customer identity exclusively from verified Blueprint evidence.
 
-    Keep the existing fail-closed rule: exactly one Clientes (field id 1)
-    and exactly one explicit 14-digit CNPJ in a named custom field.
+    CNPJs mentioned in operational issues identify establishments, not the
+    NETUNNA customer. Never use those values to resolve customer identity.
     """
     clients = clientes_do_redmine(issue)
-    cnpjs = set()
-    invalid_cnpj = False
-    for field in issue.get("custom_fields") or []:
-        if not isinstance(field, dict) or "cnpj" not in str(field.get("name") or "").casefold():
-            continue
-        value = field.get("value")
-        for item in (value if isinstance(value, list) else [value]):
-            raw = str(item or "").strip()
-            if not raw:
-                continue
-            digits = re.sub(r"\D", "", raw)
-            if len(digits) == 14:
-                cnpjs.add(digits)
-            else:
-                invalid_cnpj = True
     reasons = []
     if not clients:
         reasons.append("CLIENTE_AUSENTE")
     elif len(clients) > 1:
         reasons.append("CLIENTE_AMBIGUO")
-    if not cnpjs:
-        reasons.append("CNPJ_INVALIDO" if invalid_cnpj else "CNPJ_AUSENTE")
-    elif len(cnpjs) > 1:
-        reasons.append("CNPJ_AMBIGUO")
-    return {"motivos": reasons, "quantidade_clientes": len(clients),
-            "quantidade_cnpjs_validos": len(cnpjs)}
+    identity_state = str((identidade or {}).get("estado") or "IDENTIDADE_BP_NAO_CONSULTADA")
+    if identity_state != "RESOLVIDO":
+        reasons.append(identity_state)
+    return {
+        "motivos": reasons,
+        "quantidade_clientes": len(clients),
+        "origem_identidade": "BLUEPRINT",
+        "estado_identidade_bp": identity_state,
+        "cnpj_estabelecimento_nao_utilizado": True,
+    }
 
 
 def _recuperar_historico(issue_id: int, issue: dict) -> dict | None:
@@ -276,7 +265,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
                 continue
             if len(clients) != 1 or not cnpj:
                 entry["estado"] = "IDENTIFICACAO_CLIENTE_PENDENTE"
-                entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"], **diagnosticar_identificacao_cliente(issue)}
+                entry["diagnostico_identificacao"] = {"origem": "BLUEPRINT", "estado": identidade["estado"], **diagnosticar_identificacao_cliente(issue, identidade)}
                 outcomes.append(entry)
                 continue
             # Operational routing is a suggestion, never a substitute for a
