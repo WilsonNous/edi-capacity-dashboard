@@ -70,6 +70,9 @@ def preparar_intencoes_locais(ids=None) -> dict:
         if not isinstance(payload, dict) or payload.get("id") != issue_id:
             blocked.append({"chamado_id": issue_id, "motivo": "SNAPSHOT_INVALIDO"})
             continue
+        if (payload.get("status") or {}).get("is_closed") or payload.get("closed_on"):
+            blocked.append({"chamado_id": issue_id, "motivo": "CHAMADO_CONCLUIDO_HISTORICO"})
+            continue
         journals = [
             {"notes": row.get("notas") or "", "created_on": row.get("criado_em")}
             for row in stored.get("journals", [])
