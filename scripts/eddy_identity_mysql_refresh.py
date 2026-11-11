@@ -30,6 +30,8 @@ def _inventario():
             issue = json.loads(payload) if isinstance(payload, str) else payload
             if not isinstance(issue, dict) or int(issue.get("id") or 0) != int(issue_id):
                 continue
+            if (issue.get("status") or {}).get("is_closed") or issue.get("closed_on"):
+                continue
             chosen.setdefault(str(cliente).strip(), issue)
         except (TypeError, ValueError):
             continue
@@ -38,7 +40,11 @@ def _inventario():
 
 def _lote(chosen, limite):
     """Durable cursor: failure in one cycle cannot starve the other clients."""
-    names = sorted(chosen)
+    # Prioritize active VR, then rotate fairly across the entire inventory.
+    from ednna.eddy_vr_origin import identificar_vr
+    names = sorted(chosen, key=lambda name: (
+        0 if identificar_vr(chosen[name]) else 1, name
+    ))
     if not names:
         return []
     with connect() as conn:
@@ -48,7 +54,7 @@ def _lote(chosen, limite):
                         ("GLOBAL_BP",))
             row = cur.fetchone()
             last = str(row[0]) if row else ""
-            start = next((i for i, name in enumerate(names) if name > last), 0)
+            start = (names.index(last) + 1) % len(names) if last in names else 0
             batch = [names[(start + i) % len(names)]
                      for i in range(min(len(names), max(1, min(int(limite), 100))))]
     return [(name, chosen[name]) for name in batch]
