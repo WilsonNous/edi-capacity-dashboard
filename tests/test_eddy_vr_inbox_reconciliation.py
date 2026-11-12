@@ -12,7 +12,7 @@ class TestInboxReconciliation(unittest.TestCase):
         with patch.dict(os.environ, {"EDNNA_EMAIL_FROM": "edi@netunna.com.br"}):
             with patch("ednna.eddy_vr_inbox_reconciliation.connect") as db:
                 result = reconciliar_respostas_vr01([49227], buscar=lambda **kwargs: 1/0)
-                self.assertEqual(result["estado"], "PARCIAL_COM_GRAVACAO")
+                self.assertEqual(result["estado"], "PARCIAL_SEM_GRAVACAO")
                 self.assertEqual(result["erros"][0]["chamado_id"], 49227)
                 db.assert_not_called()
 
