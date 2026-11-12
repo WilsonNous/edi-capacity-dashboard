@@ -553,7 +553,12 @@ def main() -> None:
         ),
     )
 
+    # Fixed-rate scheduling: cycle duration counts toward the interval.
+    # The previous sleep-after-completion added multi-minute Graph scans to
+    # every 300-second interval, effectively halving throughput.
+    proximo_inicio = time.monotonic()
     while True:
+        inicio = time.monotonic()
         try:
             resultado = executar_uma_vez()
             _publicar_observabilidade(estado=str((resultado or {}).get('estado', 'CICLO_CONCLUIDO')))
@@ -565,13 +570,16 @@ def main() -> None:
                 type(exc).__name__,
             )
 
+        # Never overlap cycles; if a run exceeded the interval, restart
+        # immediately instead of adding another full idle interval.
+        proximo_inicio = max(proximo_inicio + interval, inicio + interval)
+        espera = max(0.0, proximo_inicio - time.monotonic())
         LOG.info(
             "[EDDY-VR01-SCHEDULER] "
-            "heartbeat ativo=true proximo_ciclo_em_s=%s",
-            interval,
+            "heartbeat ativo=true duracao_ciclo_s=%.1f proximo_ciclo_em_s=%.1f",
+            time.monotonic() - inicio, espera,
         )
-
-        time.sleep(interval)
+        time.sleep(espera)
 
 
 if __name__ == "__main__":
