@@ -526,6 +526,12 @@ def _publicar_observabilidade(*, estado: str, erro: str | None = None) -> None:
     except Exception as exc:
         LOG.warning('[EDDY-VR01-OBS] indisponivel: %s', type(exc).__name__)
 
+def calcular_proximo_ciclo(proximo_inicio: float, inicio: float, agora: float, intervalo: int) -> tuple[float, float]:
+    """Keep a fixed-rate cadence without overlapping an unfinished cycle."""
+    proximo = max(proximo_inicio + intervalo, inicio + intervalo)
+    return proximo, max(0.0, proximo - agora)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -572,8 +578,9 @@ def main() -> None:
 
         # Never overlap cycles; if a run exceeded the interval, restart
         # immediately instead of adding another full idle interval.
-        proximo_inicio = max(proximo_inicio + interval, inicio + interval)
-        espera = max(0.0, proximo_inicio - time.monotonic())
+        proximo_inicio, espera = calcular_proximo_ciclo(
+            proximo_inicio, inicio, time.monotonic(), interval
+        )
         LOG.info(
             "[EDDY-VR01-SCHEDULER] "
             "heartbeat ativo=true duracao_ciclo_s=%.1f proximo_ciclo_em_s=%.1f",
