@@ -1,10 +1,20 @@
 import unittest
 from unittest.mock import patch
 
-from scripts.eddy_vr01_mysql_scheduler import intervalo_segundos, executar_uma_vez
+from scripts.eddy_vr01_mysql_scheduler import intervalo_segundos, executar_uma_vez, calcular_proximo_ciclo
 
 
 class VR01SchedulerTests(unittest.TestCase):
+    def test_cycle_duration_does_not_add_another_full_interval(self):
+        proximo, espera = calcular_proximo_ciclo(100.0, 100.0, 520.0, 300)
+        self.assertEqual(proximo, 400.0)
+        self.assertEqual(espera, 0.0)
+
+    def test_short_cycle_waits_only_remaining_interval(self):
+        proximo, espera = calcular_proximo_ciclo(100.0, 100.0, 220.0, 300)
+        self.assertEqual(proximo, 400.0)
+        self.assertEqual(espera, 180.0)
+
     def test_interval_defaults_to_fifteen_minutes(self):
         self.assertEqual(intervalo_segundos(None), 900)
 
