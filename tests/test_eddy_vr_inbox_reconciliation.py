@@ -12,8 +12,27 @@ class TestInboxReconciliation(unittest.TestCase):
         with patch.dict(os.environ, {"EDNNA_EMAIL_FROM": "edi@netunna.com.br"}):
             with patch("ednna.eddy_vr_inbox_reconciliation.connect") as db:
                 result = reconciliar_respostas_vr01([49227], buscar=lambda **kwargs: 1/0)
-                self.assertEqual(result["estado"], "PARCIAL_SEM_GRAVACAO")
+                self.assertEqual(result["estado"], "PARCIAL_COM_GRAVACAO")
+                self.assertEqual(result["erros"][0]["chamado_id"], 49227)
                 db.assert_not_called()
+
+    def test_partial_failure_preserves_successful_reply(self):
+        cursor = MagicMock()
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cursor
+        cm = MagicMock()
+        cm.__enter__.return_value = conn
+        def lookup(**kwargs):
+            if kwargs["chamado_id"] == 50428:
+                raise TimeoutError("graph timeout")
+            return {"internetMessageId": "<reply@sample>",
+                    "receivedDateTime": "2026-11-12T10:00:00Z"}
+        with patch.dict(os.environ, {"EDNNA_EMAIL_FROM": "edi@netunna.com.br"}):
+            with patch("ednna.eddy_vr_inbox_reconciliation.connect", return_value=cm):
+                result = reconciliar_respostas_vr01([47851, 50428], buscar=lookup)
+        self.assertEqual(result["estado"], "PARCIAL_COM_GRAVACAO")
+        self.assertEqual(result["respostas"], 1)
+        self.assertEqual(cursor.execute.call_count, 2)
 
     def test_reply_quarantines_pending_intent(self):
         cursor = MagicMock()
