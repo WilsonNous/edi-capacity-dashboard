@@ -12,6 +12,8 @@ def test_cache_hit_never_queries_redmine():
     value = {"estado": "RESOLVIDO", "cliente": "CLIENTE TESTE",
              "cnpj": "12345678000190", "origem": "MYSQL"}
     with patch("ednna.eddy_client_identity_store.consultar", return_value=value), \
+         patch("ednna.eddy_blueprint_mysql_evidence.identidade_de_bp_mysql", return_value=value), \
+         patch("ednna.eddy_client_identity_store.registrar"), \
          patch("ednna.mysql_blueprint_participants._descobrir_fontes_redmine",
                side_effect=AssertionError("Redmine must not be consulted")):
         assert resolver_identidade_cliente(ISSUE) == value

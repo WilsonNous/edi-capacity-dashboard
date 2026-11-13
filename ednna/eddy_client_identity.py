@@ -71,8 +71,9 @@ def resolver_identidade_cliente(issue, *, buscar=None, baixar=None, allow_remote
     except Exception as exc:
         return {"estado": "IDENTIDADE_MYSQL_INDISPONIVEL", "cnpj": None,
                 "erro": type(exc).__name__}
-    if cached is not None and cached.get("estado") == "RESOLVIDO" and not refresh_mysql:
-        return cached
+    # A fresh cache is an optimization, not authoritative evidence that the
+    # Blueprint has remained unchanged. Always check synchronized MySQL BP
+    # evidence before allowing a resolved identity to drive an action.
     # The global worker explicitly refreshes MySQL evidence; normal calls keep
     # the cache fast path and never unexpectedly require another DB lookup.
     # Re-evaluate fresh MySQL Blueprint evidence before accepting cached CNPJ.
