@@ -28,9 +28,10 @@ def reconciliar_respostas_vr01(chamado_ids: list[int], *, buscar=None) -> dict:
             observed.append((cid, mid[:191], digest))
         except Exception as exc:
             errors.append({"chamado_id": cid, "erro": type(exc).__name__})
-    if errors:
-        return {"estado": "PARCIAL_SEM_GRAVACAO", "consultados": len(ids),
-                "respostas": 0, "erros": errors}
+    if not observed:
+        return {"estado": "PARCIAL_SEM_GRAVACAO" if errors else "RESPOSTAS_RECONCILIADAS",
+                "consultados": len(ids), "respostas": 0, "erros": errors,
+                "envios_realizados": 0, "redmine_escritas": 0}
     with connect() as conn:
         with conn.cursor() as cursor:
             for cid, mid, digest in observed:
@@ -49,5 +50,5 @@ def reconciliar_respostas_vr01(chamado_ids: list[int], *, buscar=None) -> dict:
                     "WHERE chamado_id=%s AND situacao='PENDENTE'",
                     (cid,),
                 )
-    return {"estado": "RESPOSTAS_RECONCILIADAS", "consultados": len(ids),
-            "respostas": len(observed), "envios_realizados": 0, "redmine_escritas": 0}
+    return {"estado": "PARCIAL_COM_GRAVACAO" if errors else "RESPOSTAS_RECONCILIADAS", "consultados": len(ids),
+            "respostas": len(observed), "erros": errors, "envios_realizados": 0, "redmine_escritas": 0}
