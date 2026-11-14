@@ -11,6 +11,34 @@ from ednna.eddy_vr_mysql_sync import clientes_do_redmine
 from ednna.eddy_vr_origin import identificar_vr
 
 
+def _codigo_falha_vr01(exc: Exception, etapa: str) -> str:
+    """Stable allowlisted failure codes; never expose remote exception payloads."""
+    if etapa == "PREFLIGHT_REDMINE":
+        return "REDMINE_PREFLIGHT_INDISPONIVEL"
+    if etapa != "EXECUTOR_VR01":
+        return "ETAPA_" + (etapa if etapa in {
+            "CARREGAR_SNAPSHOT", "RESOLVER_IDENTIDADE_CLIENTE",
+            "CARREGAR_LEDGER", "RECONCILIAR_INBOX",
+        } else "NAO_CLASSIFICADA")
+    if not isinstance(exc, RuntimeError):
+        return "EXECUTOR_ERRO_" + type(exc).__name__ if type(exc).__name__ in {
+            "ValueError", "KeyError", "TypeError", "PermissionError"
+        } else "EXECUTOR_ERRO_NAO_CLASSIFICADO"
+    # Match only literals raised by our own executor, not arbitrary substrings
+    # from Redmine, Graph or a downstream library.
+    known = {
+        "Redmine preflight bloqueado": "REDMINE_PREFLIGHT_BLOQUEADO",
+        "Preflight Redmine sem identidade ou versao confirmada": "PREFLIGHT_VERSAO_INVALIDA",
+        "Responsavel original divergente: nao assumir": "RESPONSAVEL_ORIGINAL_DIVERGENTE",
+        "Assuncao Redmine nao confirmada": "ASSUNCAO_NAO_CONFIRMADA",
+        "Transicao nao reconciliada": "TRANSICAO_MYSQL_NAO_RECONCILIADA",
+        "Blueprint sem destinatario com origem comprovada": "BP_SEM_DESTINATARIO",
+        "BP nao validado": "BP_NAO_VALIDADO",
+        "Remetente EDDY nao configurado": "REMETENTE_NAO_CONFIGURADO",
+    }
+    return known.get(str(exc), "EXECUTOR_RUNTIME_NAO_CLASSIFICADO")
+
+
 def _cnpj(issue: dict) -> str | None:
     """Accept only an explicit single CNPJ from the Redmine issue."""
     candidates = set()
@@ -397,6 +425,7 @@ def executar_carteira_vr01(*, ids=None, execute=False, approvals_by_issue=None) 
             entry["estado"] = "FALHA_SEGURA"
             entry["erro"] = type(exc).__name__
             entry["etapa_falha"] = etapa
+            entry["codigo_falha"] = _codigo_falha_vr01(exc, etapa)
             # Keep logs actionable without leaking credentials, client data or raw URLs.
             # Fingerprints group recurring failures without persisting exception messages.
             origin = type(exc).__module__ + "." + type(exc).__qualname__
